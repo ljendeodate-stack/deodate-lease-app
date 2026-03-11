@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Scrollable table bodies */
+.table-scroll-body {
+  max-height: 600px;
+  overflow-y: auto;
+}
