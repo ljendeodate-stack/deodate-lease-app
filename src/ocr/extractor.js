@@ -1,5 +1,5 @@
 /**
- * @fileoverview Anthropic API OCR extractor for lease PDF documents.
+ * @fileoverview OCR extractor for lease PDF documents.
  *
  * This is the ONLY file permitted to read import.meta.env.VITE_ANTHROPIC_API_KEY.
  * Access from any other file is a security boundary violation.
@@ -12,8 +12,13 @@
  * must gate processing on explicit user confirmation of all extracted fields.
  */
 
+const OCR_PROVIDER = (import.meta.env.VITE_OCR_PROVIDER || 'anthropic').toLowerCase();
+
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const MODEL = 'claude-opus-4-6';
+const ANTHROPIC_MODEL = 'claude-opus-4-6';
+
+const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
+const OPENAI_MODEL = import.meta.env.VITE_OPENAI_OCR_MODEL || 'gpt-4o';
 
 /**
  * @typedef {Object} NNNChargeExtraction
@@ -116,7 +121,7 @@ function bufferToBase64(buffer) {
 }
 
 /**
- * Extract lease parameters from a PDF using the Anthropic API.
+ * Extract lease parameters from a PDF using the configured OCR provider.
  * Implements Path A (Section 1) of the application spec.
  *
  * @param {ArrayBuffer} pdfBuffer    - Raw PDF bytes from the browser File API.
@@ -124,16 +129,79 @@ function bufferToBase64(buffer) {
  * @throws {Error} On network failure or non-200 API response.
  */
 export async function extractFromPDF(pdfBuffer) {
+  const scanned = likelyScanned(pdfBuffer);
+  const base64PDF = bufferToBase64(pdfBuffer);
+  const { rawText, providerUsed, fallbackReason } = await extractOCRText(base64PDF);
+
+  let result;
+  try {
+    // Strip any accidental markdown fences
+    const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+    result = JSON.parse(cleaned);
+  } catch {
+    throw new Error(
+      `OCR provider returned a response that could not be parsed as JSON.\n\nRaw response:\n${rawText}`
+    );
+  }
+
+  // Ensure required arrays/objects exist
+  result.confidenceFlags = result.confidenceFlags ?? [];
+  result.notices = result.notices ?? [];
+  result.rentSchedule = result.rentSchedule ?? [];
+
+  if (fallbackReason) {
+    result.notices.unshift(`OCR fallback used: ${providerUsed}. ${fallbackReason}`);
+  }
+
+  // Determine overall confidence
+  const flagCount = result.confidenceFlags.length;
+  result.overallConfidence = flagCount === 0 ? 'high' : flagCount <= 3 ? 'medium' : 'low';
+
+  if (scanned) {
+    result.notices.unshift(
+      'This PDF appears to be scanned or image-based. Extraction reliability is reduced. ' +
+      'Review all fields carefully before confirming.'
+    );
+    result.overallConfidence = 'low';
+  }
+
+  return { result, isLikelyScanned: scanned };
+}
+
+async function extractOCRText(base64PDF) {
+  if (OCR_PROVIDER === 'openai') {
+    return { rawText: await extractFromOpenAI(base64PDF), providerUsed: 'openai', fallbackReason: null };
+  }
+
+  try {
+    return { rawText: await extractFromAnthropic(base64PDF), providerUsed: 'anthropic', fallbackReason: null };
+  } catch (anthropicError) {
+    if (!hasConfiguredOpenAIKey()) {
+      throw anthropicError;
+    }
+
+    try {
+      return {
+        rawText: await extractFromOpenAI(base64PDF),
+        providerUsed: 'openai',
+        fallbackReason: 'Anthropic failed, so the app switched providers automatically.',
+      };
+    } catch (openaiError) {
+      throw new Error(
+        `Anthropic failed and OpenAI fallback also failed.\n\nAnthropic: ${anthropicError.message}\n\nOpenAI: ${openaiError.message}`
+      );
+    }
+  }
+}
+
+async function extractFromAnthropic(base64PDF) {
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === 'your_api_key_here') {
     throw new Error('VITE_ANTHROPIC_API_KEY is not configured. Set it in the .env file.');
   }
 
-  const scanned = likelyScanned(pdfBuffer);
-  const base64PDF = bufferToBase64(pdfBuffer);
-
   const requestBody = {
-    model: MODEL,
+    model: ANTHROPIC_MODEL,
     max_tokens: 4096,
     messages: [
       {
@@ -173,35 +241,74 @@ export async function extractFromPDF(pdfBuffer) {
   }
 
   const data = await response.json();
-  const rawText = data.content?.[0]?.text ?? '';
+  return data.content?.[0]?.text ?? '';
+}
 
-  let result;
-  try {
-    // Strip any accidental markdown fences
-    const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-    result = JSON.parse(cleaned);
-  } catch {
-    throw new Error(
-      `Anthropic returned a response that could not be parsed as JSON.\n\nRaw response:\n${rawText}`
-    );
+async function extractFromOpenAI(base64PDF) {
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  if (!apiKey || apiKey === 'your_api_key_here') {
+    throw new Error('VITE_OPENAI_API_KEY is not configured. Set it in the .env file.');
   }
 
-  // Ensure required arrays/objects exist
-  result.confidenceFlags = result.confidenceFlags ?? [];
-  result.notices = result.notices ?? [];
-  result.rentSchedule = result.rentSchedule ?? [];
+  const requestBody = {
+    model: OPENAI_MODEL,
+    input: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_file',
+            filename: 'lease.pdf',
+            file_data: base64PDF,
+          },
+          {
+            type: 'input_text',
+            text: EXTRACTION_PROMPT,
+          },
+        ],
+      },
+    ],
+  };
 
-  // Determine overall confidence
-  const flagCount = result.confidenceFlags.length;
-  result.overallConfidence = flagCount === 0 ? 'high' : flagCount <= 3 ? 'medium' : 'low';
+  const response = await fetch(OPENAI_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
+  });
 
-  if (scanned) {
-    result.notices.unshift(
-      'This PDF appears to be scanned or image-based. Extraction reliability is reduced. ' +
-      'Review all fields carefully before confirming.'
-    );
-    result.overallConfidence = 'low';
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI API error ${response.status}: ${errorText}`);
   }
 
-  return { result, isLikelyScanned: scanned };
+  const data = await response.json();
+  return extractOutputText(data);
+}
+
+function extractOutputText(data) {
+  if (!data || typeof data !== 'object') return '';
+
+  if (typeof data.output_text === 'string') return data.output_text;
+
+  const outputs = Array.isArray(data.output) ? data.output : [];
+  const chunks = [];
+
+  for (const item of outputs) {
+    if (item?.type !== 'message' || !Array.isArray(item.content)) continue;
+    for (const part of item.content) {
+      if (part?.type === 'output_text' && typeof part.text === 'string') {
+        chunks.push(part.text);
+      }
+    }
+  }
+
+  return chunks.join('');
+}
+
+function hasConfiguredOpenAIKey() {
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  return Boolean(apiKey && apiKey !== 'your_api_key_here');
 }
