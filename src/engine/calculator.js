@@ -215,6 +215,7 @@ export function calculateAllCharges(expandedRows, params) {
     taxes,
     security,
     otherItems,
+    oneTimeItems = [],
   } = params;
 
   // Flaw 4 fix: convention explicitly enforced — 100 = full abatement (tenant pays 0).
@@ -233,6 +234,47 @@ export function calculateAllCharges(expandedRows, params) {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const totalRows = rows.length;
+
+  // Pre-assign one-time items to row indices.
+  // Items with no date go to row 0 (lease commencement).
+  // Items before lease start → row 0; after lease end → last row.
+  const oneTimeByRow = new Array(totalRows).fill(0);
+  for (const item of oneTimeItems) {
+    const amount = Number(item.amount) || 0;
+    if (!amount) continue;
+
+    if (!item.date) {
+      oneTimeByRow[0] += amount;
+      continue;
+    }
+
+    let assigned = false;
+    for (let i = 0; i < totalRows; i++) {
+      const rowStart = parseISODate(rows[i].date);
+      let rowEnd = null;
+      if (i < totalRows - 1) {
+        const nextStart = parseISODate(rows[i + 1].date);
+        if (nextStart) rowEnd = new Date(nextStart.getTime() - 86400000);
+      } else {
+        rowEnd = rows[i].periodEnd ? parseISODate(rows[i].periodEnd) : null;
+        if (!rowEnd && rowStart) {
+          rowEnd = new Date(addMonthsAnchored(rowStart, 1).getTime() - 86400000);
+        }
+      }
+      if (rowStart && rowEnd &&
+          item.date.getTime() >= rowStart.getTime() &&
+          item.date.getTime() <= rowEnd.getTime()) {
+        oneTimeByRow[i] += amount;
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) {
+      // Before lease start or unmatched → first row; after end → last row
+      const leaseStart = parseISODate(rows[0].date);
+      oneTimeByRow[leaseStart && item.date < leaseStart ? 0 : totalRows - 1] += amount;
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Pass 1: forward — compute all per-row values
@@ -359,7 +401,9 @@ export function calculateAllCharges(expandedRows, params) {
     const totalNNN =
       camsAmount + insuranceAmount + taxesAmount + securityAmount + otherItemsAmount;
 
-    const totalMonthlyObligation = Number((Number(baseRentApplied.toFixed(2)) + totalNNN).toFixed(2));
+    const oneTimeChargesAmount = Number((oneTimeByRow[i] || 0).toFixed(2));
+
+    const totalMonthlyObligation = Number((Number(baseRentApplied.toFixed(2)) + totalNNN + oneTimeChargesAmount).toFixed(2));
 
     const effectivePerSF =
       squareFootage > 0 ? Number((totalMonthlyObligation / squareFootage).toFixed(6)) : null;
@@ -416,6 +460,9 @@ export function calculateAllCharges(expandedRows, params) {
       otherItemsEscPct:   Number(otherItems.escPct) || 0,
       otherItemsEscYears,
       otherItemsActive,
+
+      // One-time charges
+      oneTimeChargesAmount,
 
       // Totals
       totalMonthlyObligation,

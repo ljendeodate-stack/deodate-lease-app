@@ -127,6 +127,7 @@ export function emptyFormState() {
     taxes: emptyNNN(),
     security: emptyNNN(),
     otherItems: emptyNNN(),
+    oneTimeItems: [],
   };
 }
 
@@ -285,6 +286,75 @@ export default function InputForm({
             fieldErrors={fieldErrors}
           />
         ))}
+
+        {/* One-time items */}
+        <div className="rounded-lg border border-gray-200 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="font-semibold text-gray-800 text-sm">One-time Charges (optional)</h4>
+            <button
+              type="button"
+              onClick={() => setForm((prev) => ({
+                ...prev,
+                oneTimeItems: [...(prev.oneTimeItems ?? []), { label: '', date: '', amount: '' }],
+              }))}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              + Add item
+            </button>
+          </div>
+          {(form.oneTimeItems ?? []).length === 0 && (
+            <p className="text-xs text-gray-400">No one-time charges. Click "+ Add item" to add key money, deposits, etc.</p>
+          )}
+          {(form.oneTimeItems ?? []).map((item, idx) => (
+            <div key={idx} className="grid grid-cols-3 gap-2 items-end">
+              <FieldRow label="Label">
+                <TextInput
+                  value={item.label}
+                  onChange={(v) => setForm((prev) => {
+                    const items = [...prev.oneTimeItems];
+                    items[idx] = { ...items[idx], label: v };
+                    return { ...prev, oneTimeItems: items };
+                  })}
+                  placeholder="e.g. Key Money"
+                />
+              </FieldRow>
+              <FieldRow label="Date" hint="Leave blank to assign to lease commencement.">
+                <TextInput
+                  value={item.date}
+                  onChange={(v) => setForm((prev) => {
+                    const items = [...prev.oneTimeItems];
+                    items[idx] = { ...items[idx], date: v };
+                    return { ...prev, oneTimeItems: items };
+                  })}
+                  placeholder="MM/DD/YYYY (optional)"
+                />
+              </FieldRow>
+              <FieldRow label="Amount ($)">
+                <div className="flex gap-1">
+                  <TextInput
+                    type="number"
+                    value={item.amount}
+                    onChange={(v) => setForm((prev) => {
+                      const items = [...prev.oneTimeItems];
+                      items[idx] = { ...items[idx], amount: v };
+                      return { ...prev, oneTimeItems: items };
+                    })}
+                    placeholder="e.g. 5000"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setForm((prev) => ({
+                      ...prev,
+                      oneTimeItems: prev.oneTimeItems.filter((_, i) => i !== idx),
+                    }))}
+                    className="text-xs text-red-500 hover:text-red-700 px-2"
+                    title="Remove"
+                  >✕</button>
+                </div>
+              </FieldRow>
+            </div>
+          ))}
+        </div>
 
         {/* Submit */}
         <div className="flex items-center gap-4 pt-2">

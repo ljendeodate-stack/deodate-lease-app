@@ -43,6 +43,13 @@ function formToCalculatorParams(form) {
     squareFootage: Number(form.squareFootage) || 0,
     abatementEndDate: parseMDYStrict(form.abatementEndDate),
     abatementPct: Number(form.abatementPct) || 0,
+    oneTimeItems: (form.oneTimeItems ?? [])
+      .map((item) => ({
+        label:  item.label ?? '',
+        date:   parseMDYStrict(item.date),   // null when blank → assigned to first row
+        amount: Number(item.amount) || 0,
+      }))
+      .filter((item) => item.amount > 0),
     cams: {
       year1: Number(form.cams?.year1) || 0,
       escPct: Number(form.cams?.escPct) || 0,
