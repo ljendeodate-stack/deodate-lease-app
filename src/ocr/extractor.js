@@ -63,6 +63,13 @@ RULES:
 6. Do not guess. If a value is ambiguous, return null and flag it.
 7. Return ONLY the JSON object — no markdown, no prose.
 9. abatementEndDate must be the LAST day of the abatement period (inclusive). E.g. "abatement through June 30" or "until June 30" → "06/30/YYYY". Do NOT return the first day of full rent.
+10. ONE-TIME / NON-RECURRING ITEMS:
+   a. Extract all one-time or non-recurring charges and credits, including but not limited to: security deposits, tenant improvement allowances (TIA), move-in allowances, landlord work contributions, lease commissions, parking deposits, HVAC or mechanical change-orders, and any other one-time charges or credits.
+   b. For each item, return: a short label, the dollar amount (always positive), the due date (MM/DD/YYYY), and the sign (+1 for tenant obligation payable to landlord, -1 for landlord credit/payment to tenant).
+   c. If a due date is not specified, return null for the date field (the app will assign it to lease commencement).
+   d. Do NOT include recurring charges (rent, CAM, insurance, taxes) in this array.
+   e. Security deposits go here as one-time items, NOT in the "security" NNN charge field.
+   f. Rent abatement amounts should NOT be listed here — abatement is handled by the abatementEndDate and abatementPct fields.
 8. NNN CHARGE FIELDS — STRICT RULES (cams, insurance, taxes, security, otherItems):
    a. Only populate year1 with a non-null value if the lease document explicitly states a SEPARATE, RECURRING line-item charge for that specific category. The category name or an unambiguous synonym must appear in the document alongside a dollar amount.
    b. Base rent values from the rent schedule must NEVER be placed in any NNN charge field. Rent schedule values belong only in the rentSchedule array.
@@ -85,6 +92,9 @@ JSON SCHEMA:
   "taxes":      { "year1": number | null, "escPct": number | null, "chargeStart": "MM/DD/YYYY" | null, "escStart": "MM/DD/YYYY" | null },
   "security":   { "year1": number | null, "escPct": number | null, "chargeStart": "MM/DD/YYYY" | null, "escStart": "MM/DD/YYYY" | null },
   "otherItems": { "year1": number | null, "escPct": number | null, "chargeStart": "MM/DD/YYYY" | null, "escStart": "MM/DD/YYYY" | null },
+  "oneTimeItems": [
+    { "label": "string", "amount": number, "dueDate": "MM/DD/YYYY" | null, "sign": 1 | -1 }
+  ],
   "confidenceFlags": ["field.path", ...],
   "notices": ["string", ...]
 }`;

@@ -54,6 +54,8 @@ export default function SummaryPanel({ rows = [] }) {
     let sumSecurity = 0;
     let sumOtherItems = 0;
     let sumTotal = 0;
+    let sumOneTimeCharges = 0;
+    let sumOtherCharges = 0;
 
     for (const r of rows) {
       sumScheduledBase += r.scheduledBaseRent ?? 0;
@@ -64,6 +66,8 @@ export default function SummaryPanel({ rows = [] }) {
       sumSecurity += r.securityAmount ?? 0;
       sumOtherItems += r.otherItemsAmount ?? 0;
       sumTotal += r.totalMonthlyObligation ?? 0;
+      sumOneTimeCharges += r.oneTimeChargesAmount ?? 0;
+      sumOtherCharges += r.totalOtherChargesAmount ?? 0;
     }
 
     const sumNNN = sumCAMS + sumInsurance + sumTaxes + sumSecurity + sumOtherItems;
@@ -109,6 +113,8 @@ export default function SummaryPanel({ rows = [] }) {
       sumOtherItems,
       sumNNN,
       sumTotal,
+      sumOneTimeCharges,
+      sumOtherCharges,
       remainingFromFirstRow,
       asOfRemaining,
     };
@@ -120,7 +126,8 @@ export default function SummaryPanel({ rows = [] }) {
     leaseStart, leaseEnd, totalMonths,
     sumScheduledBase, sumBaseApplied,
     sumCAMS, sumInsurance, sumTaxes, sumSecurity, sumOtherItems,
-    sumNNN, sumTotal, remainingFromFirstRow, asOfRemaining,
+    sumNNN, sumTotal, sumOneTimeCharges, sumOtherCharges,
+    remainingFromFirstRow, asOfRemaining,
   } = metrics;
 
   // Cross-check: sum of rows should match first-row remaining
@@ -157,6 +164,9 @@ export default function SummaryPanel({ rows = [] }) {
         <MetricCard label="Total Taxes" value={formatDollar(sumTaxes)} />
         <MetricCard label="Total Security" value={formatDollar(sumSecurity)} />
         <MetricCard label="Total Other Items" value={formatDollar(sumOtherItems)} />
+        <MetricCard label="Total One-Time Charges" value={formatDollar(sumOneTimeCharges)} />
+        <MetricCard label="Total Other Charges" value={formatDollar(sumOtherCharges)}
+          sub="Security + Other Items + One-Time" />
       </div>
 
       <div className="grid grid-cols-2 gap-3">

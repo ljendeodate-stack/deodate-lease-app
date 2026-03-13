@@ -104,6 +104,8 @@ export default function LedgerTable({ rows = [] }) {
               <Th>Sec Esc</Th>
               <Th>Other ($)</Th>
               <Th>Other Esc</Th>
+              <Th>One-Time ($)</Th>
+              <Th>Other Charges ($)</Th>
               <Th>Total Monthly</Th>
               <Th>$/SF</Th>
               <Th>Total Remaining</Th>
@@ -152,6 +154,21 @@ export default function LedgerTable({ rows = [] }) {
                     <Td>{formatPercent(row.securityEscPct)}</Td>
                     <Td>{row.otherItemsActive === false ? <span className="text-gray-400 italic text-xs">inactive</span> : formatDollar(row.otherItemsAmount)}</Td>
                     <Td>{formatPercent(row.otherItemsEscPct)}</Td>
+                    <Td>
+                      {row.oneTimeChargesAmount
+                        ? <span
+                            className={`cursor-help ${row.oneTimeChargesAmount < 0 ? 'text-green-700' : ''}`}
+                            title={Object.entries(row.oneTimeItemAmounts ?? {})
+                              .filter(([, v]) => v !== 0)
+                              .map(([label, amt]) => `${label}: ${amt.toLocaleString()}`)
+                              .join('\n') || 'One-time charge'}
+                          >
+                            {formatDollar(row.oneTimeChargesAmount)}
+                          </span>
+                        : <span className="text-gray-300">—</span>
+                      }
+                    </Td>
+                    <Td>{formatDollar(row.totalOtherChargesAmount)}</Td>
                     <Td className="font-semibold">{formatDollar(row.totalMonthlyObligation)}</Td>
                     <Td>{formatDollarPerSF(row.effectivePerSF)}</Td>
                     <Td>{formatDollar(row.totalObligationRemaining)}</Td>
@@ -160,7 +177,7 @@ export default function LedgerTable({ rows = [] }) {
                   </tr>
                   {isExpanded && (
                     <tr key={`trace-${absIdx}`}>
-                      <td colSpan={23} className="p-0">
+                      <td colSpan={25} className="p-0">
                         <TracePanel row={row} />
                       </td>
                     </tr>
