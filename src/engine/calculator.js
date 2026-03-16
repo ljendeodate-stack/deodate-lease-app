@@ -16,6 +16,7 @@ import {
   addMonthsAnchored,
   daysBetweenInclusive,
   toISOLocal,
+  parseMDYStrict,
 } from './yearMonth.js';
 
 // ---------------------------------------------------------------------------
@@ -198,6 +199,7 @@ function computeChargeAmount(year1, escRate, escYears, leaseYear, periodFactor) 
  * @param {Object}    params.taxes
  * @param {Object}    params.security
  * @param {Object}    params.otherItems
+ * @param {Array}     params.oneTimeCharges      - [{ name, amount, date }]
  *
  * @returns {Object[]} Processed ledger rows with all output fields populated.
  *
@@ -210,17 +212,24 @@ export function calculateAllCharges(expandedRows, params) {
     squareFootage,
     abatementEndDate,
     abatementPct,
+    nnnMode,
+    nnnAggregate,
     cams,
     insurance,
     taxes,
     security,
     otherItems,
+    oneTimeCharges,
   } = params;
+
+  const isAggregate = nnnMode === 'aggregate';
+  const otcList = Array.isArray(oneTimeCharges) ? oneTimeCharges : [];
 
   // Flaw 4 fix: convention explicitly enforced — 100 = full abatement (tenant pays 0).
   const tenantPaysFraction = 1 - (Math.min(Math.max(Number(abatementPct) || 0, 0), 100) / 100);
 
   // Pre-compute escalation rates as decimals
+  const nnnAggEsc     = (Number(nnnAggregate?.escPct) || 0) / 100;
   const camsEsc       = (Number(cams.escPct)       || 0) / 100;
   const insuranceEsc  = (Number(insurance.escPct)  || 0) / 100;
   const taxesEsc      = (Number(taxes.escPct)      || 0) / 100;
@@ -321,26 +330,36 @@ export function calculateAllCharges(expandedRows, params) {
 
     // --- NNN charges: gate, escalate, apply periodFactor ---
 
-    // CAMS
-    const camsActive  = isChargeActive(periodStart, cams.chargeStart);
-    const camsEscYears = camsActive ? yearsSinceStart(periodStart, cams.escStart) : null;
-    const camsAmount  = camsActive
-      ? Number(computeChargeAmount(Number(cams.year1) || 0, camsEsc, camsEscYears, leaseYear, periodFactor).toFixed(2))
-      : 0;
+    let camsAmount = 0, camsEscYears = null, camsActive = false;
+    let insuranceAmount = 0, insuranceEscYears = null, insuranceActive = false;
+    let taxesAmount = 0, taxesEscYears = null, taxesActive = false;
+    let nnnAggregateAmount = 0;
 
-    // Insurance
-    const insuranceActive   = isChargeActive(periodStart, insurance.chargeStart);
-    const insuranceEscYears = insuranceActive ? yearsSinceStart(periodStart, insurance.escStart) : null;
-    const insuranceAmount   = insuranceActive
-      ? Number(computeChargeAmount(Number(insurance.year1) || 0, insuranceEsc, insuranceEscYears, leaseYear, periodFactor).toFixed(2))
-      : 0;
+    if (isAggregate) {
+      // Aggregate mode: single NNN total, individual CAMS/Insurance/Taxes remain zero
+      nnnAggregateAmount = Number(computeChargeAmount(
+        Number(nnnAggregate?.year1) || 0, nnnAggEsc, null, leaseYear, periodFactor
+      ).toFixed(2));
+    } else {
+      // Individual mode
+      camsActive   = isChargeActive(periodStart, cams.chargeStart);
+      camsEscYears = camsActive ? yearsSinceStart(periodStart, cams.escStart) : null;
+      camsAmount   = camsActive
+        ? Number(computeChargeAmount(Number(cams.year1) || 0, camsEsc, camsEscYears, leaseYear, periodFactor).toFixed(2))
+        : 0;
 
-    // Taxes
-    const taxesActive   = isChargeActive(periodStart, taxes.chargeStart);
-    const taxesEscYears = taxesActive ? yearsSinceStart(periodStart, taxes.escStart) : null;
-    const taxesAmount   = taxesActive
-      ? Number(computeChargeAmount(Number(taxes.year1) || 0, taxesEsc, taxesEscYears, leaseYear, periodFactor).toFixed(2))
-      : 0;
+      insuranceActive   = isChargeActive(periodStart, insurance.chargeStart);
+      insuranceEscYears = insuranceActive ? yearsSinceStart(periodStart, insurance.escStart) : null;
+      insuranceAmount   = insuranceActive
+        ? Number(computeChargeAmount(Number(insurance.year1) || 0, insuranceEsc, insuranceEscYears, leaseYear, periodFactor).toFixed(2))
+        : 0;
+
+      taxesActive   = isChargeActive(periodStart, taxes.chargeStart);
+      taxesEscYears = taxesActive ? yearsSinceStart(periodStart, taxes.escStart) : null;
+      taxesAmount   = taxesActive
+        ? Number(computeChargeAmount(Number(taxes.year1) || 0, taxesEsc, taxesEscYears, leaseYear, periodFactor).toFixed(2))
+        : 0;
+    }
 
     // Security
     const securityActive   = isChargeActive(periodStart, security.chargeStart);
@@ -356,10 +375,26 @@ export function calculateAllCharges(expandedRows, params) {
       ? Number(computeChargeAmount(Number(otherItems.year1) || 0, otherItemsEsc, otherItemsEscYears, leaseYear, periodFactor).toFixed(2))
       : 0;
 
-    const totalNNN =
-      camsAmount + insuranceAmount + taxesAmount + securityAmount + otherItemsAmount;
+    const totalNNNAmount = isAggregate
+      ? Number((nnnAggregateAmount + securityAmount + otherItemsAmount).toFixed(2))
+      : Number((camsAmount + insuranceAmount + taxesAmount + securityAmount + otherItemsAmount).toFixed(2));
 
-    const totalMonthlyObligation = Number((Number(baseRentApplied.toFixed(2)) + totalNNN).toFixed(2));
+    // One-time charges: match by year+month of periodStart
+    const oneTimeAmounts = otcList.map((charge) => {
+      if (!charge.date || !periodStart) return 0;
+      const chargeDate = parseMDYStrict(charge.date);
+      if (!chargeDate) return 0;
+      if (
+        chargeDate.getFullYear() === periodStart.getFullYear() &&
+        chargeDate.getMonth()    === periodStart.getMonth()
+      ) {
+        return Number(charge.amount) || 0;
+      }
+      return 0;
+    });
+    const totalOTC = oneTimeAmounts.reduce((s, v) => s + v, 0);
+
+    const totalMonthlyObligation = Number((Number(baseRentApplied.toFixed(2)) + totalNNNAmount + totalOTC).toFixed(2));
 
     const effectivePerSF =
       squareFootage > 0 ? Number((totalMonthlyObligation / squareFootage).toFixed(6)) : null;
@@ -386,6 +421,10 @@ export function calculateAllCharges(expandedRows, params) {
       totalDays,
       actualDays,
       calMonthDays,
+
+      // NNN mode
+      nnnMode: isAggregate ? 'aggregate' : 'individual',
+      nnnAggregateAmount,
 
       // CAMS
       camsAmount,
@@ -418,6 +457,8 @@ export function calculateAllCharges(expandedRows, params) {
       otherItemsActive,
 
       // Totals
+      totalNNNAmount,
+      oneTimeAmounts,
       totalMonthlyObligation,
       effectivePerSF,
 
@@ -440,8 +481,7 @@ export function calculateAllCharges(expandedRows, params) {
     const row = rows[i];
 
     runningTotal += row.totalMonthlyObligation;
-    runningNNN   += (row.camsAmount + row.insuranceAmount + row.taxesAmount +
-                     row.securityAmount + row.otherItemsAmount);
+    runningNNN   += row.totalNNNAmount;
     runningBase  += row.baseRentApplied;
 
     row.totalObligationRemaining = Number(runningTotal.toFixed(2));

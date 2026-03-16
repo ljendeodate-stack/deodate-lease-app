@@ -6,14 +6,12 @@
  */
 
 import { formatFactor, formatPercent } from '../utils/formatUtils.js';
+import { NNN_BUCKET_KEYS, EXPENSE_CATEGORY_DEFS } from '../engine/labelClassifier.js';
 
-const CATEGORIES = [
-  { key: 'cams',       label: 'CAMS' },
-  { key: 'insurance',  label: 'Insurance' },
-  { key: 'taxes',      label: 'Taxes' },
-  { key: 'security',   label: 'Security' },
-  { key: 'otherItems', label: 'Other Items' },
-];
+const CATEGORIES = NNN_BUCKET_KEYS.map((k) => ({
+  key: k,
+  label: EXPENSE_CATEGORY_DEFS[k].displayLabel,
+}));
 
 function TraceRow({ label, value, detail }) {
   return (
@@ -22,6 +20,61 @@ function TraceRow({ label, value, detail }) {
       <td className="py-0.5 pr-4 font-mono text-gray-900">{value}</td>
       {detail && <td className="py-0.5 text-gray-500 italic">{detail}</td>}
     </tr>
+  );
+}
+
+/**
+ * Render one row of a classification trace table.
+ * Only shown when a row carries `labelClassifications` metadata.
+ */
+function ClassificationTraceSection({ labelClassifications }) {
+  if (!labelClassifications || typeof labelClassifications !== 'object') return null;
+  const entries = Object.entries(labelClassifications).filter(([, v]) => v);
+  if (!entries.length) return null;
+
+  return (
+    <>
+      <tr>
+        <td colSpan={3} className="pt-3 pb-0.5">
+          <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
+            Label Classification Trace
+          </span>
+        </td>
+      </tr>
+      {entries.map(([bucket, c]) => (
+        <tr key={bucket} className="text-xs align-top">
+          <td className="py-0.5 pr-4 font-medium text-gray-600 whitespace-nowrap">
+            {EXPENSE_CATEGORY_DEFS[bucket]?.displayLabel ?? bucket}
+          </td>
+          <td className="py-0.5 pr-4 font-mono text-gray-900">
+            <span className={`inline-block px-1 rounded text-xs mr-1 ${
+              c.confidence >= 0.9 ? 'bg-green-100 text-green-800'
+              : c.confidence >= 0.7 ? 'bg-amber-100 text-amber-800'
+              : 'bg-red-100 text-red-800'
+            }`}>
+              {(c.confidence * 100).toFixed(0)}%
+            </span>
+            <span className="text-gray-500">{c.matchType}</span>
+            {c.matchedCanonical && (
+              <span className="ml-1 text-gray-400">→ "{c.matchedCanonical}"</span>
+            )}
+          </td>
+          <td className="py-0.5 text-gray-500 italic">
+            {c.semanticSubtype && (
+              <span className="mr-2 text-blue-600">{c.semanticSubtype}</span>
+            )}
+            {c.normalizedLabel && c.normalizedLabel !== c.rawLabel?.toLowerCase() && (
+              <span className="text-gray-400">
+                raw: "{c.rawLabel}" → "{c.normalizedLabel}"
+              </span>
+            )}
+            {c.warnings?.length > 0 && (
+              <span className="block text-amber-700">⚠ {c.warnings[0]}</span>
+            )}
+          </td>
+        </tr>
+      ))}
+    </>
   );
 }
 
@@ -84,6 +137,8 @@ export default function TracePanel({ row }) {
               />
             );
           })}
+
+          <ClassificationTraceSection labelClassifications={row.labelClassifications} />
         </tbody>
       </table>
     </div>

@@ -33,6 +33,7 @@ const MODEL = 'claude-opus-4-6';
 /**
  * @typedef {Object} ExtractionResult
  * @property {RentTierExtraction[]} rentSchedule
+ * @property {string|null}          leaseName          - Primary tenant or property name for display.
  * @property {number|null}          squareFootage
  * @property {string|null}          abatementEndDate   - MM/DD/YYYY or null.
  * @property {number|null}          abatementPct       - 0–100.
@@ -41,6 +42,9 @@ const MODEL = 'claude-opus-4-6';
  * @property {NNNChargeExtraction}  taxes
  * @property {NNNChargeExtraction}  security
  * @property {NNNChargeExtraction}  otherItems
+ * @property {number|null}          securityDeposit    - One-time security deposit amount.
+ * @property {string|null}          securityDepositDate - MM/DD/YYYY date the deposit is due.
+ * @property {number|null}          estimatedNNNMonthly - Monthly aggregate NNN estimate when individual breakdown unavailable.
  * @property {string[]}             confidenceFlags    - Field paths with low confidence.
  * @property {string[]}             notices            - Non-blocking extraction notices.
  * @property {boolean}              sfRequired         - True if rent is expressed as $/SF and SF is needed.
@@ -57,20 +61,36 @@ RULES:
 5. Percentages must be whole numbers (e.g. 3 for 3%).
 6. Do not guess. If a value is ambiguous, return null and flag it.
 7. Return ONLY the JSON object — no markdown, no prose.
-9. abatementEndDate must be the LAST day of the abatement period (inclusive). E.g. "abatement through June 30" or "until June 30" → "06/30/YYYY". Do NOT return the first day of full rent.
 8. NNN CHARGE FIELDS — STRICT RULES (cams, insurance, taxes, security, otherItems):
    a. Only populate year1 with a non-null value if the lease document explicitly states a SEPARATE, RECURRING line-item charge for that specific category. The category name or an unambiguous synonym must appear in the document alongside a dollar amount.
    b. Base rent values from the rent schedule must NEVER be placed in any NNN charge field. Rent schedule values belong only in the rentSchedule array.
-   c. "security" must be null for all sub-fields unless the lease describes an ongoing, separately-billed security charge (NOT a one-time security deposit).
+   c. "security" must be null for all sub-fields unless the lease describes an ongoing, separately-billed security charge (NOT a one-time security deposit). One-time security deposits belong in oneTimeCharges.
    d. "otherItems" must be null for all sub-fields unless the lease explicitly names a recurring charge category not covered by CAMS, insurance, or taxes.
-   e. An aggregate NNN estimate (e.g. "Estimated Annual Operating Expenses: $X" or "Estimated First Year NNN: $Y") is NOT a line-item charge. Do not populate any individual NNN field with an aggregate estimate. Instead, add a notice such as: "Estimated NNN total of $X found — verify and enter individual charge line items manually."
+   e. An aggregate NNN estimate (e.g. "Estimated Annual Operating Expenses: $X" or "Estimated First Year NNN: $Y") is NOT a line-item charge. Populate "estimatedNNNMonthly" with the monthly aggregate amount (convert annual to monthly by dividing by 12). Keep individual NNN fields null. Still add a notice such as: "Estimated NNN total of $X found — individual breakdown unavailable, distributed evenly across CAMS/Insurance/Taxes."
    f. If the document lists NNN charges as a combined total without breaking them into CAMS, insurance, and taxes separately, leave all three fields null and add a notice.
+9. abatementEndDate must be the LAST day of the abatement period (inclusive). E.g. "abatement through June 30" or "until June 30" → "06/30/YYYY". Do NOT return the first day of full rent.
+10. leaseName: Extract the primary tenant business name or property name to use as the document title (e.g. "Anita's Mexican Foods", "123 Main Street — Suite 100"). Use the tenant name if clearly stated. If not identifiable, return null.
+11. ONE-TIME CHARGES — Return ALL one-time fees, deposits, credits, and concessions in the "oneTimeCharges" array. Each element must have:
+   { "label": string, "amount": number | null, "dueDate": string | null, "notes": string | null }
+   - "amount": signed number — positive = tenant obligation/outflow, negative = landlord concession/credit (e.g. a moving allowance paid by landlord is negative).
+   - "dueDate": MM/DD/YYYY string OR trigger-event text (e.g. "Lease Execution", "Within 30 days of occupancy", or null if not stated).
+   - "notes": short description or status (e.g. "not elected", "multi-tranche", "per Section 4.2").
+   - Multi-tranche items (e.g. TIA Initial Funding, TIA Final Funding) must be SEPARATE entries.
+   - N/A / not-elected items (e.g. Letter of Credit not elected): set amount = 0, notes = "not elected".
+   - Enumerate ALL of the following charge types found in the lease (omit only if truly absent and not mentioned):
+     Security Deposit, TIA — Tenant Improvement Allowance (all tranches separately), Landlord Work Contribution,
+     Moving Allowance, Base Rent Abatement (as lump-sum present-value credit if quantified), Lease Commissions
+     (Tenant Broker and Landlord Broker as separate entries), Parking Deposits, HVAC or special equipment
+     charge-orders, Letter of Credit, and any other one-time fee or credit explicitly named in the lease.
+   - Do NOT include recurring monthly NNN charges here; those go in cams/insurance/taxes/security/otherItems.
+   - "securityDeposit" / "securityDepositDate" are deprecated but still returned for backwards compatibility.
 
 JSON SCHEMA:
 {
   "rentSchedule": [
     { "periodStart": "MM/DD/YYYY", "periodEnd": "MM/DD/YYYY", "monthlyRent": number }
   ],
+  "leaseName": "string" | null,
   "squareFootage": number | null,
   "abatementEndDate": "MM/DD/YYYY" | null,
   "abatementPct": number | null,
@@ -80,9 +100,17 @@ JSON SCHEMA:
   "taxes":      { "year1": number | null, "escPct": number | null, "chargeStart": "MM/DD/YYYY" | null, "escStart": "MM/DD/YYYY" | null },
   "security":   { "year1": number | null, "escPct": number | null, "chargeStart": "MM/DD/YYYY" | null, "escStart": "MM/DD/YYYY" | null },
   "otherItems": { "year1": number | null, "escPct": number | null, "chargeStart": "MM/DD/YYYY" | null, "escStart": "MM/DD/YYYY" | null },
+  "oneTimeCharges": [
+    { "label": "string", "amount": number | null, "dueDate": "MM/DD/YYYY or event string" | null, "notes": "string" | null }
+  ],
+  "securityDeposit": number | null,
+  "securityDepositDate": "MM/DD/YYYY" | null,
+  "estimatedNNNMonthly": number | null,
   "confidenceFlags": ["field.path", ...],
   "notices": ["string", ...]
-}`;
+}
+
+12. securityDeposit (legacy) must only be set for the one-time security deposit if it also appears in oneTimeCharges. It must never include recurring charges.`;
 
 /**
  * Detect whether a PDF is likely scanned/image-based rather than digitally generated.

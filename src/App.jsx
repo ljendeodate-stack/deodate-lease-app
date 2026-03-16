@@ -23,6 +23,7 @@ import { calculateAllCharges } from './engine/calculator.js';
 import { validateParams, validateSchedule } from './engine/validator.js';
 import { extractFromPDF } from './ocr/extractor.js';
 import { parseMDYStrict, parseExcelDate } from './engine/yearMonth.js';
+import { classifyExpenseLabel, NNN_BUCKET_KEYS } from './engine/labelClassifier.js';
 
 // ---------------------------------------------------------------------------
 // Step constants
@@ -40,6 +41,12 @@ const STEP = {
 
 function formToCalculatorParams(form) {
   return {
+    leaseName: String(form.leaseName || '').trim(),
+    nnnMode: form.nnnMode ?? 'individual',
+    nnnAggregate: {
+      year1: Number(form.nnnAggregate?.year1) || 0,
+      escPct: Number(form.nnnAggregate?.escPct) || 0,
+    },
     squareFootage: Number(form.squareFootage) || 0,
     abatementEndDate: parseMDYStrict(form.abatementEndDate),
     abatementPct: Number(form.abatementPct) || 0,
@@ -73,6 +80,9 @@ function formToCalculatorParams(form) {
       escStart: parseMDYStrict(form.otherItems?.escStart),
       chargeStart: parseMDYStrict(form.otherItems?.chargeStart),
     },
+    oneTimeCharges: (form.oneTimeCharges ?? [])
+      .map((c) => ({ name: String(c.name || '').trim(), amount: Number(c.amount) || 0, date: String(c.date || '').trim() }))
+      .filter((c) => c.name),
   };
 }
 
@@ -120,6 +130,7 @@ export default function App() {
   const [validationErrors, setValidationErrors] = useState([]);
   const [processedRows, setProcessedRows] = useState([]);
   const [processedParams, setProcessedParams] = useState({});
+  const [labelClassifications, setLabelClassifications] = useState(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [globalError, setGlobalError] = useState(null);
@@ -171,20 +182,73 @@ export default function App() {
         escStart: cat?.escStart ?? '',
       });
 
+      let allConfidenceFlags = [...(result.confidenceFlags ?? [])];
+
+      // Determine NNN mode: aggregate when monthly estimate exists but no individual breakdown
+      const hasIndividualNNN = result.cams?.year1 != null ||
+        result.insurance?.year1 != null ||
+        result.taxes?.year1 != null;
+
+      let nnnMode = 'individual';
+      let nnnAggregateForm = { year1: '', escPct: '' };
+
+      if (result.estimatedNNNMonthly != null && !hasIndividualNNN) {
+        nnnMode = 'aggregate';
+        nnnAggregateForm = { year1: String(result.estimatedNNNMonthly), escPct: '' };
+        allConfidenceFlags = [...allConfidenceFlags, 'nnnAggregate.year1'];
+      }
+
+      // One-time charges: prefer the new oneTimeCharges array from OCR;
+      // fall back to legacy securityDeposit field if the model returned the old shape.
+      let depositOTC;
+      if (Array.isArray(result.oneTimeCharges) && result.oneTimeCharges.length > 0) {
+        depositOTC = result.oneTimeCharges.map((c) => ({
+          name:   String(c.label || c.name || '').trim(),
+          amount: String(c.amount ?? 0),
+          date:   String(c.dueDate || c.date || ''),
+        })).filter((c) => c.name);
+      } else if (result.securityDeposit != null && result.securityDeposit > 0) {
+        depositOTC = [{
+          name:   'Security Deposit',
+          amount: String(result.securityDeposit),
+          date:   result.securityDepositDate ?? result.rentSchedule?.[0]?.periodStart ?? '',
+        }];
+      } else {
+        depositOTC = [];
+      }
+
       setFormInitialValues({
-        squareFootage: result.squareFootage != null ? String(result.squareFootage) : '',
+        leaseName:        result.leaseName ?? '',
+        squareFootage:    result.squareFootage != null ? String(result.squareFootage) : '',
         abatementEndDate: result.abatementEndDate ?? '',
-        abatementPct: result.abatementPct != null ? String(result.abatementPct) : '',
-        cams: nnnToForm(result.cams),
-        insurance: nnnToForm(result.insurance),
-        taxes: nnnToForm(result.taxes),
-        security: nnnToForm(result.security),
-        otherItems: nnnToForm(result.otherItems),
+        abatementPct:     result.abatementPct != null ? String(result.abatementPct) : '',
+        nnnMode,
+        nnnAggregate:     nnnAggregateForm,
+        cams:             nnnToForm(result.cams),
+        insurance:        nnnToForm(result.insurance),
+        taxes:            nnnToForm(result.taxes),
+        security:         nnnToForm(result.security),
+        otherItems:       nnnToForm(result.otherItems),
+        oneTimeCharges:   depositOTC,
       });
 
-      setOcrConfidenceFlags(result.confidenceFlags ?? []);
+      setOcrConfidenceFlags(allConfidenceFlags);
       setOcrNotices(result.notices ?? []);
       setSfRequired(result.sfRequired ?? false);
+
+      // Generate classification trace for each NNN bucket that had OCR data.
+      // The OCR already returns structured field names, so we classify the field
+      // key as the rawLabel — this produces high-confidence exact matches and
+      // gives the UI a consistent trace object to display per category.
+      const classifications = {};
+      for (const key of NNN_BUCKET_KEYS) {
+        const fieldValue = result[key];
+        if (fieldValue?.year1 != null) {
+          // Classify using the canonical field name (always exact match)
+          classifications[key] = classifyExpenseLabel(key);
+        }
+      }
+      setLabelClassifications(Object.keys(classifications).length ? classifications : null);
     } catch (err) {
       setGlobalError(`OCR extraction failed: ${err.message}`);
     } finally {
@@ -209,6 +273,7 @@ export default function App() {
       setOcrConfidenceFlags([]);
       setOcrNotices([]);
       setSfRequired(false);
+      setLabelClassifications(null);
       setStep(STEP.FORM);
     } catch (err) {
       setGlobalError(`File parsing failed: ${err.message}`);
@@ -227,6 +292,7 @@ export default function App() {
     setOcrConfidenceFlags([]);
     setOcrNotices([]);
     setSfRequired(false);
+    setLabelClassifications(null);
     setStep(STEP.SCHEDULE);
   }, []);
 
@@ -271,7 +337,12 @@ export default function App() {
     try {
       const params = formToCalculatorParams(form);
       const rows = calculateAllCharges(expandedRows, params);
-      setProcessedRows(rows);
+      // Attach classification trace to every row so TracePanel can display it.
+      // The trace is per-category (not per-row), so we embed it once per row.
+      const annotatedRows = labelClassifications
+        ? rows.map((r) => ({ ...r, labelClassifications }))
+        : rows;
+      setProcessedRows(annotatedRows);
       setProcessedParams(params);
       setStep(STEP.RESULTS);
     } catch (err) {
@@ -305,6 +376,7 @@ export default function App() {
                 setGlobalError(null);
                 setDuplicateDates([]);
                 setDupConfirmed(false);
+                setLabelClassifications(null);
               }}
               className="text-sm text-gray-500 hover:text-gray-700 underline"
             >

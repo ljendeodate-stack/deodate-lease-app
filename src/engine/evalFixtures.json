@@ -1,0 +1,578 @@
+[
+  {
+    "id": 1,
+    "rawLabel": "CAM",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "cam",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Uppercase exact abbreviation — stage 2 exact match"
+  },
+  {
+    "id": 2,
+    "rawLabel": "C.A.M.",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "cam",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Dotted abbreviation expansion — must expand before dot-stripping"
+  },
+  {
+    "id": 3,
+    "rawLabel": "c.a.m.s",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "cam",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Dotted abbreviation with trailing s"
+  },
+  {
+    "id": 4,
+    "rawLabel": "CAMS",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "cam",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Uppercase CAMS normalization"
+  },
+  {
+    "id": 5,
+    "rawLabel": "Common Area Maintenance",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "common_area_maintenance",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Mixed-case exact canonical phrase"
+  },
+  {
+    "id": 6,
+    "rawLabel": "common area maintenance charges",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "common_area_maintenance",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical phrase with trailing 'charges'"
+  },
+  {
+    "id": 7,
+    "rawLabel": "operating expenses",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "operating_expenses",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical CAM operating expense phrase"
+  },
+  {
+    "id": 8,
+    "rawLabel": "operating cost recovery",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "operating_cost_recovery",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Exact canonical phrase"
+  },
+  {
+    "id": 9,
+    "rawLabel": "building expenses",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "operating_expenses",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical synonym for operating expenses"
+  },
+  {
+    "id": 10,
+    "rawLabel": "cam fee",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "cam",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "CAM fee variant exact match"
+  },
+  {
+    "id": 11,
+    "rawLabel": "OpEx",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "operating_expenses",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "OpEx abbreviation expansion via abbrevExpand (op ex → operating expenses)"
+  },
+  {
+    "id": 12,
+    "rawLabel": "operating cost reimbursement",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "operating_cost_recovery",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Operating cost reimbursement canonical synonym"
+  },
+  {
+    "id": 13,
+    "rawLabel": "common area malntenance",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "common_area_maintenance",
+    "expectedMinConfidence": 0.85,
+    "optionalNotes": "OCR: malntenance → maintenance; stage 3 exact match after correction"
+  },
+  {
+    "id": 14,
+    "rawLabel": "operatlng expenses",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "operating_expenses",
+    "expectedMinConfidence": 0.85,
+    "optionalNotes": "OCR: operatlng → operating; stage 3 exact match"
+  },
+  {
+    "id": 15,
+    "rawLabel": "c0mmon area ma1ntenance",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": null,
+    "expectedMinConfidence": 0.65,
+    "optionalNotes": "Heavy OCR: digit substitutions in two tokens; fuzzy or ocr_rescue expected"
+  },
+  {
+    "id": 16,
+    "rawLabel": "0perating expenses",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": null,
+    "expectedMinConfidence": 0.65,
+    "optionalNotes": "Single leading digit; fuzzy match to 'operating expenses' expected"
+  },
+  {
+    "id": 17,
+    "rawLabel": "nnn",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "nnn_composite",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Composite NNN abbreviation — routes to cams with warning"
+  },
+  {
+    "id": 18,
+    "rawLabel": "N.N.N.",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "nnn_composite",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Dotted NNN abbreviation expansion"
+  },
+  {
+    "id": 19,
+    "rawLabel": "triple net",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "nnn_composite",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "triple net expands to nnn via abbrevExpand"
+  },
+  {
+    "id": 20,
+    "rawLabel": "trlple net",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "nnn_composite",
+    "expectedMinConfidence": 0.8,
+    "optionalNotes": "OCR: trlple → triple; then expands to nnn"
+  },
+  {
+    "id": 21,
+    "rawLabel": "net charges",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "nnn_composite",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical composite NNN phrase"
+  },
+  {
+    "id": 22,
+    "rawLabel": "additional rent",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "nnn_composite",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical composite NNN phrase"
+  },
+  {
+    "id": 23,
+    "rawLabel": "Triple Net Charges",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "nnn_composite",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Mixed-case; abbrevExpand handles 'triple net charges' → nnn"
+  },
+  {
+    "id": 24,
+    "rawLabel": "net net net",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "nnn_composite",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Longhand NNN → abbrevExpand expands to 'nnn'"
+  },
+  {
+    "id": 25,
+    "rawLabel": "triple net rent",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "nnn_composite",
+    "expectedMinConfidence": 0.7,
+    "optionalNotes": "KNOWN WEAK SPOT: 'triple net' expands to 'nnn' leaving 'nnn rent'; may not match canonical 'nnn'"
+  },
+  {
+    "id": 26,
+    "rawLabel": "insurance",
+    "expectedBucketCategory": "insurance",
+    "expectedSemanticSubtype": "property_insurance",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Exact canonical insurance"
+  },
+  {
+    "id": 27,
+    "rawLabel": "property insurance",
+    "expectedBucketCategory": "insurance",
+    "expectedSemanticSubtype": "property_insurance",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Exact canonical property insurance"
+  },
+  {
+    "id": 28,
+    "rawLabel": "casualty insurance",
+    "expectedBucketCategory": "insurance",
+    "expectedSemanticSubtype": "casualty_insurance",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Exact canonical casualty insurance"
+  },
+  {
+    "id": 29,
+    "rawLabel": "hazard insurance",
+    "expectedBucketCategory": "insurance",
+    "expectedSemanticSubtype": "hazard_insurance",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Exact canonical hazard insurance"
+  },
+  {
+    "id": 30,
+    "rawLabel": "fire insurance",
+    "expectedBucketCategory": "insurance",
+    "expectedSemanticSubtype": "property_insurance",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Exact canonical fire insurance"
+  },
+  {
+    "id": 31,
+    "rawLabel": "insurance premium",
+    "expectedBucketCategory": "insurance",
+    "expectedSemanticSubtype": "property_insurance",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical insurance premium phrase"
+  },
+  {
+    "id": 32,
+    "rawLabel": "insuranee",
+    "expectedBucketCategory": "insurance",
+    "expectedSemanticSubtype": "property_insurance",
+    "expectedMinConfidence": 0.85,
+    "optionalNotes": "OCR: insuranee → insurance"
+  },
+  {
+    "id": 33,
+    "rawLabel": "real estate taxes",
+    "expectedBucketCategory": "taxes",
+    "expectedSemanticSubtype": "real_estate_taxes",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical real estate taxes"
+  },
+  {
+    "id": 34,
+    "rawLabel": "property taxes",
+    "expectedBucketCategory": "taxes",
+    "expectedSemanticSubtype": "real_estate_taxes",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical property taxes"
+  },
+  {
+    "id": 35,
+    "rawLabel": "property tax",
+    "expectedBucketCategory": "taxes",
+    "expectedSemanticSubtype": "real_estate_taxes",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical property tax singular"
+  },
+  {
+    "id": 36,
+    "rawLabel": "ad valorem taxes",
+    "expectedBucketCategory": "taxes",
+    "expectedSemanticSubtype": "ad_valorem_taxes",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical ad valorem taxes"
+  },
+  {
+    "id": 37,
+    "rawLabel": "ad valorem",
+    "expectedBucketCategory": "taxes",
+    "expectedSemanticSubtype": "ad_valorem_taxes",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical ad valorem (no 'taxes' suffix)"
+  },
+  {
+    "id": 38,
+    "rawLabel": "assessments",
+    "expectedBucketCategory": "taxes",
+    "expectedSemanticSubtype": "assessments",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical assessments"
+  },
+  {
+    "id": 39,
+    "rawLabel": "special assessments",
+    "expectedBucketCategory": "taxes",
+    "expectedSemanticSubtype": "assessments",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical special assessments"
+  },
+  {
+    "id": 40,
+    "rawLabel": "r.e. taxes",
+    "expectedBucketCategory": "taxes",
+    "expectedSemanticSubtype": "real_estate_taxes",
+    "expectedMinConfidence": 0.7,
+    "optionalNotes": "r.e. abbreviation expansion; normalize produces 'real estate tax taxes' due to regex capture group — still classifies correctly via token scoring"
+  },
+  {
+    "id": 41,
+    "rawLabel": "rea1 estate taxe5",
+    "expectedBucketCategory": "taxes",
+    "expectedSemanticSubtype": "real_estate_taxes",
+    "expectedMinConfidence": 0.65,
+    "optionalNotes": "Heavy OCR: rea1→real (in dict), taxe5 not in dict but 'tax' substring triggers token scoring"
+  },
+  {
+    "id": 42,
+    "rawLabel": "ad valorem tax",
+    "expectedBucketCategory": "taxes",
+    "expectedSemanticSubtype": "ad_valorem_taxes",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical ad valorem tax singular"
+  },
+  {
+    "id": 43,
+    "rawLabel": "security",
+    "expectedBucketCategory": "security",
+    "expectedSemanticSubtype": "security_service",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Exact canonical security"
+  },
+  {
+    "id": 44,
+    "rawLabel": "security patrol",
+    "expectedBucketCategory": "security",
+    "expectedSemanticSubtype": "guard_patrol",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical security patrol"
+  },
+  {
+    "id": 45,
+    "rawLabel": "guard service",
+    "expectedBucketCategory": "security",
+    "expectedSemanticSubtype": "guard_patrol",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical guard service"
+  },
+  {
+    "id": 46,
+    "rawLabel": "guard patrol",
+    "expectedBucketCategory": "security",
+    "expectedSemanticSubtype": "guard_patrol",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical guard patrol"
+  },
+  {
+    "id": 47,
+    "rawLabel": "securlty",
+    "expectedBucketCategory": "security",
+    "expectedSemanticSubtype": "security_service",
+    "expectedMinConfidence": 0.85,
+    "optionalNotes": "OCR: securlty → security"
+  },
+  {
+    "id": 48,
+    "rawLabel": "admin fee",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "administrative_fee",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical admin fee"
+  },
+  {
+    "id": 49,
+    "rawLabel": "administrative fee",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "administrative_fee",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical administrative fee"
+  },
+  {
+    "id": 50,
+    "rawLabel": "general admin",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "general_admin_fee",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical general admin"
+  },
+  {
+    "id": 51,
+    "rawLabel": "general admin fee",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "general_admin_fee",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical general admin fee"
+  },
+  {
+    "id": 52,
+    "rawLabel": "management fee",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "management_fee",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical management fee"
+  },
+  {
+    "id": 53,
+    "rawLabel": "property management fee",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "management_fee",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical property management fee"
+  },
+  {
+    "id": 54,
+    "rawLabel": "janitorial",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "janitorial",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical janitorial"
+  },
+  {
+    "id": 55,
+    "rawLabel": "landscaping",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "landscaping",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical landscaping"
+  },
+  {
+    "id": 56,
+    "rawLabel": "hvac maintenance",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "hvac_maintenance",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical HVAC maintenance"
+  },
+  {
+    "id": 57,
+    "rawLabel": "water",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "water",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical water"
+  },
+  {
+    "id": 58,
+    "rawLabel": "sewer",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "sewer",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical sewer"
+  },
+  {
+    "id": 59,
+    "rawLabel": "water/sewer",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "water_sewer",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "water/sewer slash normalization"
+  },
+  {
+    "id": 60,
+    "rawLabel": "trash removal",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "trash",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical trash removal"
+  },
+  {
+    "id": 61,
+    "rawLabel": "refuse removal",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "trash",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical refuse removal synonym"
+  },
+  {
+    "id": 62,
+    "rawLabel": "utllities",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "utilities",
+    "expectedMinConfidence": 0.85,
+    "optionalNotes": "OCR: utllities → utilities"
+  },
+  {
+    "id": 63,
+    "rawLabel": "janitoral",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "janitorial",
+    "expectedMinConfidence": 0.85,
+    "optionalNotes": "OCR: janitoral → janitorial (word correction dict)"
+  },
+  {
+    "id": 64,
+    "rawLabel": "g3nera*** admin f55",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": null,
+    "expectedMinConfidence": 0.5,
+    "optionalNotes": "Heavy OCR damage + symbol noise; subtype optional; expect ocr_rescue or token"
+  },
+  {
+    "id": 65,
+    "rawLabel": "maintenance charge",
+    "expectedBucketCategory": "cams",
+    "expectedSemanticSubtype": "common_area_maintenance",
+    "expectedMinConfidence": 0.65,
+    "optionalNotes": "Fuzzy match to 'maintenance charges'; very high Dice with canonical phrase"
+  },
+  {
+    "id": 66,
+    "rawLabel": "service fee",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "service_fee",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Exact canonical service fee"
+  },
+  {
+    "id": 67,
+    "rawLabel": "additional charge",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": null,
+    "expectedMinConfidence": 0.20,
+    "optionalNotes": "Ambiguous; no strong canonical match; fallback expected"
+  },
+  {
+    "id": 68,
+    "rawLabel": "expense reimbursement",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": null,
+    "expectedMinConfidence": 0.20,
+    "optionalNotes": "Ambiguous; reimbursement score below token threshold; fallback expected"
+  },
+  {
+    "id": 69,
+    "rawLabel": "general maintenance",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": null,
+    "expectedMinConfidence": 0.20,
+    "optionalNotes": "Ambiguous general maintenance; maintenance token too weak alone; fallback expected"
+  },
+  {
+    "id": 70,
+    "rawLabel": "elevator maintenance",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "elevator_maintenance",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical elevator maintenance"
+  },
+  {
+    "id": 71,
+    "rawLabel": "grounds maintenance",
+    "expectedBucketCategory": "otherItems",
+    "expectedSemanticSubtype": "landscaping",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical grounds maintenance synonym for landscaping"
+  },
+  {
+    "id": 72,
+    "rawLabel": "liability insurance",
+    "expectedBucketCategory": "insurance",
+    "expectedSemanticSubtype": "property_insurance",
+    "expectedMinConfidence": 0.9,
+    "optionalNotes": "Canonical liability insurance"
+  }
+]

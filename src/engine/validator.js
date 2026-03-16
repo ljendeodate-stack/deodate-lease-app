@@ -9,6 +9,7 @@
  */
 
 import { parseMDYStrict, parseISODate } from './yearMonth.js';
+import { NNN_BUCKET_KEYS, EXPENSE_CATEGORY_DEFS } from './labelClassifier.js';
 
 /**
  * @typedef {Object} ValidationError
@@ -73,15 +74,11 @@ export function validateParams(params, rows) {
     }
   }
 
-  // --- NNN charge categories ---
-  const categories = ['cams', 'insurance', 'taxes', 'security', 'otherItems'];
-  const labels = {
-    cams: 'CAMS',
-    insurance: 'Insurance',
-    taxes: 'Taxes',
-    security: 'Security',
-    otherItems: 'Other Items',
-  };
+  // --- NNN charge categories (sourced from labelClassifier — single source of truth) ---
+  const categories = NNN_BUCKET_KEYS;
+  const labels = Object.fromEntries(
+    NNN_BUCKET_KEYS.map((k) => [k, EXPENSE_CATEGORY_DEFS[k].displayLabel])
+  );
 
   const leaseStart = rows.length > 0 ? parseISODate(rows[0].date) : null;
   const leaseEnd = rows.length > 0 ? parseISODate(rows[rows.length - 1].date) : null;
