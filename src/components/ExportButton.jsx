@@ -14,7 +14,7 @@ export default function ExportButton({ rows = [], params = {}, filename = 'lease
       <span className="text-sm text-gray-600 font-medium">Export:</span>
 
       <button
-        onClick={() => exportToXLSX(rows, params, filename)}
+        onClick={() => void exportToXLSX(rows, params, filename)}
         className="rounded-md bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-700 transition-colors"
         title="3-sheet workbook: Lease Schedule (assumptions block + live formulas), Annual Summary (SUMIF formulas), Audit Trail. Opens in Excel and Google Sheets."
       >

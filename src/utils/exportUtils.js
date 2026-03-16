@@ -23,6 +23,7 @@
  */
 
 import XLSX from 'xlsx-js-style';
+import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import Papa from 'papaparse';
 
 // ===========================================================================
@@ -559,10 +560,10 @@ function writeObligationRemainingPanel(ws, rows, FDR, lastData, COL_OBL_REM, COL
     alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
   };
 
-  // I4 — navy header, no bottom border
+  // I4 — no fill, no bottom border
   sc(ws, xlColI, xlHdrR, {
     t: 's', v: 'Date of Analysis',
-    s: { ...navyHdrBase, border: { top: thinBlack, left: thinBlack, right: thinBlack } },
+    s: { ...navyHdrBase, fill: { patternType: 'none' }, border: { top: thinBlack, left: thinBlack, right: thinBlack } },
   });
   // J4:M4 — navy headers, thin/black borders all four sides
   const allBlackBorder = { top: thinBlack, bottom: thinBlack, left: thinBlack, right: thinBlack };
@@ -648,20 +649,12 @@ function writeObligationRemainingPanel(ws, rows, FDR, lastData, COL_OBL_REM, COL
     });
   });
 
-  // Data validation — dropdown list of period start dates for the analysis date input
-  if (!ws['!dataValidation']) ws['!dataValidation'] = [];
-  ws['!dataValidation'].push({
-    sqref: `I${xlInpR}`,
-    type: 'list',
-    formula1: `$A$${FDR}:$A$${lastData}`,
-    showDropDown: false,
-  });
 }
 
 /**
- * Write the Buyout table at I9:L13.
- * Three percentage tiers (20%, 35%, 50%) applied to Base Rent and NNN remaining.
- * Other Charges row always = $M$5 (no multiplier).
+ * Write the Buyout table at I9:L10.
+ * Three percentage tiers (20%, 35%, 50%) applied to Base Rent remaining only.
+ * Lease buyouts do not include NNN or other charges.
  */
 function writeBuyoutTable(ws) {
   const thinPlain = { style: 'thin' };
@@ -677,19 +670,7 @@ function writeBuyoutTable(ws) {
     },
   });
 
-  // White fill + $#,##0.00 for total formula cells (J10:L10)
-  const totalFmla = (c, r, formula) => sc(ws, c, r, {
-    t: 'n', v: 0, f: formula,
-    s: {
-      font:      { ...FONT, color: { rgb: C.fcCalc } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
-      alignment: { horizontal: 'right', vertical: 'middle' },
-      numFmt:    '$#,##0.00',
-      border:    thinPlainBorder,
-    },
-  });
-
-  // No fill + $#,##0.00 for data formula cells (J11:L13)
+  // No fill + $#,##0.00 for data formula cells (J10:L10)
   const dataFmla = (c, r, formula) => sc(ws, c, r, {
     t: 'n', v: 0, f: formula,
     s: {
@@ -707,33 +688,15 @@ function writeBuyoutTable(ws) {
   navyLabel(10, 9, '35% of remaining obligation');
   navyLabel(11, 9, '50% of remaining obligation');
 
-  // Row 10 — Total (SUM of rows 11:13)
-  navyLabel(8, 10, 'Total');
-  totalFmla(9, 10, 'SUM(J11:J13)');
-  totalFmla(10, 10, 'SUM(K11:K13)');
-  totalFmla(11, 10, 'SUM(L11:L13)');
-
-  // Row 11 — Base Rent (K5 × tier%)
-  navyLabel(8, 11, 'Base Rent');
-  dataFmla(9, 11, 'K5*0.2');
-  dataFmla(10, 11, 'K5*0.35');
-  dataFmla(11, 11, 'K5*0.5');
-
-  // Row 12 — Nets (L5 × tier%) — always written regardless of NNN rates
-  navyLabel(8, 12, 'Nets');
-  dataFmla(9, 12, 'L5*0.2');
-  dataFmla(10, 12, 'L5*0.35');
-  dataFmla(11, 12, 'L5*0.5');
-
-  // Row 13 — Other Charges ($M$5, no tier multiplier)
-  navyLabel(8, 13, 'Other Charges');
-  dataFmla(9, 13, '=$M$5');
-  dataFmla(10, 13, '=$M$5');
-  dataFmla(11, 13, '=$M$5');
+  // Row 10 — Base Rent only (K5 × tier%)
+  navyLabel(8, 10, 'Base Rent');
+  dataFmla(9, 10, 'K5*0.2');
+  dataFmla(10, 10, 'K5*0.35');
+  dataFmla(11, 10, 'K5*0.5');
 }
 
 /**
- * Write the Renegotiation table at I15:L16.
+ * Write the Renegotiation table at I13:L14.
  * Three discount scenarios (10%, 30%, 50%) — each column discounts its own component.
  */
 function writeRenegotiationTable(ws) {
@@ -750,14 +713,14 @@ function writeRenegotiationTable(ws) {
     },
   });
 
-  // Row 15 — section header + discount labels (all navy)
-  navyLabel(8, 15, 'Renegotiation');
-  navyLabel(9, 15, '10% discount');
-  navyLabel(10, 15, '30% discount');
-  navyLabel(11, 15, '50% discount');
+  // Row 13 — section header + discount labels (all navy)
+  navyLabel(8, 13, 'Renegotiation');
+  navyLabel(9, 13, '10% discount');
+  navyLabel(10, 13, '30% discount');
+  navyLabel(11, 13, '50% discount');
 
-  // I16 — fill DEEAF1, black font, center, date format, thin (no-color) borders
-  sc(ws, 8, 16, {
+  // I14 — fill DEEAF1, black font, center, date format, thin (no-color) borders
+  sc(ws, 8, 14, {
     t: 'n', v: 0, f: '=$I$5',
     s: {
       font:      { ...FONT, color: { rgb: C.fcCalc } },
@@ -768,7 +731,7 @@ function writeRenegotiationTable(ws) {
     },
   });
 
-  // J16, K16, L16 — white fill, black font, right, $#,##0.00, thin (no-color) borders
+  // J14, K14, L14 — white fill, black font, right, $#,##0.00, thin (no-color) borders
   const currFmla = (c, r, formula) => sc(ws, c, r, {
     t: 'n', v: 0, f: formula,
     s: {
@@ -779,9 +742,9 @@ function writeRenegotiationTable(ws) {
       border:    thinPlainBorder,
     },
   });
-  currFmla(9, 16, 'J5*(1-0.1)');
-  currFmla(10, 16, 'K5*(1-0.3)');
-  currFmla(11, 16, 'L5*(1-0.5)');
+  currFmla(9, 14, 'J5*(1-0.1)');
+  currFmla(10, 14, 'K5*(1-0.3)');
+  currFmla(11, 14, 'L5*(1-0.5)');
 }
 
 // ---------------------------------------------------------------------------
@@ -833,8 +796,8 @@ function buildLedger(rows, assump, params) {
   const otcBoxTotalRef = buildOneTimeChargesBox(ws, otcCharges, 4, ASSUMP_START);
 
   // ── Obligation Remaining panel (cols I–M, rows 4–5) ─────────────────────
-  // ── Buyout table (cols I–L, rows 9–13) ─────────────────────────────────
-  // ── Renegotiation table (cols I–L, rows 15–16) ─────────────────────────
+  // ── Buyout table (cols I–L, rows 9–10) ─────────────────────────────────
+  // ── Renegotiation table (cols I–L, rows 13–14) ─────────────────────────
   // ── Analysis date echo at I8 ───────────────────────────────────────────
   writeObligationRemainingPanel(ws, rows, FDR, lastData, COL_OBL_REM, COL_BASE_REM, COL_NNN_REM, COL_OTC_REM);
   writeBuyoutTable(ws);
@@ -1217,7 +1180,43 @@ export function exportToXLSX(rows, params = {}, filename = 'lease-schedule') {
   XLSX.utils.book_append_sheet(wb, buildAnnualSummary(rows, params),     'Annual Summary');
   XLSX.utils.book_append_sheet(wb, buildAuditTrail(rows),                'Audit Trail');
 
-  XLSX.writeFile(wb, `${filename}.xlsx`);
+  const xlsxBytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+
+  // Unzip the XLSX package (XLSX files are ZIP archives)
+  const unzipped = unzipSync(new Uint8Array(xlsxBytes));
+
+  // Inject dataValidation XML into the Lease Schedule sheet
+  const sheetKey = 'xl/worksheets/sheet1.xml';
+  if (unzipped[sheetKey]) {
+    let xml = strFromU8(unzipped[sheetKey]);
+    const lastDataRow = FIRST_DATA_ROW + rows.length - 1;
+    const dvXml =
+      `<dataValidations count="1">` +
+      `<dataValidation type="list" sqref="I5" showDropDown="0" ` +
+      `showErrorMessage="0" showInputMessage="0">` +
+      `<formula1>$A${FIRST_DATA_ROW}:$A${lastDataRow}</formula1>` +
+      `</dataValidation></dataValidations>`;
+    if (xml.includes('<ignoredErrors')) {
+      xml = xml.replace('<ignoredErrors', dvXml + '<ignoredErrors');
+    } else {
+      xml = xml.replace('</worksheet>', dvXml + '</worksheet>');
+    }
+    unzipped[sheetKey] = strToU8(xml);
+  }
+
+  // Rezip and trigger download
+  const rezipped = zipSync(unzipped);
+  const blob = new Blob([rezipped], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `${filename}.xlsx`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 /**
