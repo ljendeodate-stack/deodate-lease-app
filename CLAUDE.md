@@ -17,7 +17,7 @@ src/
   App.jsx                  # Root component; owns all step state and pipeline
   components/
     UploadRouter.jsx        # Step 1: PDF / file / manual entry chooser
-    ScheduleEditor.jsx      # Step 2 (manual path): bulk-paste rent schedule editor
+    ScheduleEditor.jsx      # Step 2 (manual path): Quick Entry or bulk-paste rent schedule editor
     InputForm.jsx           # Step 2/3: NNN charge parameter form
     ValidationBanner.jsx    # Inline validation error display
     LedgerTable.jsx         # Results: monthly ledger with expandable trace rows
@@ -40,7 +40,7 @@ src/
 ## Processing pipeline
 1. **Upload** — user picks PDF, structured file, or manual entry
 2. **OCR extraction** (PDF path) — `extractor.js` pulls rent schedule + NNN fields
-3. **Schedule editor** (manual path) — user pastes/types period rows
+3. **Schedule editor** (manual path) — Quick Entry (4 fields auto-generate schedule) or manual period rows
 4. **Form** — user reviews/edits NNN parameters pre-populated from OCR
 5. **Processing** — `calculator.js` runs on confirmed form data (never auto-triggered)
 6. **Results** — ledger table + summary panel + export
@@ -57,3 +57,10 @@ npm run preview  # preview production build
 - OCR confidence flags highlight pre-filled fields that need user review.
 - NNN charges support two modes: `individual` (CAM/insurance/taxes separately) or `aggregate` (single monthly estimate).
 - Duplicate period start dates are surfaced and require explicit user confirmation before processing proceeds.
+- Abatement percentage uses a **0–100 scale**: 100 = full abatement (tenant pays $0), 50 = half, 0 = none.
+- Quick Entry mode generates annual escalation periods from commencement date, expiration date, Year 1 rent, and escalation rate.
+
+## Reference files
+- `reference/LEASE_INPUT_SPEC.md` — canonical input field reference with format specs and mapping table
+- `reference/LEASE_OUTPUT_TABLES_INSTRUCTIONS.md` — Obligation Remaining, Buyout, and Renegotiation panel implementation spec
+- `reference/lease_output_template_ref1.xlsx` — Excel template reference (confidential, gitignored)

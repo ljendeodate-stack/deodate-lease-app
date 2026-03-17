@@ -451,6 +451,7 @@ export default function App() {
               notices={ocrNotices}
               validationErrors={validationErrors}
               sfRequired={sfRequired}
+              leaseStartDate={expandedRows.length > 0 ? expandedRows[0].date : null}
               onSubmit={handleFormSubmit}
               onBack={() => setStep(STEP.UPLOAD)}
               isProcessing={isProcessing}

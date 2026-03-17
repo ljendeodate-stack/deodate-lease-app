@@ -253,6 +253,7 @@ export function emptyFormState() {
     leaseName: '',
     squareFootage: '',
     abatementEndDate: '',
+    abatementMonths: '',
     abatementPct: '',
     nnnMode: 'individual',
     nnnAggregate: { year1: '', escPct: '' },
@@ -275,6 +276,7 @@ export default function InputForm({
   notices,             // string[] — OCR notices
   validationErrors,    // ValidationError[]
   sfRequired,          // boolean — $/SF conversion needed
+  leaseStartDate,      // string|null — ISO date from first expanded row (e.g. "2018-03-01")
   onSubmit,            // (params) => void
   onBack,              // () => void
   isProcessing,
@@ -384,15 +386,48 @@ export default function InputForm({
         {/* Abatement */}
         <div className="rounded-lg border border-gray-200 p-4 space-y-3">
           <h4 className="font-semibold text-gray-800 text-sm">Rent Abatement (optional)</h4>
-          <div className="grid grid-cols-2 gap-3">
+
+          {/* Row 1: Months + End Date (linked) */}
+          <div className="grid grid-cols-3 gap-3">
+            <FieldRow
+              label="# Months of Abatement"
+              hint="Number of months of abatement starting from lease commencement. Auto-computes the end date."
+              error={fieldErrors['abatementMonths']}
+            >
+              <TextInput
+                type="number"
+                value={form.abatementMonths}
+                onChange={(v) => {
+                  setTop('abatementMonths', v);
+                  // Auto-compute end date from lease start + N months
+                  const n = parseInt(v, 10);
+                  if (leaseStartDate && !isNaN(n) && n > 0) {
+                    const parts = leaseStartDate.split('-').map(Number);
+                    const endDate = new Date(parts[0], parts[1] - 1 + n, 0);
+                    const mm = String(endDate.getMonth() + 1).padStart(2, '0');
+                    const dd = String(endDate.getDate()).padStart(2, '0');
+                    const yyyy = endDate.getFullYear();
+                    setTop('abatementEndDate', `${mm}/${dd}/${yyyy}`);
+                  } else if (!v || v === '0') {
+                    setTop('abatementEndDate', '');
+                  }
+                }}
+                placeholder="e.g. 6"
+                error={fieldErrors['abatementMonths']}
+              />
+            </FieldRow>
             <FieldRow
               label={<>Abatement End Date <ConfidenceFlag flagged={confidenceFlags?.includes('abatementEndDate')} /></>}
-              hint="Last day of the abatement period (inclusive). E.g. if the lease says 'until June 30', enter 06/30/YYYY."
+              hint="Last day of the abatement period (inclusive). Auto-filled when you enter months, or enter directly."
               error={fieldErrors['abatementEndDate']}
             >
               <TextInput
                 value={form.abatementEndDate}
-                onChange={(v) => setTop('abatementEndDate', v)}
+                onChange={(v) => {
+                  setTop('abatementEndDate', v);
+                  // Clear months when user manually edits the date
+                  if (form.abatementMonths) setTop('abatementMonths', '');
+                }}
                 placeholder="MM/DD/YYYY"
                 error={fieldErrors['abatementEndDate']}
               />
@@ -401,7 +436,6 @@ export default function InputForm({
               label={
                 <>
                   Abatement Percentage (%)
-                  {/* Flaw 4 fix: explicit tooltip confirming convention */}
                   <span
                     className="ml-1 text-gray-400 cursor-help"
                     title="100 = full abatement (tenant pays $0). 50 = half abatement (tenant pays half rent). 0 = no abatement (full rent applies). This is applied as: tenant pays = rent × (1 − abatementPct÷100)."
@@ -414,14 +448,44 @@ export default function InputForm({
                 type="number"
                 value={form.abatementPct}
                 onChange={(v) => setTop('abatementPct', v)}
-                placeholder="e.g. 100 = full, 50 = half, 0 = none"
+                placeholder="e.g. 100"
                 error={fieldErrors['abatementPct']}
               />
             </FieldRow>
           </div>
+
+          {/* Quick-select buttons for abatement percentage */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Quick set:</span>
+            {[
+              { label: 'Full (100%)', value: '100' },
+              { label: 'Half (50%)', value: '50' },
+              { label: 'None (0%)', value: '0' },
+            ].map(({ label, value }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setTop('abatementPct', value)}
+                className={`rounded px-2.5 py-1 text-xs font-medium border transition-colors ${
+                  form.abatementPct === value
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Convention note */}
           <p className="text-xs text-gray-500">
             <strong>Convention:</strong> 100 = full abatement (tenant pays nothing).
             50 = half abatement (tenant pays half). 0 = no abatement (full rent due).
+            {leaseStartDate && form.abatementMonths && (
+              <span className="ml-1 text-blue-600">
+                Computed from lease start {leaseStartDate} + {form.abatementMonths} month{form.abatementMonths !== '1' ? 's' : ''}.
+              </span>
+            )}
           </p>
         </div>
 
