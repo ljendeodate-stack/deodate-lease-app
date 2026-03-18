@@ -199,7 +199,7 @@ function computeChargeAmount(year1, escRate, escYears, leaseYear, periodFactor) 
  * @param {Object}    params.taxes
  * @param {Object}    params.security
  * @param {Object}    params.otherItems
- * @param {Array}     params.oneTimeCharges      - [{ name, amount, date }]
+ * @param {Array}     params.oneTimeItems      - [{ label, amount, date }]
  *
  * @returns {Object[]} Processed ledger rows with all output fields populated.
  *
@@ -219,11 +219,8 @@ export function calculateAllCharges(expandedRows, params) {
     taxes,
     security,
     otherItems,
-    oneTimeCharges,
+    oneTimeItems = [],
   } = params;
-
-  const isAggregate = nnnMode === 'aggregate';
-  const otcList = Array.isArray(oneTimeCharges) ? oneTimeCharges : [];
 
   // Flaw 4 fix: convention explicitly enforced — 100 = full abatement (tenant pays 0).
   const tenantPaysFraction = 1 - (Math.min(Math.max(Number(abatementPct) || 0, 0), 100) / 100);
@@ -242,6 +239,62 @@ export function calculateAllCharges(expandedRows, params) {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const totalRows = rows.length;
+
+  // Collect unique OT labels in insertion order (non-zero items only).
+  const seenOTLabels = new Set();
+  const otLabelOrder = [];
+  for (const item of oneTimeItems) {
+    if (!(Number(item.amount) || 0)) continue;
+    const lbl = String(item.label || '').trim() || 'One-time Charge';
+    if (!seenOTLabels.has(lbl)) { seenOTLabels.add(lbl); otLabelOrder.push(lbl); }
+  }
+
+  // Pre-assign one-time items to row indices, tracked per label.
+  // Items with no date go to row 0 (lease commencement).
+  // Items before lease start → row 0; after lease end → last row.
+  const oneTimeByRow = Array.from({ length: totalRows }, () => {
+    const obj = {};
+    for (const lbl of otLabelOrder) obj[lbl] = 0;
+    return obj;
+  });
+
+  for (const item of oneTimeItems) {
+    const amount = Number(item.amount) || 0;
+    if (!amount) continue;
+    const lbl = String(item.label || '').trim() || 'One-time Charge';
+
+    if (!item.date) {
+      oneTimeByRow[0][lbl] = (oneTimeByRow[0][lbl] || 0) + amount;
+      continue;
+    }
+
+    let assigned = false;
+    for (let i = 0; i < totalRows; i++) {
+      const rowStart = parseISODate(rows[i].date);
+      let rowEnd = null;
+      if (i < totalRows - 1) {
+        const nextStart = parseISODate(rows[i + 1].date);
+        if (nextStart) rowEnd = new Date(nextStart.getTime() - 86400000);
+      } else {
+        rowEnd = rows[i].periodEnd ? parseISODate(rows[i].periodEnd) : null;
+        if (!rowEnd && rowStart) {
+          rowEnd = new Date(addMonthsAnchored(rowStart, 1).getTime() - 86400000);
+        }
+      }
+      if (rowStart && rowEnd &&
+          item.date.getTime() >= rowStart.getTime() &&
+          item.date.getTime() <= rowEnd.getTime()) {
+        oneTimeByRow[i][lbl] = (oneTimeByRow[i][lbl] || 0) + amount;
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) {
+      const leaseStart = parseISODate(rows[0].date);
+      const targetRow = leaseStart && item.date < leaseStart ? 0 : totalRows - 1;
+      oneTimeByRow[targetRow][lbl] = (oneTimeByRow[targetRow][lbl] || 0) + amount;
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Pass 1: forward — compute all per-row values
@@ -375,26 +428,23 @@ export function calculateAllCharges(expandedRows, params) {
       ? Number(computeChargeAmount(Number(otherItems.year1) || 0, otherItemsEsc, otherItemsEscYears, leaseYear, periodFactor).toFixed(2))
       : 0;
 
-    const totalNNNAmount = isAggregate
-      ? Number((nnnAggregateAmount + securityAmount + otherItemsAmount).toFixed(2))
-      : Number((camsAmount + insuranceAmount + taxesAmount + securityAmount + otherItemsAmount).toFixed(2));
+    // True NNN = CAMS + Insurance + Taxes only.
+    // Security and Other Items are "Other Charges", not NNN.
+    const trueNNN = camsAmount + insuranceAmount + taxesAmount;
 
-    // One-time charges: match by year+month of periodStart
-    const oneTimeAmounts = otcList.map((charge) => {
-      if (!charge.date || !periodStart) return 0;
-      const chargeDate = parseMDYStrict(charge.date);
-      if (!chargeDate) return 0;
-      if (
-        chargeDate.getFullYear() === periodStart.getFullYear() &&
-        chargeDate.getMonth()    === periodStart.getMonth()
-      ) {
-        return Number(charge.amount) || 0;
-      }
-      return 0;
-    });
-    const totalOTC = oneTimeAmounts.reduce((s, v) => s + v, 0);
+    const oneTimeItemAmounts = oneTimeByRow[i];  // { [label]: amount }
+    const oneTimeChargesAmount = Number(
+      Object.values(oneTimeItemAmounts).reduce((s, v) => s + v, 0).toFixed(2)
+    );
 
-    const totalMonthlyObligation = Number((Number(baseRentApplied.toFixed(2)) + totalNNNAmount + totalOTC).toFixed(2));
+    // Other Charges bucket = Security + Other Items + all one-time items
+    const totalOtherChargesAmount = Number(
+      (securityAmount + otherItemsAmount + oneTimeChargesAmount).toFixed(2)
+    );
+
+    const totalMonthlyObligation = Number(
+      (Number(baseRentApplied.toFixed(2)) + trueNNN + totalOtherChargesAmount).toFixed(2)
+    );
 
     const effectivePerSF =
       squareFootage > 0 ? Number((totalMonthlyObligation / squareFootage).toFixed(6)) : null;
@@ -456,16 +506,23 @@ export function calculateAllCharges(expandedRows, params) {
       otherItemsEscYears,
       otherItemsActive,
 
+      // One-time charges
+      oneTimeItemAmounts,
+      oneTimeChargesAmount,
+
+      // Charge buckets (used for remaining-balance computation in Pass 2)
+      totalOtherChargesAmount,
+
       // Totals
-      totalNNNAmount,
-      oneTimeAmounts,
+      totalNNNAmount: trueNNN,
       totalMonthlyObligation,
       effectivePerSF,
 
       // Remaining balance fields — populated in Pass 2
-      totalObligationRemaining: 0,
-      totalNNNRemaining:        0,
-      totalBaseRentRemaining:   0,
+      totalObligationRemaining:   0,
+      totalNNNRemaining:          0,
+      totalBaseRentRemaining:     0,
+      totalOtherChargesRemaining: 0,
     });
   }
 
@@ -473,20 +530,23 @@ export function calculateAllCharges(expandedRows, params) {
   // Pass 2: reverse — accumulate remaining balances (last row → first row)
   // Matches the n8n second-pass logic exactly.
   // -------------------------------------------------------------------------
-  let runningTotal    = 0;
-  let runningNNN      = 0;
-  let runningBase     = 0;
+  let runningTotal        = 0;
+  let runningNNN          = 0;   // CAMS + Insurance + Taxes only
+  let runningBase         = 0;
+  let runningOtherCharges = 0;   // Security + Other Items + one-time items
 
   for (let i = totalRows - 1; i >= 0; i--) {
     const row = rows[i];
 
-    runningTotal += row.totalMonthlyObligation;
-    runningNNN   += row.totalNNNAmount;
-    runningBase  += row.baseRentApplied;
+    runningTotal        += row.totalMonthlyObligation;
+    runningNNN          += (row.camsAmount + row.insuranceAmount + row.taxesAmount);
+    runningBase         += row.baseRentApplied;
+    runningOtherCharges += row.totalOtherChargesAmount;
 
-    row.totalObligationRemaining = Number(runningTotal.toFixed(2));
-    row.totalNNNRemaining        = Number(runningNNN.toFixed(2));
-    row.totalBaseRentRemaining   = Number(runningBase.toFixed(2));
+    row.totalObligationRemaining   = Number(runningTotal.toFixed(2));
+    row.totalNNNRemaining          = Number(runningNNN.toFixed(2));
+    row.totalBaseRentRemaining     = Number(runningBase.toFixed(2));
+    row.totalOtherChargesRemaining = Number(runningOtherCharges.toFixed(2));
   }
 
   return rows;

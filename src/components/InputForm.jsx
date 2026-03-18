@@ -136,110 +136,6 @@ function NNNSection({ label, prefix, values, onChange, confidenceFlags = [], fie
   );
 }
 
-function OneTimeChargesSection({ charges, onChange }) {
-  const [expanded, setExpanded] = useState(() => charges.length > 0);
-
-  function addCharge() {
-    onChange([...charges, { name: '', amount: '', date: '' }]);
-    setExpanded(true);
-  }
-
-  function removeCharge(idx) {
-    onChange(charges.filter((_, i) => i !== idx));
-  }
-
-  function updateCharge(idx, field, value) {
-    const updated = charges.map((c, i) => (i === idx ? { ...c, [field]: value } : c));
-    onChange(updated);
-  }
-
-  return (
-    <div className="rounded-lg border border-gray-200 overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setExpanded((prev) => !prev)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
-      >
-        <div className="flex items-center gap-3">
-          <span className="font-semibold text-gray-800 text-sm">One-Time Charges</span>
-          {charges.length > 0 && (
-            <span className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-0.5">
-              {charges.length} charge{charges.length !== 1 ? 's' : ''}
-            </span>
-          )}
-        </div>
-        <span className="text-gray-400 text-xs">{expanded ? '▲' : '▼'}</span>
-      </button>
-
-      {expanded && (
-        <div className="px-4 pb-4 pt-3 border-t border-gray-100 space-y-3">
-          {charges.length === 0 ? (
-            <p className="text-xs text-gray-400">No one-time charges. Click "+ Add Charge" to add a fee that applies in a single month.</p>
-          ) : (
-            <div className="space-y-3">
-              {charges.map((charge, idx) => (
-                <div key={idx} className="rounded-md border border-gray-200 bg-gray-50 p-3">
-                  <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
-                    <FieldRow label="Charge Name">
-                      <TextInput
-                        value={charge.name}
-                        onChange={(v) => updateCharge(idx, 'name', v)}
-                        placeholder="e.g. Security Deposit"
-                      />
-                    </FieldRow>
-                    <FieldRow label="Amount ($)">
-                      <TextInput
-                        type="number"
-                        value={charge.amount}
-                        onChange={(v) => updateCharge(idx, 'amount', v)}
-                        placeholder="e.g. 5000"
-                      />
-                    </FieldRow>
-                    <FieldRow label="Month (MM/DD/YYYY)">
-                      <TextInput
-                        value={charge.date}
-                        onChange={(v) => updateCharge(idx, 'date', v)}
-                        placeholder="MM/DD/YYYY"
-                      />
-                    </FieldRow>
-                    <button
-                      type="button"
-                      onClick={() => removeCharge(idx)}
-                      className="mb-0.5 rounded-md bg-red-50 border border-red-300 text-red-600 px-2 py-1.5 text-xs font-semibold hover:bg-red-100 transition-colors"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {/* Net cash effect summary */}
-              {(() => {
-                const netTotal = charges.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
-                return (
-                  <div className={`flex items-center justify-end gap-2 pt-2 border-t border-gray-200 text-sm font-semibold ${netTotal >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    <span className="text-gray-600 font-medium">Net Cash Effect:</span>
-                    <span>{netTotal >= 0 ? '+' : ''}{formatDollar(netTotal)}</span>
-                    <span className="text-xs font-normal text-gray-500">
-                      {netTotal > 0 ? '(tenant outflow)' : netTotal < 0 ? '(landlord credit)' : '(net zero)'}
-                    </span>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={addCharge}
-            className="rounded-md bg-blue-50 border border-blue-300 text-blue-700 px-3 py-1.5 text-xs font-semibold hover:bg-blue-100 transition-colors"
-          >
-            + Add Charge
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Default empty form state
 // ---------------------------------------------------------------------------
@@ -262,7 +158,7 @@ export function emptyFormState() {
     taxes: emptyNNN(),
     security: emptyNNN(),
     otherItems: emptyNNN(),
-    oneTimeCharges: [],
+    oneTimeItems: [],
   };
 }
 
@@ -309,10 +205,6 @@ export default function InputForm({
       ...prev,
       nnnAggregate: { ...prev.nnnAggregate, [field]: value },
     }));
-  }
-
-  function setOneTimeCharges(charges) {
-    setForm((prev) => ({ ...prev, oneTimeCharges: charges }));
   }
 
   // Build a quick lookup: field → error message
@@ -587,11 +479,74 @@ export default function InputForm({
           })
         )}
 
-        {/* One-Time Charges */}
-        <OneTimeChargesSection
-          charges={form.oneTimeCharges ?? []}
-          onChange={setOneTimeCharges}
-        />
+        {/* One-time items */}
+        <div className="rounded-lg border border-gray-200 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="font-semibold text-gray-800 text-sm">One-time Charges (optional)</h4>
+            <button
+              type="button"
+              onClick={() => setForm((prev) => ({
+                ...prev,
+                oneTimeItems: [...(prev.oneTimeItems ?? []), { label: '', date: '', amount: '' }],
+              }))}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              + Add item
+            </button>
+          </div>
+          {(form.oneTimeItems ?? []).length === 0 && (
+            <p className="text-xs text-gray-400">No one-time charges. Click "+ Add item" to add key money, deposits, etc.</p>
+          )}
+          {(form.oneTimeItems ?? []).map((item, idx) => (
+            <div key={idx} className="grid grid-cols-3 gap-2 items-end">
+              <FieldRow label="Label">
+                <TextInput
+                  value={item.label}
+                  onChange={(v) => setForm((prev) => {
+                    const items = [...prev.oneTimeItems];
+                    items[idx] = { ...items[idx], label: v };
+                    return { ...prev, oneTimeItems: items };
+                  })}
+                  placeholder="e.g. Key Money"
+                />
+              </FieldRow>
+              <FieldRow label="Date" hint="Leave blank to assign to lease commencement.">
+                <TextInput
+                  value={item.date}
+                  onChange={(v) => setForm((prev) => {
+                    const items = [...prev.oneTimeItems];
+                    items[idx] = { ...items[idx], date: v };
+                    return { ...prev, oneTimeItems: items };
+                  })}
+                  placeholder="MM/DD/YYYY (optional)"
+                />
+              </FieldRow>
+              <FieldRow label="Amount ($)">
+                <div className="flex gap-1">
+                  <TextInput
+                    type="number"
+                    value={item.amount}
+                    onChange={(v) => setForm((prev) => {
+                      const items = [...prev.oneTimeItems];
+                      items[idx] = { ...items[idx], amount: v };
+                      return { ...prev, oneTimeItems: items };
+                    })}
+                    placeholder="e.g. 5000"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setForm((prev) => ({
+                      ...prev,
+                      oneTimeItems: prev.oneTimeItems.filter((_, i) => i !== idx),
+                    }))}
+                    className="text-xs text-red-500 hover:text-red-700 px-2"
+                    title="Remove"
+                  >✕</button>
+                </div>
+              </FieldRow>
+            </div>
+          ))}
+        </div>
 
         {/* Submit */}
         <div className="flex items-center gap-4 pt-2">

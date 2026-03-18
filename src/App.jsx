@@ -50,6 +50,13 @@ function formToCalculatorParams(form) {
     squareFootage: Number(form.squareFootage) || 0,
     abatementEndDate: parseMDYStrict(form.abatementEndDate),
     abatementPct: Number(form.abatementPct) || 0,
+    oneTimeItems: (form.oneTimeItems ?? [])
+      .map((item) => ({
+        label:  item.label ?? '',
+        date:   parseMDYStrict(item.date),   // null when blank → assigned to first row
+        amount: Number(item.amount) || 0,
+      }))
+      .filter((item) => item.amount !== 0),
     cams: {
       year1: Number(form.cams?.year1) || 0,
       escPct: Number(form.cams?.escPct) || 0,
@@ -221,15 +228,19 @@ export default function App() {
         leaseName:        result.leaseName ?? '',
         squareFootage:    result.squareFootage != null ? String(result.squareFootage) : '',
         abatementEndDate: result.abatementEndDate ?? '',
-        abatementPct:     result.abatementPct != null ? String(result.abatementPct) : '',
-        nnnMode,
-        nnnAggregate:     nnnAggregateForm,
-        cams:             nnnToForm(result.cams),
-        insurance:        nnnToForm(result.insurance),
-        taxes:            nnnToForm(result.taxes),
-        security:         nnnToForm(result.security),
-        otherItems:       nnnToForm(result.otherItems),
-        oneTimeCharges:   depositOTC,
+        abatementPct: result.abatementPct != null ? String(result.abatementPct) : '',
+        cams: nnnToForm(result.cams),
+        insurance: nnnToForm(result.insurance),
+        taxes: nnnToForm(result.taxes),
+        security: nnnToForm(result.security),
+        otherItems: nnnToForm(result.otherItems),
+        oneTimeItems: (result.oneTimeItems ?? []).map((item) => ({
+          label:  item.label ?? '',
+          date:   item.dueDate ?? '',
+          amount: item.amount != null
+            ? String(Math.abs(item.amount) * (item.sign === -1 ? -1 : 1))
+            : '',
+        })),
       });
 
       setOcrConfidenceFlags(allConfidenceFlags);
