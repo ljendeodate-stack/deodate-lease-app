@@ -14,6 +14,7 @@
     "eval:failures": "node scripts/evalHarness.js --failures"
   },
   "dependencies": {
+    "docx": "^9.6.1",
     "fflate": "^0.8.2",
     "papaparse": "^5.4.1",
     "pdfjs-dist": "^4.4.168",

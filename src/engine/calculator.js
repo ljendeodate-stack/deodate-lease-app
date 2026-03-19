@@ -148,6 +148,7 @@ function computePeriodFactor(rowIndex, totalRows, periodStart, periodEnd) {
   const calMonthEnd   = new Date(periodEnd.getFullYear(), periodEnd.getMonth() + 1, 0);
   const calMonthDays  = daysBetweenInclusive(calMonthStart, calMonthEnd);
   const actualDays    = daysBetweenInclusive(periodStart, periodEnd);
+  if (calMonthDays <= 0) return { factor: 0, actualDays: 0, calMonthDays: 0 };
   const factor        = actualDays / calMonthDays;
 
   return { factor, actualDays, calMonthDays };
@@ -221,6 +222,8 @@ export function calculateAllCharges(expandedRows, params) {
     otherItems,
     oneTimeItems = [],
   } = params;
+
+  const isAggregate = nnnMode === 'aggregate';
 
   // Flaw 4 fix: convention explicitly enforced — 100 = full abatement (tenant pays 0).
   const tenantPaysFraction = 1 - (Math.min(Math.max(Number(abatementPct) || 0, 0), 100) / 100);

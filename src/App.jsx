@@ -5,6 +5,9 @@
  *
  * Human-in-the-loop: processing is never triggered automatically.
  * The user must explicitly confirm the form before calculator.js runs.
+ *
+ * Resilient pipeline: extraction/parsing failures never dead-end the user.
+ * Low-confidence extractions auto-route to the manual schedule editor.
  */
 
 import { useState, useCallback } from 'react';
@@ -24,6 +27,8 @@ import { validateParams, validateSchedule } from './engine/validator.js';
 import { extractFromPDF } from './ocr/extractor.js';
 import { parseMDYStrict, parseExcelDate } from './engine/yearMonth.js';
 import { classifyExpenseLabel, NNN_BUCKET_KEYS } from './engine/labelClassifier.js';
+import { scoreExtraction, shouldFallbackToManual, categorizeFields } from './engine/confidenceScorer.js';
+import { checkSchedulePlausibility } from './engine/plausibility.js';
 
 // ---------------------------------------------------------------------------
 // Step constants
@@ -53,7 +58,7 @@ function formToCalculatorParams(form) {
     oneTimeItems: (form.oneTimeItems ?? [])
       .map((item) => ({
         label:  item.label ?? '',
-        date:   parseMDYStrict(item.date),   // null when blank → assigned to first row
+        date:   parseMDYStrict(item.date),
         amount: Number(item.amount) || 0,
       }))
       .filter((item) => item.amount !== 0),
@@ -94,12 +99,7 @@ function formToCalculatorParams(form) {
 }
 
 /**
- * Convert the rentSchedule array from the OCR result into canonical period rows
- * suitable for expandPeriods(). OCR dates are MM/DD/YYYY strings; parseMDYStrict
- * handles the strict format and parseExcelDate covers variants without leading zeros.
- *
- * @param {Array<{periodStart: string, periodEnd: string, monthlyRent: number}>} rentSchedule
- * @returns {{ periodStart: Date, periodEnd: Date, monthlyRent: number }[]}
+ * Convert the rentSchedule array from the OCR result into canonical period rows.
  */
 function ocrScheduleToPeriodRows(rentSchedule) {
   if (!Array.isArray(rentSchedule)) return [];
@@ -118,7 +118,7 @@ function ocrScheduleToPeriodRows(rentSchedule) {
 
 export default function App() {
   const [step, setStep] = useState(STEP.UPLOAD);
-  const [inputPath, setInputPath] = useState(null);   // 'pdf' | 'file'
+  const [inputPath, setInputPath] = useState(null);
   const [fileName, setFileName] = useState('lease-schedule');
 
   // Schedule rows (from parser + expander)
@@ -133,8 +133,18 @@ export default function App() {
   const [ocrNotices, setOcrNotices] = useState([]);
   const [sfRequired, setSfRequired] = useState(false);
 
+  // Confidence / plausibility
+  const [confidenceResult, setConfidenceResult] = useState(null);
+  const [fieldCategories, setFieldCategories] = useState(null);
+  const [plausibilityIssues, setPlausibilityIssues] = useState([]);
+
+  // Fallback state: period rows extracted from OCR for pre-populating ScheduleEditor
+  const [fallbackPeriodRows, setFallbackPeriodRows] = useState(null);
+  const [fallbackReason, setFallbackReason] = useState(null);
+
   // Processing state
   const [validationErrors, setValidationErrors] = useState([]);
+  const [validationWarnings, setValidationWarnings] = useState([]);
   const [processedRows, setProcessedRows] = useState([]);
   const [processedParams, setProcessedParams] = useState({});
   const [labelClassifications, setLabelClassifications] = useState(null);
@@ -153,16 +163,13 @@ export default function App() {
     setIsExtracting(true);
 
     try {
-      // Run OCR extraction and file parsing in parallel
       const buffer = await file.arrayBuffer();
       const [{ result, isLikelyScanned }, parsedFile] = await Promise.all([
         extractFromPDF(buffer),
         parseFile(file),
       ]);
 
-      // Prefer rows from the structured file parser; fall back to the OCR rent schedule.
-      // The structured PDF parser returns empty rows for normal lease PDFs (no table headers),
-      // so the OCR result is the primary source for Path A uploads.
+      // Prefer structured file parser; fall back to OCR schedule
       const usingOcrSchedule = parsedFile.rows.length === 0 && result.rentSchedule?.length > 0;
       const periodRows = usingOcrSchedule
         ? ocrScheduleToPeriodRows(result.rentSchedule)
@@ -175,98 +182,130 @@ export default function App() {
           : []),
       ];
 
-      const { rows, duplicateDates: dups } = expandPeriods(periodRows);
+      // Score confidence
+      const confidence = scoreExtraction(result, periodRows);
+      setConfidenceResult(confidence);
+      setFieldCategories(categorizeFields(result, confidence));
+
+      // Run plausibility checks on the period rows
+      const plausibility = checkSchedulePlausibility(periodRows);
+      setPlausibilityIssues(plausibility);
+
+      // If confidence is too low, route to manual schedule editor with pre-populated data
+      if (shouldFallbackToManual(confidence)) {
+        setFallbackPeriodRows(periodRows.length > 0 ? periodRows : null);
+        setFallbackReason(
+          confidence.reasons.length > 0
+            ? confidence.reasons[0]
+            : 'Extraction confidence is too low to proceed automatically.'
+        );
+
+        // Still pre-populate form from OCR (whatever we got)
+        prepopulateFormFromOCR(result);
+        setParseWarnings(scheduleWarnings);
+        setIsExtracting(false);
+        setStep(STEP.SCHEDULE);
+        return;
+      }
+
+      // Normal path: expand and proceed to form
+      const { rows, duplicateDates: dups, warnings: expandWarnings } = expandPeriods(periodRows);
       setExpandedRows(rows);
-      setParseWarnings(scheduleWarnings);
+      setParseWarnings([...scheduleWarnings, ...expandWarnings]);
       setDuplicateDates(dups);
       setDupConfirmed(dups.length === 0);
 
-      // Pre-populate form from OCR result
-      const nnnToForm = (cat) => ({
-        year1: cat?.year1 != null ? String(cat.year1) : '',
-        escPct: cat?.escPct != null ? String(cat.escPct) : '',
-        chargeStart: cat?.chargeStart ?? '',
-        escStart: cat?.escStart ?? '',
-      });
-
-      let allConfidenceFlags = [...(result.confidenceFlags ?? [])];
-
-      // Determine NNN mode: aggregate when monthly estimate exists but no individual breakdown
-      const hasIndividualNNN = result.cams?.year1 != null ||
-        result.insurance?.year1 != null ||
-        result.taxes?.year1 != null;
-
-      let nnnMode = 'individual';
-      let nnnAggregateForm = { year1: '', escPct: '' };
-
-      if (result.estimatedNNNMonthly != null && !hasIndividualNNN) {
-        nnnMode = 'aggregate';
-        nnnAggregateForm = { year1: String(result.estimatedNNNMonthly), escPct: '' };
-        allConfidenceFlags = [...allConfidenceFlags, 'nnnAggregate.year1'];
-      }
-
-      // One-time charges: prefer the new oneTimeCharges array from OCR;
-      // fall back to legacy securityDeposit field if the model returned the old shape.
-      let depositOTC;
-      if (Array.isArray(result.oneTimeCharges) && result.oneTimeCharges.length > 0) {
-        depositOTC = result.oneTimeCharges.map((c) => ({
-          name:   String(c.label || c.name || '').trim(),
-          amount: String(c.amount ?? 0),
-          date:   String(c.dueDate || c.date || ''),
-        })).filter((c) => c.name);
-      } else if (result.securityDeposit != null && result.securityDeposit > 0) {
-        depositOTC = [{
-          name:   'Security Deposit',
-          amount: String(result.securityDeposit),
-          date:   result.securityDepositDate ?? result.rentSchedule?.[0]?.periodStart ?? '',
-        }];
-      } else {
-        depositOTC = [];
-      }
-
-      setFormInitialValues({
-        leaseName:        result.leaseName ?? '',
-        squareFootage:    result.squareFootage != null ? String(result.squareFootage) : '',
-        abatementEndDate: result.abatementEndDate ?? '',
-        abatementPct: result.abatementPct != null ? String(result.abatementPct) : '',
-        cams: nnnToForm(result.cams),
-        insurance: nnnToForm(result.insurance),
-        taxes: nnnToForm(result.taxes),
-        security: nnnToForm(result.security),
-        otherItems: nnnToForm(result.otherItems),
-        oneTimeItems: (result.oneTimeItems ?? []).map((item) => ({
-          label:  item.label ?? '',
-          date:   item.dueDate ?? '',
-          amount: item.amount != null
-            ? String(Math.abs(item.amount) * (item.sign === -1 ? -1 : 1))
-            : '',
-        })),
-      });
-
-      setOcrConfidenceFlags(allConfidenceFlags);
-      setOcrNotices(result.notices ?? []);
-      setSfRequired(result.sfRequired ?? false);
-
-      // Generate classification trace for each NNN bucket that had OCR data.
-      // The OCR already returns structured field names, so we classify the field
-      // key as the rawLabel — this produces high-confidence exact matches and
-      // gives the UI a consistent trace object to display per category.
-      const classifications = {};
-      for (const key of NNN_BUCKET_KEYS) {
-        const fieldValue = result[key];
-        if (fieldValue?.year1 != null) {
-          // Classify using the canonical field name (always exact match)
-          classifications[key] = classifyExpenseLabel(key);
-        }
-      }
-      setLabelClassifications(Object.keys(classifications).length ? classifications : null);
+      prepopulateFormFromOCR(result);
+      setStep(STEP.FORM);
     } catch (err) {
-      setGlobalError(`OCR extraction failed: ${err.message}`);
+      // Even if everything fails, don't dead-end — route to manual
+      setGlobalError(`Extraction encountered issues: ${err.message}. You can enter the schedule manually below.`);
+      setFallbackPeriodRows(null);
+      setFallbackReason('Extraction failed unexpectedly.');
+      setStep(STEP.SCHEDULE);
     } finally {
       setIsExtracting(false);
-      setStep(STEP.FORM);
     }
   }, []);
+
+  /**
+   * Pre-populate form state from an OCR extraction result.
+   */
+  function prepopulateFormFromOCR(result) {
+    const nnnToForm = (cat) => ({
+      year1: cat?.year1 != null ? String(cat.year1) : '',
+      escPct: cat?.escPct != null ? String(cat.escPct) : '',
+      chargeStart: cat?.chargeStart ?? '',
+      escStart: cat?.escStart ?? '',
+    });
+
+    let allConfidenceFlags = [...(result.confidenceFlags ?? [])];
+
+    const hasIndividualNNN = result.cams?.year1 != null ||
+      result.insurance?.year1 != null ||
+      result.taxes?.year1 != null;
+
+    let nnnMode = 'individual';
+    let nnnAggregateForm = { year1: '', escPct: '' };
+
+    if (result.estimatedNNNMonthly != null && !hasIndividualNNN) {
+      nnnMode = 'aggregate';
+      nnnAggregateForm = { year1: String(result.estimatedNNNMonthly), escPct: '' };
+      allConfidenceFlags = [...allConfidenceFlags, 'nnnAggregate.year1'];
+    }
+
+    let depositOTC;
+    if (Array.isArray(result.oneTimeCharges) && result.oneTimeCharges.length > 0) {
+      depositOTC = result.oneTimeCharges.map((c) => ({
+        name:   String(c.label || c.name || '').trim(),
+        amount: String(c.amount ?? 0),
+        date:   String(c.dueDate || c.date || ''),
+      })).filter((c) => c.name);
+    } else if (result.securityDeposit != null && result.securityDeposit > 0) {
+      depositOTC = [{
+        name:   'Security Deposit',
+        amount: String(result.securityDeposit),
+        date:   result.securityDepositDate ?? result.rentSchedule?.[0]?.periodStart ?? '',
+      }];
+    } else {
+      depositOTC = [];
+    }
+
+    setFormInitialValues({
+      leaseName:        result.leaseName ?? '',
+      squareFootage:    result.squareFootage != null ? String(result.squareFootage) : '',
+      abatementEndDate: result.abatementEndDate ?? '',
+      abatementPct: result.abatementPct != null ? String(result.abatementPct) : '',
+      nnnMode,
+      nnnAggregate: nnnAggregateForm,
+      cams: nnnToForm(result.cams),
+      insurance: nnnToForm(result.insurance),
+      taxes: nnnToForm(result.taxes),
+      security: nnnToForm(result.security),
+      otherItems: nnnToForm(result.otherItems),
+      oneTimeItems: (result.oneTimeItems ?? []).map((item) => ({
+        label:  item.label ?? '',
+        date:   item.dueDate ?? '',
+        amount: item.amount != null
+          ? String(Math.abs(item.amount) * (item.sign === -1 ? -1 : 1))
+          : '',
+      })),
+    });
+
+    setOcrConfidenceFlags(allConfidenceFlags);
+    setOcrNotices(result.notices ?? []);
+    setSfRequired(result.sfRequired ?? false);
+
+    // Classification trace
+    const classifications = {};
+    for (const key of NNN_BUCKET_KEYS) {
+      const fieldValue = result[key];
+      if (fieldValue?.year1 != null) {
+        classifications[key] = classifyExpenseLabel(key);
+      }
+    }
+    setLabelClassifications(Object.keys(classifications).length ? classifications : null);
+  }
 
   const handleFileUpload = useCallback(async (file) => {
     setGlobalError(null);
@@ -275,9 +314,14 @@ export default function App() {
 
     try {
       const { rows: periodRows, warnings } = await parseFile(file);
-      const { rows, duplicateDates: dups } = expandPeriods(periodRows);
+
+      // Run plausibility checks
+      const plausibility = checkSchedulePlausibility(periodRows);
+      setPlausibilityIssues(plausibility);
+
+      const { rows, duplicateDates: dups, warnings: expandWarnings } = expandPeriods(periodRows);
       setExpandedRows(rows);
-      setParseWarnings(warnings);
+      setParseWarnings([...warnings, ...expandWarnings]);
       setDuplicateDates(dups);
       setDupConfirmed(dups.length === 0);
       setFormInitialValues(emptyFormState());
@@ -285,9 +329,23 @@ export default function App() {
       setOcrNotices([]);
       setSfRequired(false);
       setLabelClassifications(null);
-      setStep(STEP.FORM);
+      setConfidenceResult(null);
+      setFieldCategories(null);
+
+      // If no rows were produced, route to manual entry
+      if (rows.length === 0 && periodRows.length === 0) {
+        setFallbackPeriodRows(null);
+        setFallbackReason('No valid rent schedule data could be extracted from the file.');
+        setStep(STEP.SCHEDULE);
+      } else {
+        setStep(STEP.FORM);
+      }
     } catch (err) {
-      setGlobalError(`File parsing failed: ${err.message}`);
+      // Don't dead-end — route to manual
+      setGlobalError(`File parsing encountered issues: ${err.message}. You can enter the schedule manually.`);
+      setFallbackPeriodRows(null);
+      setFallbackReason('File parsing failed.');
+      setStep(STEP.SCHEDULE);
     }
   }, []);
 
@@ -304,17 +362,29 @@ export default function App() {
     setOcrNotices([]);
     setSfRequired(false);
     setLabelClassifications(null);
+    setConfidenceResult(null);
+    setFieldCategories(null);
+    setPlausibilityIssues([]);
+    setFallbackPeriodRows(null);
+    setFallbackReason(null);
     setStep(STEP.SCHEDULE);
   }, []);
 
   const handleScheduleConfirm = useCallback((periodRows, warnings) => {
     setGlobalError(null);
     try {
-      const { rows, duplicateDates: dups } = expandPeriods(periodRows);
+      const { rows, duplicateDates: dups, warnings: expandWarnings } = expandPeriods(periodRows);
       setExpandedRows(rows);
-      setParseWarnings(warnings);
+      setParseWarnings([...warnings, ...expandWarnings]);
       setDuplicateDates(dups);
       setDupConfirmed(dups.length === 0);
+
+      // Run plausibility checks on the confirmed schedule
+      const plausibility = checkSchedulePlausibility(periodRows);
+      setPlausibilityIssues(plausibility);
+
+      setFallbackPeriodRows(null);
+      setFallbackReason(null);
       setStep(STEP.FORM);
     } catch (err) {
       setGlobalError(`Schedule parsing failed: ${err.message}`);
@@ -322,7 +392,7 @@ export default function App() {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Form submit → processing
+  // Form submit -> processing
   // ---------------------------------------------------------------------------
 
   const handleFormSubmit = useCallback((form) => {
@@ -334,22 +404,26 @@ export default function App() {
       return;
     }
 
-    // Validate schedule
-    const scheduleErrors = validateSchedule(expandedRows);
-    const paramErrors = validateParams(
+    // Validate — now returns { errors, warnings }
+    const scheduleResult = validateSchedule(expandedRows);
+    const paramResult = validateParams(
       { ...form, sfRequired },
       expandedRows
     );
-    const allErrors = [...scheduleErrors, ...paramErrors];
+
+    const allErrors = [...scheduleResult.errors, ...paramResult.errors];
+    const allWarnings = [...scheduleResult.warnings, ...paramResult.warnings];
+
     setValidationErrors(allErrors);
-    if (allErrors.length) return;
+    setValidationWarnings(allWarnings);
+
+    // Only block on errors, not warnings
+    if (allErrors.length > 0) return;
 
     setIsProcessing(true);
     try {
       const params = formToCalculatorParams(form);
       const rows = calculateAllCharges(expandedRows, params);
-      // Attach classification trace to every row so TracePanel can display it.
-      // The trace is per-category (not per-row), so we embed it once per row.
       const annotatedRows = labelClassifications
         ? rows.map((r) => ({ ...r, labelClassifications }))
         : rows;
@@ -361,7 +435,7 @@ export default function App() {
     } finally {
       setIsProcessing(false);
     }
-  }, [expandedRows, duplicateDates, dupConfirmed, sfRequired]);
+  }, [expandedRows, duplicateDates, dupConfirmed, sfRequired, labelClassifications]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -384,10 +458,16 @@ export default function App() {
                 setProcessedRows([]);
                 setExpandedRows([]);
                 setValidationErrors([]);
+                setValidationWarnings([]);
                 setGlobalError(null);
                 setDuplicateDates([]);
                 setDupConfirmed(false);
                 setLabelClassifications(null);
+                setConfidenceResult(null);
+                setFieldCategories(null);
+                setPlausibilityIssues([]);
+                setFallbackPeriodRows(null);
+                setFallbackReason(null);
               }}
               className="text-sm text-gray-500 hover:text-gray-700 underline"
             >
@@ -401,7 +481,7 @@ export default function App() {
         {/* Global error */}
         {globalError && (
           <div className="rounded-md bg-red-50 border border-red-300 p-4 text-sm text-red-700">
-            ⚠ {globalError}
+            {globalError}
           </div>
         )}
 
@@ -415,22 +495,83 @@ export default function App() {
           />
         )}
 
-        {/* Step: Schedule editor (manual entry / bulk paste) */}
+        {/* Step: Schedule editor (manual entry / bulk paste / fallback) */}
         {step === STEP.SCHEDULE && (
-          <ScheduleEditor
-            onConfirm={handleScheduleConfirm}
-            onBack={() => setStep(STEP.UPLOAD)}
-          />
+          <div className="space-y-4">
+            {/* Fallback banner — shown when routing from failed/weak extraction */}
+            {fallbackReason && (
+              <div className="rounded-md bg-amber-50 border border-amber-300 p-4 space-y-2">
+                <p className="text-sm font-semibold text-amber-800">
+                  Manual schedule entry needed
+                </p>
+                <p className="text-sm text-amber-700">
+                  {fallbackReason} Please enter or paste the rent schedule below.
+                </p>
+                {confidenceResult && (
+                  <p className="text-xs text-amber-600">
+                    Extraction confidence: {(confidenceResult.overall * 100).toFixed(0)}% ({confidenceResult.level})
+                    {confidenceResult.reasons.length > 0 && ` — ${confidenceResult.reasons[0]}`}
+                  </p>
+                )}
+              </div>
+            )}
+            <ScheduleEditor
+              onConfirm={handleScheduleConfirm}
+              onBack={() => setStep(STEP.UPLOAD)}
+              initialPeriodRows={fallbackPeriodRows}
+            />
+          </div>
         )}
 
         {/* Step: Form */}
         {step === STEP.FORM && (
           <div className="space-y-4">
+            {/* Confidence summary (PDF path) */}
+            {confidenceResult && (
+              <div className={`rounded-md border p-3 space-y-1 ${
+                confidenceResult.level === 'high' ? 'bg-green-50 border-green-200' :
+                confidenceResult.level === 'medium' ? 'bg-amber-50 border-amber-200' :
+                'bg-red-50 border-red-200'
+              }`}>
+                <p className={`text-sm font-semibold ${
+                  confidenceResult.level === 'high' ? 'text-green-800' :
+                  confidenceResult.level === 'medium' ? 'text-amber-800' :
+                  'text-red-800'
+                }`}>
+                  Extraction confidence: {(confidenceResult.overall * 100).toFixed(0)}% ({confidenceResult.level})
+                </p>
+                {confidenceResult.reasons.map((r, i) => (
+                  <p key={i} className="text-xs text-gray-600">{r}</p>
+                ))}
+              </div>
+            )}
+
             {/* Parse warnings */}
             {parseWarnings.length > 0 && (
               <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-1">
                 {parseWarnings.map((w, i) => (
-                  <p key={i} className="text-sm text-amber-800">⚠ {w}</p>
+                  <p key={i} className="text-sm text-amber-800">{w}</p>
+                ))}
+              </div>
+            )}
+
+            {/* Plausibility warnings */}
+            {plausibilityIssues.length > 0 && (
+              <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-1">
+                <p className="text-sm font-semibold text-amber-800">Schedule plausibility checks:</p>
+                {plausibilityIssues.map((issue, i) => (
+                  <p key={i} className={`text-sm ${issue.severity === 'error' ? 'text-red-700' : 'text-amber-700'}`}>
+                    {issue.message}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {/* Validation warnings (non-blocking) */}
+            {validationWarnings.length > 0 && (
+              <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-1">
+                {validationWarnings.map((w, i) => (
+                  <p key={i} className="text-sm text-amber-700">{w.message}</p>
                 ))}
               </div>
             )}
@@ -439,7 +580,7 @@ export default function App() {
             {duplicateDates.length > 0 && !dupConfirmed && (
               <div className="rounded-md bg-red-50 border border-red-300 p-4 space-y-2">
                 <p className="text-sm font-semibold text-red-800">
-                  ⚠ Duplicate period start dates detected in the uploaded schedule:
+                  Duplicate period start dates detected in the uploaded schedule:
                 </p>
                 <ul className="list-disc list-inside text-sm text-red-700">
                   {duplicateDates.map((d) => <li key={d}>{d}</li>)}
@@ -455,6 +596,20 @@ export default function App() {
                 </button>
               </div>
             )}
+
+            {/* Edit schedule link — always available */}
+            <div className="flex justify-end">
+              <button
+                onClick={() => {
+                  setFallbackPeriodRows(null);
+                  setFallbackReason(null);
+                  setStep(STEP.SCHEDULE);
+                }}
+                className="text-xs text-blue-600 hover:text-blue-800 underline"
+              >
+                Edit rent schedule manually
+              </button>
+            </div>
 
             <InputForm
               initialValues={formInitialValues}
@@ -475,8 +630,31 @@ export default function App() {
           <div className="space-y-8">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-gray-900">Lease Schedule — {fileName}</h2>
-              <ExportButton rows={processedRows} params={processedParams} filename={fileName} />
+              <ExportButton
+                rows={processedRows}
+                params={processedParams}
+                filename={fileName}
+                confidenceResult={confidenceResult}
+                fieldCategories={fieldCategories}
+                plausibilityIssues={plausibilityIssues}
+                validationWarnings={validationWarnings}
+              />
             </div>
+
+            {/* Confidence / plausibility summary on results page */}
+            {(confidenceResult?.level === 'low' || plausibilityIssues.some((i) => i.severity === 'warning')) && (
+              <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-1">
+                <p className="text-sm font-semibold text-amber-800">Review recommended</p>
+                {confidenceResult?.level === 'low' && (
+                  <p className="text-sm text-amber-700">
+                    Extraction confidence was low ({(confidenceResult.overall * 100).toFixed(0)}%). Verify all values before relying on this output.
+                  </p>
+                )}
+                {plausibilityIssues.filter((i) => i.severity === 'warning').map((issue, i) => (
+                  <p key={i} className="text-sm text-amber-700">{issue.message}</p>
+                ))}
+              </div>
+            )}
 
             <SummaryPanel rows={processedRows} />
 
