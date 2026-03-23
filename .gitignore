@@ -3,3 +3,14 @@ dist/
 .env
 .claude/
 reference/
+
+# Office temp/lock files
+~$*
+
+# Vite temp files
+vite.config.js.timestamp-*
+
+# Debug dump files
+_dump_*.txt
+_dump_*.mjs
+_workbook_dump.txt
