@@ -1,0 +1,882 @@
+=== SHEET: "Audit Trail" ===
+!ref: A1:O125
+!merges: []
+
+--- sheet_to_json (non-null rows only) ---
+Row 0: ["Period Start","Month #","Period Factor","Proration Factor","Proration Basis","CAMS Esc Year","CAMS Active","Ins Esc Year","Ins Active","Tax Esc Year","Tax Active","Sec Esc Year","Sec Active","Other Esc Year","Other Active"]
+Row 1: [43160,1,1,0,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 2: [43191,2,1,0,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 3: [43221,3,1,0,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 4: [43252,4,1,0,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 5: [43282,5,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 6: [43313,6,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 7: [43344,7,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 8: [43374,8,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 9: [43405,9,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 10: [43435,10,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 11: [43466,11,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 12: [43497,12,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 13: [43525,13,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 14: [43556,14,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 15: [43586,15,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 16: [43617,16,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 17: [43647,17,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 18: [43678,18,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 19: [43709,19,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 20: [43739,20,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 21: [43770,21,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 22: [43800,22,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 23: [43831,23,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 24: [43862,24,1,1,"full",0,"true",0,"true",0,"true",0,"true",0,"true"]
+Row 25: [43891,25,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 26: [43922,26,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 27: [43952,27,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 28: [43983,28,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 29: [44013,29,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 30: [44044,30,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 31: [44075,31,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 32: [44105,32,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 33: [44136,33,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 34: [44166,34,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 35: [44197,35,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 36: [44228,36,1,1,"full",0,"true",0,"true",1,"true",0,"true",0,"true"]
+Row 37: [44256,37,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 38: [44287,38,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 39: [44317,39,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 40: [44348,40,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 41: [44378,41,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 42: [44409,42,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 43: [44440,43,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 44: [44470,44,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 45: [44501,45,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 46: [44531,46,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 47: [44562,47,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 48: [44593,48,1,1,"full",1,"true",1,"true",2,"true",0,"true",0,"true"]
+Row 49: [44621,49,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 50: [44652,50,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 51: [44682,51,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 52: [44713,52,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 53: [44743,53,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 54: [44774,54,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 55: [44805,55,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 56: [44835,56,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 57: [44866,57,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 58: [44896,58,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 59: [44927,59,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 60: [44958,60,1,1,"full",2,"true",2,"true",3,"true",0,"true",0,"true"]
+Row 61: [44986,61,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 62: [45017,62,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 63: [45047,63,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 64: [45078,64,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 65: [45108,65,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 66: [45139,66,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 67: [45170,67,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 68: [45200,68,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 69: [45231,69,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 70: [45261,70,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 71: [45292,71,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 72: [45323,72,1,1,"full",3,"true",3,"true",4,"true",0,"true",0,"true"]
+Row 73: [45352,73,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 74: [45383,74,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 75: [45413,75,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 76: [45444,76,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 77: [45474,77,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 78: [45505,78,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 79: [45536,79,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 80: [45566,80,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 81: [45597,81,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 82: [45627,82,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 83: [45658,83,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 84: [45689,84,1,1,"full",4,"true",4,"true",5,"true",0,"true",0,"true"]
+Row 85: [45717,85,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 86: [45748,86,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 87: [45778,87,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 88: [45809,88,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 89: [45839,89,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 90: [45870,90,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 91: [45901,91,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 92: [45931,92,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 93: [45962,93,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 94: [45992,94,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 95: [46023,95,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 96: [46054,96,1,1,"full",5,"true",5,"true",6,"true",0,"true",0,"true"]
+Row 97: [46082,97,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 98: [46113,98,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 99: [46143,99,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 100: [46174,100,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 101: [46204,101,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 102: [46235,102,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 103: [46266,103,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 104: [46296,104,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 105: [46327,105,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 106: [46357,106,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 107: [46388,107,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 108: [46419,108,1,1,"full",6,"true",6,"true",7,"true",0,"true",0,"true"]
+Row 109: [46447,109,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 110: [46478,110,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 111: [46508,111,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 112: [46539,112,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 113: [46569,113,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 114: [46600,114,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 115: [46631,115,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 116: [46661,116,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 117: [46692,117,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 118: [46722,118,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 119: [46753,119,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 120: [46784,120,1,1,"full",7,"true",7,"true",8,"true",0,"true",0,"true"]
+Row 121: [46813,121,1,1,"full",8,"true",8,"true",9,"true",0,"true",0,"true"]
+Row 122: [46844,122,1,1,"full",8,"true",8,"true",9,"true",0,"true",0,"true"]
+Row 123: [46874,123,1,1,"full",8,"true",8,"true",9,"true",0,"true",0,"true"]
+Row 124: [46905,124,1,1,"full",8,"true",8,"true",9,"true",0,"true",0,"true"]
+
+--- Raw cell data (rows 1-50, cols A-O) ---
+{"address":"A1","value":"Period Start","type":"s","formatted":"Period Start"}
+{"address":"B1","value":"Month #","type":"s","formatted":"Month #"}
+{"address":"C1","value":"Period Factor","type":"s","formatted":"Period Factor"}
+{"address":"D1","value":"Proration Factor","type":"s","formatted":"Proration Factor"}
+{"address":"E1","value":"Proration Basis","type":"s","formatted":"Proration Basis"}
+{"address":"F1","value":"CAMS Esc Year","type":"s","formatted":"CAMS Esc Year"}
+{"address":"G1","value":"CAMS Active","type":"s","formatted":"CAMS Active"}
+{"address":"H1","value":"Ins Esc Year","type":"s","formatted":"Ins Esc Year"}
+{"address":"I1","value":"Ins Active","type":"s","formatted":"Ins Active"}
+{"address":"J1","value":"Tax Esc Year","type":"s","formatted":"Tax Esc Year"}
+{"address":"K1","value":"Tax Active","type":"s","formatted":"Tax Active"}
+{"address":"L1","value":"Sec Esc Year","type":"s","formatted":"Sec Esc Year"}
+{"address":"M1","value":"Sec Active","type":"s","formatted":"Sec Active"}
+{"address":"N1","value":"Other Esc Year","type":"s","formatted":"Other Esc Year"}
+{"address":"O1","value":"Other Active","type":"s","formatted":"Other Active"}
+{"address":"A2","value":43160,"type":"n","formatted":"03/01/2018"}
+{"address":"B2","value":1,"type":"n","formatted":"1"}
+{"address":"C2","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D2","value":0,"type":"n","formatted":"0.0000"}
+{"address":"E2","value":"full","type":"s","formatted":"full"}
+{"address":"F2","value":0,"type":"n","formatted":"0"}
+{"address":"G2","value":"true","type":"s","formatted":"true"}
+{"address":"H2","value":0,"type":"n","formatted":"0"}
+{"address":"I2","value":"true","type":"s","formatted":"true"}
+{"address":"J2","value":0,"type":"n","formatted":"0"}
+{"address":"K2","value":"true","type":"s","formatted":"true"}
+{"address":"L2","value":0,"type":"n","formatted":"0"}
+{"address":"M2","value":"true","type":"s","formatted":"true"}
+{"address":"N2","value":0,"type":"n","formatted":"0"}
+{"address":"O2","value":"true","type":"s","formatted":"true"}
+{"address":"A3","value":43191,"type":"n","formatted":"04/01/2018"}
+{"address":"B3","value":2,"type":"n","formatted":"2"}
+{"address":"C3","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D3","value":0,"type":"n","formatted":"0.0000"}
+{"address":"E3","value":"full","type":"s","formatted":"full"}
+{"address":"F3","value":0,"type":"n","formatted":"0"}
+{"address":"G3","value":"true","type":"s","formatted":"true"}
+{"address":"H3","value":0,"type":"n","formatted":"0"}
+{"address":"I3","value":"true","type":"s","formatted":"true"}
+{"address":"J3","value":0,"type":"n","formatted":"0"}
+{"address":"K3","value":"true","type":"s","formatted":"true"}
+{"address":"L3","value":0,"type":"n","formatted":"0"}
+{"address":"M3","value":"true","type":"s","formatted":"true"}
+{"address":"N3","value":0,"type":"n","formatted":"0"}
+{"address":"O3","value":"true","type":"s","formatted":"true"}
+{"address":"A4","value":43221,"type":"n","formatted":"05/01/2018"}
+{"address":"B4","value":3,"type":"n","formatted":"3"}
+{"address":"C4","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D4","value":0,"type":"n","formatted":"0.0000"}
+{"address":"E4","value":"full","type":"s","formatted":"full"}
+{"address":"F4","value":0,"type":"n","formatted":"0"}
+{"address":"G4","value":"true","type":"s","formatted":"true"}
+{"address":"H4","value":0,"type":"n","formatted":"0"}
+{"address":"I4","value":"true","type":"s","formatted":"true"}
+{"address":"J4","value":0,"type":"n","formatted":"0"}
+{"address":"K4","value":"true","type":"s","formatted":"true"}
+{"address":"L4","value":0,"type":"n","formatted":"0"}
+{"address":"M4","value":"true","type":"s","formatted":"true"}
+{"address":"N4","value":0,"type":"n","formatted":"0"}
+{"address":"O4","value":"true","type":"s","formatted":"true"}
+{"address":"A5","value":43252,"type":"n","formatted":"06/01/2018"}
+{"address":"B5","value":4,"type":"n","formatted":"4"}
+{"address":"C5","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D5","value":0,"type":"n","formatted":"0.0000"}
+{"address":"E5","value":"full","type":"s","formatted":"full"}
+{"address":"F5","value":0,"type":"n","formatted":"0"}
+{"address":"G5","value":"true","type":"s","formatted":"true"}
+{"address":"H5","value":0,"type":"n","formatted":"0"}
+{"address":"I5","value":"true","type":"s","formatted":"true"}
+{"address":"J5","value":0,"type":"n","formatted":"0"}
+{"address":"K5","value":"true","type":"s","formatted":"true"}
+{"address":"L5","value":0,"type":"n","formatted":"0"}
+{"address":"M5","value":"true","type":"s","formatted":"true"}
+{"address":"N5","value":0,"type":"n","formatted":"0"}
+{"address":"O5","value":"true","type":"s","formatted":"true"}
+{"address":"A6","value":43282,"type":"n","formatted":"07/01/2018"}
+{"address":"B6","value":5,"type":"n","formatted":"5"}
+{"address":"C6","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D6","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E6","value":"full","type":"s","formatted":"full"}
+{"address":"F6","value":0,"type":"n","formatted":"0"}
+{"address":"G6","value":"true","type":"s","formatted":"true"}
+{"address":"H6","value":0,"type":"n","formatted":"0"}
+{"address":"I6","value":"true","type":"s","formatted":"true"}
+{"address":"J6","value":0,"type":"n","formatted":"0"}
+{"address":"K6","value":"true","type":"s","formatted":"true"}
+{"address":"L6","value":0,"type":"n","formatted":"0"}
+{"address":"M6","value":"true","type":"s","formatted":"true"}
+{"address":"N6","value":0,"type":"n","formatted":"0"}
+{"address":"O6","value":"true","type":"s","formatted":"true"}
+{"address":"A7","value":43313,"type":"n","formatted":"08/01/2018"}
+{"address":"B7","value":6,"type":"n","formatted":"6"}
+{"address":"C7","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D7","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E7","value":"full","type":"s","formatted":"full"}
+{"address":"F7","value":0,"type":"n","formatted":"0"}
+{"address":"G7","value":"true","type":"s","formatted":"true"}
+{"address":"H7","value":0,"type":"n","formatted":"0"}
+{"address":"I7","value":"true","type":"s","formatted":"true"}
+{"address":"J7","value":0,"type":"n","formatted":"0"}
+{"address":"K7","value":"true","type":"s","formatted":"true"}
+{"address":"L7","value":0,"type":"n","formatted":"0"}
+{"address":"M7","value":"true","type":"s","formatted":"true"}
+{"address":"N7","value":0,"type":"n","formatted":"0"}
+{"address":"O7","value":"true","type":"s","formatted":"true"}
+{"address":"A8","value":43344,"type":"n","formatted":"09/01/2018"}
+{"address":"B8","value":7,"type":"n","formatted":"7"}
+{"address":"C8","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D8","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E8","value":"full","type":"s","formatted":"full"}
+{"address":"F8","value":0,"type":"n","formatted":"0"}
+{"address":"G8","value":"true","type":"s","formatted":"true"}
+{"address":"H8","value":0,"type":"n","formatted":"0"}
+{"address":"I8","value":"true","type":"s","formatted":"true"}
+{"address":"J8","value":0,"type":"n","formatted":"0"}
+{"address":"K8","value":"true","type":"s","formatted":"true"}
+{"address":"L8","value":0,"type":"n","formatted":"0"}
+{"address":"M8","value":"true","type":"s","formatted":"true"}
+{"address":"N8","value":0,"type":"n","formatted":"0"}
+{"address":"O8","value":"true","type":"s","formatted":"true"}
+{"address":"A9","value":43374,"type":"n","formatted":"10/01/2018"}
+{"address":"B9","value":8,"type":"n","formatted":"8"}
+{"address":"C9","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D9","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E9","value":"full","type":"s","formatted":"full"}
+{"address":"F9","value":0,"type":"n","formatted":"0"}
+{"address":"G9","value":"true","type":"s","formatted":"true"}
+{"address":"H9","value":0,"type":"n","formatted":"0"}
+{"address":"I9","value":"true","type":"s","formatted":"true"}
+{"address":"J9","value":0,"type":"n","formatted":"0"}
+{"address":"K9","value":"true","type":"s","formatted":"true"}
+{"address":"L9","value":0,"type":"n","formatted":"0"}
+{"address":"M9","value":"true","type":"s","formatted":"true"}
+{"address":"N9","value":0,"type":"n","formatted":"0"}
+{"address":"O9","value":"true","type":"s","formatted":"true"}
+{"address":"A10","value":43405,"type":"n","formatted":"11/01/2018"}
+{"address":"B10","value":9,"type":"n","formatted":"9"}
+{"address":"C10","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D10","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E10","value":"full","type":"s","formatted":"full"}
+{"address":"F10","value":0,"type":"n","formatted":"0"}
+{"address":"G10","value":"true","type":"s","formatted":"true"}
+{"address":"H10","value":0,"type":"n","formatted":"0"}
+{"address":"I10","value":"true","type":"s","formatted":"true"}
+{"address":"J10","value":0,"type":"n","formatted":"0"}
+{"address":"K10","value":"true","type":"s","formatted":"true"}
+{"address":"L10","value":0,"type":"n","formatted":"0"}
+{"address":"M10","value":"true","type":"s","formatted":"true"}
+{"address":"N10","value":0,"type":"n","formatted":"0"}
+{"address":"O10","value":"true","type":"s","formatted":"true"}
+{"address":"A11","value":43435,"type":"n","formatted":"12/01/2018"}
+{"address":"B11","value":10,"type":"n","formatted":"10"}
+{"address":"C11","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D11","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E11","value":"full","type":"s","formatted":"full"}
+{"address":"F11","value":0,"type":"n","formatted":"0"}
+{"address":"G11","value":"true","type":"s","formatted":"true"}
+{"address":"H11","value":0,"type":"n","formatted":"0"}
+{"address":"I11","value":"true","type":"s","formatted":"true"}
+{"address":"J11","value":0,"type":"n","formatted":"0"}
+{"address":"K11","value":"true","type":"s","formatted":"true"}
+{"address":"L11","value":0,"type":"n","formatted":"0"}
+{"address":"M11","value":"true","type":"s","formatted":"true"}
+{"address":"N11","value":0,"type":"n","formatted":"0"}
+{"address":"O11","value":"true","type":"s","formatted":"true"}
+{"address":"A12","value":43466,"type":"n","formatted":"01/01/2019"}
+{"address":"B12","value":11,"type":"n","formatted":"11"}
+{"address":"C12","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D12","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E12","value":"full","type":"s","formatted":"full"}
+{"address":"F12","value":0,"type":"n","formatted":"0"}
+{"address":"G12","value":"true","type":"s","formatted":"true"}
+{"address":"H12","value":0,"type":"n","formatted":"0"}
+{"address":"I12","value":"true","type":"s","formatted":"true"}
+{"address":"J12","value":0,"type":"n","formatted":"0"}
+{"address":"K12","value":"true","type":"s","formatted":"true"}
+{"address":"L12","value":0,"type":"n","formatted":"0"}
+{"address":"M12","value":"true","type":"s","formatted":"true"}
+{"address":"N12","value":0,"type":"n","formatted":"0"}
+{"address":"O12","value":"true","type":"s","formatted":"true"}
+{"address":"A13","value":43497,"type":"n","formatted":"02/01/2019"}
+{"address":"B13","value":12,"type":"n","formatted":"12"}
+{"address":"C13","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D13","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E13","value":"full","type":"s","formatted":"full"}
+{"address":"F13","value":0,"type":"n","formatted":"0"}
+{"address":"G13","value":"true","type":"s","formatted":"true"}
+{"address":"H13","value":0,"type":"n","formatted":"0"}
+{"address":"I13","value":"true","type":"s","formatted":"true"}
+{"address":"J13","value":0,"type":"n","formatted":"0"}
+{"address":"K13","value":"true","type":"s","formatted":"true"}
+{"address":"L13","value":0,"type":"n","formatted":"0"}
+{"address":"M13","value":"true","type":"s","formatted":"true"}
+{"address":"N13","value":0,"type":"n","formatted":"0"}
+{"address":"O13","value":"true","type":"s","formatted":"true"}
+{"address":"A14","value":43525,"type":"n","formatted":"03/01/2019"}
+{"address":"B14","value":13,"type":"n","formatted":"13"}
+{"address":"C14","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D14","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E14","value":"full","type":"s","formatted":"full"}
+{"address":"F14","value":0,"type":"n","formatted":"0"}
+{"address":"G14","value":"true","type":"s","formatted":"true"}
+{"address":"H14","value":0,"type":"n","formatted":"0"}
+{"address":"I14","value":"true","type":"s","formatted":"true"}
+{"address":"J14","value":0,"type":"n","formatted":"0"}
+{"address":"K14","value":"true","type":"s","formatted":"true"}
+{"address":"L14","value":0,"type":"n","formatted":"0"}
+{"address":"M14","value":"true","type":"s","formatted":"true"}
+{"address":"N14","value":0,"type":"n","formatted":"0"}
+{"address":"O14","value":"true","type":"s","formatted":"true"}
+{"address":"A15","value":43556,"type":"n","formatted":"04/01/2019"}
+{"address":"B15","value":14,"type":"n","formatted":"14"}
+{"address":"C15","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D15","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E15","value":"full","type":"s","formatted":"full"}
+{"address":"F15","value":0,"type":"n","formatted":"0"}
+{"address":"G15","value":"true","type":"s","formatted":"true"}
+{"address":"H15","value":0,"type":"n","formatted":"0"}
+{"address":"I15","value":"true","type":"s","formatted":"true"}
+{"address":"J15","value":0,"type":"n","formatted":"0"}
+{"address":"K15","value":"true","type":"s","formatted":"true"}
+{"address":"L15","value":0,"type":"n","formatted":"0"}
+{"address":"M15","value":"true","type":"s","formatted":"true"}
+{"address":"N15","value":0,"type":"n","formatted":"0"}
+{"address":"O15","value":"true","type":"s","formatted":"true"}
+{"address":"A16","value":43586,"type":"n","formatted":"05/01/2019"}
+{"address":"B16","value":15,"type":"n","formatted":"15"}
+{"address":"C16","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D16","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E16","value":"full","type":"s","formatted":"full"}
+{"address":"F16","value":0,"type":"n","formatted":"0"}
+{"address":"G16","value":"true","type":"s","formatted":"true"}
+{"address":"H16","value":0,"type":"n","formatted":"0"}
+{"address":"I16","value":"true","type":"s","formatted":"true"}
+{"address":"J16","value":0,"type":"n","formatted":"0"}
+{"address":"K16","value":"true","type":"s","formatted":"true"}
+{"address":"L16","value":0,"type":"n","formatted":"0"}
+{"address":"M16","value":"true","type":"s","formatted":"true"}
+{"address":"N16","value":0,"type":"n","formatted":"0"}
+{"address":"O16","value":"true","type":"s","formatted":"true"}
+{"address":"A17","value":43617,"type":"n","formatted":"06/01/2019"}
+{"address":"B17","value":16,"type":"n","formatted":"16"}
+{"address":"C17","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D17","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E17","value":"full","type":"s","formatted":"full"}
+{"address":"F17","value":0,"type":"n","formatted":"0"}
+{"address":"G17","value":"true","type":"s","formatted":"true"}
+{"address":"H17","value":0,"type":"n","formatted":"0"}
+{"address":"I17","value":"true","type":"s","formatted":"true"}
+{"address":"J17","value":0,"type":"n","formatted":"0"}
+{"address":"K17","value":"true","type":"s","formatted":"true"}
+{"address":"L17","value":0,"type":"n","formatted":"0"}
+{"address":"M17","value":"true","type":"s","formatted":"true"}
+{"address":"N17","value":0,"type":"n","formatted":"0"}
+{"address":"O17","value":"true","type":"s","formatted":"true"}
+{"address":"A18","value":43647,"type":"n","formatted":"07/01/2019"}
+{"address":"B18","value":17,"type":"n","formatted":"17"}
+{"address":"C18","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D18","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E18","value":"full","type":"s","formatted":"full"}
+{"address":"F18","value":0,"type":"n","formatted":"0"}
+{"address":"G18","value":"true","type":"s","formatted":"true"}
+{"address":"H18","value":0,"type":"n","formatted":"0"}
+{"address":"I18","value":"true","type":"s","formatted":"true"}
+{"address":"J18","value":0,"type":"n","formatted":"0"}
+{"address":"K18","value":"true","type":"s","formatted":"true"}
+{"address":"L18","value":0,"type":"n","formatted":"0"}
+{"address":"M18","value":"true","type":"s","formatted":"true"}
+{"address":"N18","value":0,"type":"n","formatted":"0"}
+{"address":"O18","value":"true","type":"s","formatted":"true"}
+{"address":"A19","value":43678,"type":"n","formatted":"08/01/2019"}
+{"address":"B19","value":18,"type":"n","formatted":"18"}
+{"address":"C19","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D19","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E19","value":"full","type":"s","formatted":"full"}
+{"address":"F19","value":0,"type":"n","formatted":"0"}
+{"address":"G19","value":"true","type":"s","formatted":"true"}
+{"address":"H19","value":0,"type":"n","formatted":"0"}
+{"address":"I19","value":"true","type":"s","formatted":"true"}
+{"address":"J19","value":0,"type":"n","formatted":"0"}
+{"address":"K19","value":"true","type":"s","formatted":"true"}
+{"address":"L19","value":0,"type":"n","formatted":"0"}
+{"address":"M19","value":"true","type":"s","formatted":"true"}
+{"address":"N19","value":0,"type":"n","formatted":"0"}
+{"address":"O19","value":"true","type":"s","formatted":"true"}
+{"address":"A20","value":43709,"type":"n","formatted":"09/01/2019"}
+{"address":"B20","value":19,"type":"n","formatted":"19"}
+{"address":"C20","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D20","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E20","value":"full","type":"s","formatted":"full"}
+{"address":"F20","value":0,"type":"n","formatted":"0"}
+{"address":"G20","value":"true","type":"s","formatted":"true"}
+{"address":"H20","value":0,"type":"n","formatted":"0"}
+{"address":"I20","value":"true","type":"s","formatted":"true"}
+{"address":"J20","value":0,"type":"n","formatted":"0"}
+{"address":"K20","value":"true","type":"s","formatted":"true"}
+{"address":"L20","value":0,"type":"n","formatted":"0"}
+{"address":"M20","value":"true","type":"s","formatted":"true"}
+{"address":"N20","value":0,"type":"n","formatted":"0"}
+{"address":"O20","value":"true","type":"s","formatted":"true"}
+{"address":"A21","value":43739,"type":"n","formatted":"10/01/2019"}
+{"address":"B21","value":20,"type":"n","formatted":"20"}
+{"address":"C21","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D21","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E21","value":"full","type":"s","formatted":"full"}
+{"address":"F21","value":0,"type":"n","formatted":"0"}
+{"address":"G21","value":"true","type":"s","formatted":"true"}
+{"address":"H21","value":0,"type":"n","formatted":"0"}
+{"address":"I21","value":"true","type":"s","formatted":"true"}
+{"address":"J21","value":0,"type":"n","formatted":"0"}
+{"address":"K21","value":"true","type":"s","formatted":"true"}
+{"address":"L21","value":0,"type":"n","formatted":"0"}
+{"address":"M21","value":"true","type":"s","formatted":"true"}
+{"address":"N21","value":0,"type":"n","formatted":"0"}
+{"address":"O21","value":"true","type":"s","formatted":"true"}
+{"address":"A22","value":43770,"type":"n","formatted":"11/01/2019"}
+{"address":"B22","value":21,"type":"n","formatted":"21"}
+{"address":"C22","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D22","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E22","value":"full","type":"s","formatted":"full"}
+{"address":"F22","value":0,"type":"n","formatted":"0"}
+{"address":"G22","value":"true","type":"s","formatted":"true"}
+{"address":"H22","value":0,"type":"n","formatted":"0"}
+{"address":"I22","value":"true","type":"s","formatted":"true"}
+{"address":"J22","value":0,"type":"n","formatted":"0"}
+{"address":"K22","value":"true","type":"s","formatted":"true"}
+{"address":"L22","value":0,"type":"n","formatted":"0"}
+{"address":"M22","value":"true","type":"s","formatted":"true"}
+{"address":"N22","value":0,"type":"n","formatted":"0"}
+{"address":"O22","value":"true","type":"s","formatted":"true"}
+{"address":"A23","value":43800,"type":"n","formatted":"12/01/2019"}
+{"address":"B23","value":22,"type":"n","formatted":"22"}
+{"address":"C23","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D23","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E23","value":"full","type":"s","formatted":"full"}
+{"address":"F23","value":0,"type":"n","formatted":"0"}
+{"address":"G23","value":"true","type":"s","formatted":"true"}
+{"address":"H23","value":0,"type":"n","formatted":"0"}
+{"address":"I23","value":"true","type":"s","formatted":"true"}
+{"address":"J23","value":0,"type":"n","formatted":"0"}
+{"address":"K23","value":"true","type":"s","formatted":"true"}
+{"address":"L23","value":0,"type":"n","formatted":"0"}
+{"address":"M23","value":"true","type":"s","formatted":"true"}
+{"address":"N23","value":0,"type":"n","formatted":"0"}
+{"address":"O23","value":"true","type":"s","formatted":"true"}
+{"address":"A24","value":43831,"type":"n","formatted":"01/01/2020"}
+{"address":"B24","value":23,"type":"n","formatted":"23"}
+{"address":"C24","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D24","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E24","value":"full","type":"s","formatted":"full"}
+{"address":"F24","value":0,"type":"n","formatted":"0"}
+{"address":"G24","value":"true","type":"s","formatted":"true"}
+{"address":"H24","value":0,"type":"n","formatted":"0"}
+{"address":"I24","value":"true","type":"s","formatted":"true"}
+{"address":"J24","value":0,"type":"n","formatted":"0"}
+{"address":"K24","value":"true","type":"s","formatted":"true"}
+{"address":"L24","value":0,"type":"n","formatted":"0"}
+{"address":"M24","value":"true","type":"s","formatted":"true"}
+{"address":"N24","value":0,"type":"n","formatted":"0"}
+{"address":"O24","value":"true","type":"s","formatted":"true"}
+{"address":"A25","value":43862,"type":"n","formatted":"02/01/2020"}
+{"address":"B25","value":24,"type":"n","formatted":"24"}
+{"address":"C25","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D25","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E25","value":"full","type":"s","formatted":"full"}
+{"address":"F25","value":0,"type":"n","formatted":"0"}
+{"address":"G25","value":"true","type":"s","formatted":"true"}
+{"address":"H25","value":0,"type":"n","formatted":"0"}
+{"address":"I25","value":"true","type":"s","formatted":"true"}
+{"address":"J25","value":0,"type":"n","formatted":"0"}
+{"address":"K25","value":"true","type":"s","formatted":"true"}
+{"address":"L25","value":0,"type":"n","formatted":"0"}
+{"address":"M25","value":"true","type":"s","formatted":"true"}
+{"address":"N25","value":0,"type":"n","formatted":"0"}
+{"address":"O25","value":"true","type":"s","formatted":"true"}
+{"address":"A26","value":43891,"type":"n","formatted":"03/01/2020"}
+{"address":"B26","value":25,"type":"n","formatted":"25"}
+{"address":"C26","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D26","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E26","value":"full","type":"s","formatted":"full"}
+{"address":"F26","value":0,"type":"n","formatted":"0"}
+{"address":"G26","value":"true","type":"s","formatted":"true"}
+{"address":"H26","value":0,"type":"n","formatted":"0"}
+{"address":"I26","value":"true","type":"s","formatted":"true"}
+{"address":"J26","value":1,"type":"n","formatted":"1"}
+{"address":"K26","value":"true","type":"s","formatted":"true"}
+{"address":"L26","value":0,"type":"n","formatted":"0"}
+{"address":"M26","value":"true","type":"s","formatted":"true"}
+{"address":"N26","value":0,"type":"n","formatted":"0"}
+{"address":"O26","value":"true","type":"s","formatted":"true"}
+{"address":"A27","value":43922,"type":"n","formatted":"04/01/2020"}
+{"address":"B27","value":26,"type":"n","formatted":"26"}
+{"address":"C27","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D27","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E27","value":"full","type":"s","formatted":"full"}
+{"address":"F27","value":0,"type":"n","formatted":"0"}
+{"address":"G27","value":"true","type":"s","formatted":"true"}
+{"address":"H27","value":0,"type":"n","formatted":"0"}
+{"address":"I27","value":"true","type":"s","formatted":"true"}
+{"address":"J27","value":1,"type":"n","formatted":"1"}
+{"address":"K27","value":"true","type":"s","formatted":"true"}
+{"address":"L27","value":0,"type":"n","formatted":"0"}
+{"address":"M27","value":"true","type":"s","formatted":"true"}
+{"address":"N27","value":0,"type":"n","formatted":"0"}
+{"address":"O27","value":"true","type":"s","formatted":"true"}
+{"address":"A28","value":43952,"type":"n","formatted":"05/01/2020"}
+{"address":"B28","value":27,"type":"n","formatted":"27"}
+{"address":"C28","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D28","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E28","value":"full","type":"s","formatted":"full"}
+{"address":"F28","value":0,"type":"n","formatted":"0"}
+{"address":"G28","value":"true","type":"s","formatted":"true"}
+{"address":"H28","value":0,"type":"n","formatted":"0"}
+{"address":"I28","value":"true","type":"s","formatted":"true"}
+{"address":"J28","value":1,"type":"n","formatted":"1"}
+{"address":"K28","value":"true","type":"s","formatted":"true"}
+{"address":"L28","value":0,"type":"n","formatted":"0"}
+{"address":"M28","value":"true","type":"s","formatted":"true"}
+{"address":"N28","value":0,"type":"n","formatted":"0"}
+{"address":"O28","value":"true","type":"s","formatted":"true"}
+{"address":"A29","value":43983,"type":"n","formatted":"06/01/2020"}
+{"address":"B29","value":28,"type":"n","formatted":"28"}
+{"address":"C29","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D29","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E29","value":"full","type":"s","formatted":"full"}
+{"address":"F29","value":0,"type":"n","formatted":"0"}
+{"address":"G29","value":"true","type":"s","formatted":"true"}
+{"address":"H29","value":0,"type":"n","formatted":"0"}
+{"address":"I29","value":"true","type":"s","formatted":"true"}
+{"address":"J29","value":1,"type":"n","formatted":"1"}
+{"address":"K29","value":"true","type":"s","formatted":"true"}
+{"address":"L29","value":0,"type":"n","formatted":"0"}
+{"address":"M29","value":"true","type":"s","formatted":"true"}
+{"address":"N29","value":0,"type":"n","formatted":"0"}
+{"address":"O29","value":"true","type":"s","formatted":"true"}
+{"address":"A30","value":44013,"type":"n","formatted":"07/01/2020"}
+{"address":"B30","value":29,"type":"n","formatted":"29"}
+{"address":"C30","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D30","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E30","value":"full","type":"s","formatted":"full"}
+{"address":"F30","value":0,"type":"n","formatted":"0"}
+{"address":"G30","value":"true","type":"s","formatted":"true"}
+{"address":"H30","value":0,"type":"n","formatted":"0"}
+{"address":"I30","value":"true","type":"s","formatted":"true"}
+{"address":"J30","value":1,"type":"n","formatted":"1"}
+{"address":"K30","value":"true","type":"s","formatted":"true"}
+{"address":"L30","value":0,"type":"n","formatted":"0"}
+{"address":"M30","value":"true","type":"s","formatted":"true"}
+{"address":"N30","value":0,"type":"n","formatted":"0"}
+{"address":"O30","value":"true","type":"s","formatted":"true"}
+{"address":"A31","value":44044,"type":"n","formatted":"08/01/2020"}
+{"address":"B31","value":30,"type":"n","formatted":"30"}
+{"address":"C31","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D31","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E31","value":"full","type":"s","formatted":"full"}
+{"address":"F31","value":0,"type":"n","formatted":"0"}
+{"address":"G31","value":"true","type":"s","formatted":"true"}
+{"address":"H31","value":0,"type":"n","formatted":"0"}
+{"address":"I31","value":"true","type":"s","formatted":"true"}
+{"address":"J31","value":1,"type":"n","formatted":"1"}
+{"address":"K31","value":"true","type":"s","formatted":"true"}
+{"address":"L31","value":0,"type":"n","formatted":"0"}
+{"address":"M31","value":"true","type":"s","formatted":"true"}
+{"address":"N31","value":0,"type":"n","formatted":"0"}
+{"address":"O31","value":"true","type":"s","formatted":"true"}
+{"address":"A32","value":44075,"type":"n","formatted":"09/01/2020"}
+{"address":"B32","value":31,"type":"n","formatted":"31"}
+{"address":"C32","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D32","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E32","value":"full","type":"s","formatted":"full"}
+{"address":"F32","value":0,"type":"n","formatted":"0"}
+{"address":"G32","value":"true","type":"s","formatted":"true"}
+{"address":"H32","value":0,"type":"n","formatted":"0"}
+{"address":"I32","value":"true","type":"s","formatted":"true"}
+{"address":"J32","value":1,"type":"n","formatted":"1"}
+{"address":"K32","value":"true","type":"s","formatted":"true"}
+{"address":"L32","value":0,"type":"n","formatted":"0"}
+{"address":"M32","value":"true","type":"s","formatted":"true"}
+{"address":"N32","value":0,"type":"n","formatted":"0"}
+{"address":"O32","value":"true","type":"s","formatted":"true"}
+{"address":"A33","value":44105,"type":"n","formatted":"10/01/2020"}
+{"address":"B33","value":32,"type":"n","formatted":"32"}
+{"address":"C33","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D33","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E33","value":"full","type":"s","formatted":"full"}
+{"address":"F33","value":0,"type":"n","formatted":"0"}
+{"address":"G33","value":"true","type":"s","formatted":"true"}
+{"address":"H33","value":0,"type":"n","formatted":"0"}
+{"address":"I33","value":"true","type":"s","formatted":"true"}
+{"address":"J33","value":1,"type":"n","formatted":"1"}
+{"address":"K33","value":"true","type":"s","formatted":"true"}
+{"address":"L33","value":0,"type":"n","formatted":"0"}
+{"address":"M33","value":"true","type":"s","formatted":"true"}
+{"address":"N33","value":0,"type":"n","formatted":"0"}
+{"address":"O33","value":"true","type":"s","formatted":"true"}
+{"address":"A34","value":44136,"type":"n","formatted":"11/01/2020"}
+{"address":"B34","value":33,"type":"n","formatted":"33"}
+{"address":"C34","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D34","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E34","value":"full","type":"s","formatted":"full"}
+{"address":"F34","value":0,"type":"n","formatted":"0"}
+{"address":"G34","value":"true","type":"s","formatted":"true"}
+{"address":"H34","value":0,"type":"n","formatted":"0"}
+{"address":"I34","value":"true","type":"s","formatted":"true"}
+{"address":"J34","value":1,"type":"n","formatted":"1"}
+{"address":"K34","value":"true","type":"s","formatted":"true"}
+{"address":"L34","value":0,"type":"n","formatted":"0"}
+{"address":"M34","value":"true","type":"s","formatted":"true"}
+{"address":"N34","value":0,"type":"n","formatted":"0"}
+{"address":"O34","value":"true","type":"s","formatted":"true"}
+{"address":"A35","value":44166,"type":"n","formatted":"12/01/2020"}
+{"address":"B35","value":34,"type":"n","formatted":"34"}
+{"address":"C35","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D35","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E35","value":"full","type":"s","formatted":"full"}
+{"address":"F35","value":0,"type":"n","formatted":"0"}
+{"address":"G35","value":"true","type":"s","formatted":"true"}
+{"address":"H35","value":0,"type":"n","formatted":"0"}
+{"address":"I35","value":"true","type":"s","formatted":"true"}
+{"address":"J35","value":1,"type":"n","formatted":"1"}
+{"address":"K35","value":"true","type":"s","formatted":"true"}
+{"address":"L35","value":0,"type":"n","formatted":"0"}
+{"address":"M35","value":"true","type":"s","formatted":"true"}
+{"address":"N35","value":0,"type":"n","formatted":"0"}
+{"address":"O35","value":"true","type":"s","formatted":"true"}
+{"address":"A36","value":44197,"type":"n","formatted":"01/01/2021"}
+{"address":"B36","value":35,"type":"n","formatted":"35"}
+{"address":"C36","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D36","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E36","value":"full","type":"s","formatted":"full"}
+{"address":"F36","value":0,"type":"n","formatted":"0"}
+{"address":"G36","value":"true","type":"s","formatted":"true"}
+{"address":"H36","value":0,"type":"n","formatted":"0"}
+{"address":"I36","value":"true","type":"s","formatted":"true"}
+{"address":"J36","value":1,"type":"n","formatted":"1"}
+{"address":"K36","value":"true","type":"s","formatted":"true"}
+{"address":"L36","value":0,"type":"n","formatted":"0"}
+{"address":"M36","value":"true","type":"s","formatted":"true"}
+{"address":"N36","value":0,"type":"n","formatted":"0"}
+{"address":"O36","value":"true","type":"s","formatted":"true"}
+{"address":"A37","value":44228,"type":"n","formatted":"02/01/2021"}
+{"address":"B37","value":36,"type":"n","formatted":"36"}
+{"address":"C37","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D37","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E37","value":"full","type":"s","formatted":"full"}
+{"address":"F37","value":0,"type":"n","formatted":"0"}
+{"address":"G37","value":"true","type":"s","formatted":"true"}
+{"address":"H37","value":0,"type":"n","formatted":"0"}
+{"address":"I37","value":"true","type":"s","formatted":"true"}
+{"address":"J37","value":1,"type":"n","formatted":"1"}
+{"address":"K37","value":"true","type":"s","formatted":"true"}
+{"address":"L37","value":0,"type":"n","formatted":"0"}
+{"address":"M37","value":"true","type":"s","formatted":"true"}
+{"address":"N37","value":0,"type":"n","formatted":"0"}
+{"address":"O37","value":"true","type":"s","formatted":"true"}
+{"address":"A38","value":44256,"type":"n","formatted":"03/01/2021"}
+{"address":"B38","value":37,"type":"n","formatted":"37"}
+{"address":"C38","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D38","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E38","value":"full","type":"s","formatted":"full"}
+{"address":"F38","value":1,"type":"n","formatted":"1"}
+{"address":"G38","value":"true","type":"s","formatted":"true"}
+{"address":"H38","value":1,"type":"n","formatted":"1"}
+{"address":"I38","value":"true","type":"s","formatted":"true"}
+{"address":"J38","value":2,"type":"n","formatted":"2"}
+{"address":"K38","value":"true","type":"s","formatted":"true"}
+{"address":"L38","value":0,"type":"n","formatted":"0"}
+{"address":"M38","value":"true","type":"s","formatted":"true"}
+{"address":"N38","value":0,"type":"n","formatted":"0"}
+{"address":"O38","value":"true","type":"s","formatted":"true"}
+{"address":"A39","value":44287,"type":"n","formatted":"04/01/2021"}
+{"address":"B39","value":38,"type":"n","formatted":"38"}
+{"address":"C39","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D39","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E39","value":"full","type":"s","formatted":"full"}
+{"address":"F39","value":1,"type":"n","formatted":"1"}
+{"address":"G39","value":"true","type":"s","formatted":"true"}
+{"address":"H39","value":1,"type":"n","formatted":"1"}
+{"address":"I39","value":"true","type":"s","formatted":"true"}
+{"address":"J39","value":2,"type":"n","formatted":"2"}
+{"address":"K39","value":"true","type":"s","formatted":"true"}
+{"address":"L39","value":0,"type":"n","formatted":"0"}
+{"address":"M39","value":"true","type":"s","formatted":"true"}
+{"address":"N39","value":0,"type":"n","formatted":"0"}
+{"address":"O39","value":"true","type":"s","formatted":"true"}
+{"address":"A40","value":44317,"type":"n","formatted":"05/01/2021"}
+{"address":"B40","value":39,"type":"n","formatted":"39"}
+{"address":"C40","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D40","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E40","value":"full","type":"s","formatted":"full"}
+{"address":"F40","value":1,"type":"n","formatted":"1"}
+{"address":"G40","value":"true","type":"s","formatted":"true"}
+{"address":"H40","value":1,"type":"n","formatted":"1"}
+{"address":"I40","value":"true","type":"s","formatted":"true"}
+{"address":"J40","value":2,"type":"n","formatted":"2"}
+{"address":"K40","value":"true","type":"s","formatted":"true"}
+{"address":"L40","value":0,"type":"n","formatted":"0"}
+{"address":"M40","value":"true","type":"s","formatted":"true"}
+{"address":"N40","value":0,"type":"n","formatted":"0"}
+{"address":"O40","value":"true","type":"s","formatted":"true"}
+{"address":"A41","value":44348,"type":"n","formatted":"06/01/2021"}
+{"address":"B41","value":40,"type":"n","formatted":"40"}
+{"address":"C41","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D41","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E41","value":"full","type":"s","formatted":"full"}
+{"address":"F41","value":1,"type":"n","formatted":"1"}
+{"address":"G41","value":"true","type":"s","formatted":"true"}
+{"address":"H41","value":1,"type":"n","formatted":"1"}
+{"address":"I41","value":"true","type":"s","formatted":"true"}
+{"address":"J41","value":2,"type":"n","formatted":"2"}
+{"address":"K41","value":"true","type":"s","formatted":"true"}
+{"address":"L41","value":0,"type":"n","formatted":"0"}
+{"address":"M41","value":"true","type":"s","formatted":"true"}
+{"address":"N41","value":0,"type":"n","formatted":"0"}
+{"address":"O41","value":"true","type":"s","formatted":"true"}
+{"address":"A42","value":44378,"type":"n","formatted":"07/01/2021"}
+{"address":"B42","value":41,"type":"n","formatted":"41"}
+{"address":"C42","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D42","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E42","value":"full","type":"s","formatted":"full"}
+{"address":"F42","value":1,"type":"n","formatted":"1"}
+{"address":"G42","value":"true","type":"s","formatted":"true"}
+{"address":"H42","value":1,"type":"n","formatted":"1"}
+{"address":"I42","value":"true","type":"s","formatted":"true"}
+{"address":"J42","value":2,"type":"n","formatted":"2"}
+{"address":"K42","value":"true","type":"s","formatted":"true"}
+{"address":"L42","value":0,"type":"n","formatted":"0"}
+{"address":"M42","value":"true","type":"s","formatted":"true"}
+{"address":"N42","value":0,"type":"n","formatted":"0"}
+{"address":"O42","value":"true","type":"s","formatted":"true"}
+{"address":"A43","value":44409,"type":"n","formatted":"08/01/2021"}
+{"address":"B43","value":42,"type":"n","formatted":"42"}
+{"address":"C43","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D43","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E43","value":"full","type":"s","formatted":"full"}
+{"address":"F43","value":1,"type":"n","formatted":"1"}
+{"address":"G43","value":"true","type":"s","formatted":"true"}
+{"address":"H43","value":1,"type":"n","formatted":"1"}
+{"address":"I43","value":"true","type":"s","formatted":"true"}
+{"address":"J43","value":2,"type":"n","formatted":"2"}
+{"address":"K43","value":"true","type":"s","formatted":"true"}
+{"address":"L43","value":0,"type":"n","formatted":"0"}
+{"address":"M43","value":"true","type":"s","formatted":"true"}
+{"address":"N43","value":0,"type":"n","formatted":"0"}
+{"address":"O43","value":"true","type":"s","formatted":"true"}
+{"address":"A44","value":44440,"type":"n","formatted":"09/01/2021"}
+{"address":"B44","value":43,"type":"n","formatted":"43"}
+{"address":"C44","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D44","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E44","value":"full","type":"s","formatted":"full"}
+{"address":"F44","value":1,"type":"n","formatted":"1"}
+{"address":"G44","value":"true","type":"s","formatted":"true"}
+{"address":"H44","value":1,"type":"n","formatted":"1"}
+{"address":"I44","value":"true","type":"s","formatted":"true"}
+{"address":"J44","value":2,"type":"n","formatted":"2"}
+{"address":"K44","value":"true","type":"s","formatted":"true"}
+{"address":"L44","value":0,"type":"n","formatted":"0"}
+{"address":"M44","value":"true","type":"s","formatted":"true"}
+{"address":"N44","value":0,"type":"n","formatted":"0"}
+{"address":"O44","value":"true","type":"s","formatted":"true"}
+{"address":"A45","value":44470,"type":"n","formatted":"10/01/2021"}
+{"address":"B45","value":44,"type":"n","formatted":"44"}
+{"address":"C45","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D45","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E45","value":"full","type":"s","formatted":"full"}
+{"address":"F45","value":1,"type":"n","formatted":"1"}
+{"address":"G45","value":"true","type":"s","formatted":"true"}
+{"address":"H45","value":1,"type":"n","formatted":"1"}
+{"address":"I45","value":"true","type":"s","formatted":"true"}
+{"address":"J45","value":2,"type":"n","formatted":"2"}
+{"address":"K45","value":"true","type":"s","formatted":"true"}
+{"address":"L45","value":0,"type":"n","formatted":"0"}
+{"address":"M45","value":"true","type":"s","formatted":"true"}
+{"address":"N45","value":0,"type":"n","formatted":"0"}
+{"address":"O45","value":"true","type":"s","formatted":"true"}
+{"address":"A46","value":44501,"type":"n","formatted":"11/01/2021"}
+{"address":"B46","value":45,"type":"n","formatted":"45"}
+{"address":"C46","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D46","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E46","value":"full","type":"s","formatted":"full"}
+{"address":"F46","value":1,"type":"n","formatted":"1"}
+{"address":"G46","value":"true","type":"s","formatted":"true"}
+{"address":"H46","value":1,"type":"n","formatted":"1"}
+{"address":"I46","value":"true","type":"s","formatted":"true"}
+{"address":"J46","value":2,"type":"n","formatted":"2"}
+{"address":"K46","value":"true","type":"s","formatted":"true"}
+{"address":"L46","value":0,"type":"n","formatted":"0"}
+{"address":"M46","value":"true","type":"s","formatted":"true"}
+{"address":"N46","value":0,"type":"n","formatted":"0"}
+{"address":"O46","value":"true","type":"s","formatted":"true"}
+{"address":"A47","value":44531,"type":"n","formatted":"12/01/2021"}
+{"address":"B47","value":46,"type":"n","formatted":"46"}
+{"address":"C47","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D47","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E47","value":"full","type":"s","formatted":"full"}
+{"address":"F47","value":1,"type":"n","formatted":"1"}
+{"address":"G47","value":"true","type":"s","formatted":"true"}
+{"address":"H47","value":1,"type":"n","formatted":"1"}
+{"address":"I47","value":"true","type":"s","formatted":"true"}
+{"address":"J47","value":2,"type":"n","formatted":"2"}
+{"address":"K47","value":"true","type":"s","formatted":"true"}
+{"address":"L47","value":0,"type":"n","formatted":"0"}
+{"address":"M47","value":"true","type":"s","formatted":"true"}
+{"address":"N47","value":0,"type":"n","formatted":"0"}
+{"address":"O47","value":"true","type":"s","formatted":"true"}
+{"address":"A48","value":44562,"type":"n","formatted":"01/01/2022"}
+{"address":"B48","value":47,"type":"n","formatted":"47"}
+{"address":"C48","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D48","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E48","value":"full","type":"s","formatted":"full"}
+{"address":"F48","value":1,"type":"n","formatted":"1"}
+{"address":"G48","value":"true","type":"s","formatted":"true"}
+{"address":"H48","value":1,"type":"n","formatted":"1"}
+{"address":"I48","value":"true","type":"s","formatted":"true"}
+{"address":"J48","value":2,"type":"n","formatted":"2"}
+{"address":"K48","value":"true","type":"s","formatted":"true"}
+{"address":"L48","value":0,"type":"n","formatted":"0"}
+{"address":"M48","value":"true","type":"s","formatted":"true"}
+{"address":"N48","value":0,"type":"n","formatted":"0"}
+{"address":"O48","value":"true","type":"s","formatted":"true"}
+{"address":"A49","value":44593,"type":"n","formatted":"02/01/2022"}
+{"address":"B49","value":48,"type":"n","formatted":"48"}
+{"address":"C49","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D49","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E49","value":"full","type":"s","formatted":"full"}
+{"address":"F49","value":1,"type":"n","formatted":"1"}
+{"address":"G49","value":"true","type":"s","formatted":"true"}
+{"address":"H49","value":1,"type":"n","formatted":"1"}
+{"address":"I49","value":"true","type":"s","formatted":"true"}
+{"address":"J49","value":2,"type":"n","formatted":"2"}
+{"address":"K49","value":"true","type":"s","formatted":"true"}
+{"address":"L49","value":0,"type":"n","formatted":"0"}
+{"address":"M49","value":"true","type":"s","formatted":"true"}
+{"address":"N49","value":0,"type":"n","formatted":"0"}
+{"address":"O49","value":"true","type":"s","formatted":"true"}
+{"address":"A50","value":44621,"type":"n","formatted":"03/01/2022"}
+{"address":"B50","value":49,"type":"n","formatted":"49"}
+{"address":"C50","value":1,"type":"n","formatted":"1.0000"}
+{"address":"D50","value":1,"type":"n","formatted":"1.0000"}
+{"address":"E50","value":"full","type":"s","formatted":"full"}
+{"address":"F50","value":2,"type":"n","formatted":"2"}
+{"address":"G50","value":"true","type":"s","formatted":"true"}
+{"address":"H50","value":2,"type":"n","formatted":"2"}
+{"address":"I50","value":"true","type":"s","formatted":"true"}
+{"address":"J50","value":3,"type":"n","formatted":"3"}
+{"address":"K50","value":"true","type":"s","formatted":"true"}
+{"address":"L50","value":0,"type":"n","formatted":"0"}
+{"address":"M50","value":"true","type":"s","formatted":"true"}
+{"address":"N50","value":0,"type":"n","formatted":"0"}
+{"address":"O50","value":"true","type":"s","formatted":"true"}

@@ -82,7 +82,17 @@ function normaliseRows(rawRows, cols) {
  * @n8nNode "Read XLSX Spreadsheet" (extended to also handle .xls)
  */
 export function parseXLSX(buffer) {
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+  let workbook;
+  try {
+    workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+  } catch (e) {
+    return { rows: [], warnings: [`Could not read spreadsheet: ${e.message}`] };
+  }
+
+  if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+    return { rows: [], warnings: ['Spreadsheet contains no sheets.'] };
+  }
+
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
 
@@ -159,11 +169,21 @@ export function parseCSV(input) {
  * @n8nNode "Read XLSX Spreadsheet" (extended to support structured PDF — Flaw 1 fix)
  */
 export async function parsePDF(buffer) {
-  // Dynamic import to avoid bundling issues if pdfjs isn't configured yet
-  const pdfjsLib = await import('pdfjs-dist');
-
-  const loadingTask = pdfjsLib.getDocument({ data: buffer });
-  const pdf = await loadingTask.promise;
+  let pdf;
+  try {
+    // Dynamic import to avoid bundling issues if pdfjs isn't configured yet
+    const pdfjsLib = await import('pdfjs-dist');
+    const loadingTask = pdfjsLib.getDocument({ data: buffer });
+    pdf = await loadingTask.promise;
+  } catch (e) {
+    return {
+      rows: [],
+      warnings: [
+        `Could not read PDF: ${e.message}. ` +
+        'The file may be encrypted, corrupted, or unsupported. Try uploading an XLSX or CSV instead.',
+      ],
+    };
+  }
 
   const allLines = [];
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {

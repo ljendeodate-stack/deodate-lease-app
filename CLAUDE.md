@@ -1,5 +1,29 @@
 # CLAUDE.md — deodate-lease-app
 
+## Quality Standards (DEODATE)
+
+All work on this project must prioritize **institutional-quality, decision-grade output**.
+
+**Non-negotiable guardrails:**
+- Do not introduce math, unit, or logic errors. Maintain internal consistency and tie-outs.
+- Do not use ambiguous timing. Use specific as-of dates and effective dates.
+- Do not make unsupported conclusions. State assumptions, limitations, and evidentiary basis.
+- Preserve existing lease calculation logic unless a change is strictly required.
+- Do not silently alter parser assumptions or remove useful output.
+
+**Tone:**
+- Use calibrated language (indicates, supports, consistent with) — avoid overstatement of certainty.
+- Avoid emojis, slang, filler, and casual phrasing.
+- Keep formatting clean and scannable — prefer bullets and tables over long prose blocks.
+
+**Vocabulary defaults:**
+- Replace `~` with `approx.`
+- Replace `prove/proof` with `support/indicates/consistent with`
+- Replace `guarantee` with `target/expectation/objective`
+- Replace `we will` with `we plan to/intend to/expect to`
+
+See `IMPLEMENTATION_PLAN.md` for any major feature changes or refactoring tasks.
+
 ## Project overview
 **DEODATE Lease Schedule Engine** — a React single-page application that processes commercial lease documents and produces a monthly charge ledger. Users upload a PDF lease or structured file (CSV/Excel), review OCR-extracted data, fill in NNN/CAM charge parameters, and export a finalized schedule.
 
@@ -10,19 +34,20 @@
 - **pdfjs-dist** for PDF text extraction (OCR path)
 - **papaparse** for CSV parsing
 - **xlsx-js-style** for Excel parsing and export
+- **docx** for Word document (.docx) generation
 
 ## Project structure
 ```
 src/
   App.jsx                  # Root component; owns all step state and pipeline
   components/
-    UploadRouter.jsx        # Step 1: PDF / file / manual entry chooser
-    ScheduleEditor.jsx      # Step 2 (manual path): Quick Entry or bulk-paste rent schedule editor
+    UploadRouter.jsx        # Step 1: Three intake options (Scan, Input Schedule, Download Template)
+    ScheduleEditor.jsx      # Step 2 (manual path): Quick Entry, manual rows, bulk paste, or file upload
     InputForm.jsx           # Step 2/3: NNN charge parameter form
     ValidationBanner.jsx    # Inline validation error display
     LedgerTable.jsx         # Results: monthly ledger with expandable trace rows
     SummaryPanel.jsx        # Results: totals summary
-    ExportButton.jsx        # Excel/CSV export trigger
+    ExportButton.jsx        # Results: triggers Excel, Word doc, or CSV export
   engine/
     calculator.js           # Core charge calculation logic
     expander.js             # Expand period rows to monthly rows
@@ -34,7 +59,9 @@ src/
   utils/
     dateUtils.js
     formatUtils.js
-    exportUtils.js
+    exportUtils.js              # XLSX and CSV export (now contains fixed Annual Summary builder)
+    leaseDocGenerator.js        # Word document (.docx) generation with lease-specific guidance
+    mdFormatter.js              # Markdown document builder (institutional style)
 ```
 
 ## Commands
@@ -71,17 +98,17 @@ UPLOAD → (optional: SCHEDULE editor) → FORM → RESULTS
 
 ### Input paths
 
-1. **Upload** — user picks PDF, structured file, or manual entry
-2. **OCR extraction** (PDF path) — `extractor.js` pulls rent schedule + NNN fields
-3. **Schedule editor** (manual path) — Quick Entry (4 fields auto-generate schedule) or manual period rows
-4. **Form** — user reviews/edits NNN parameters pre-populated from OCR
-5. **Processing** — `calculator.js` runs on confirmed form data (never auto-triggered)
-6. **Results** — ledger table + summary panel + export
+1. **Scan Lease** — user uploads PDF; OCR extraction via `extractor.js` pre-fills form
+2. **Input Schedule** — user enters schedule via `ScheduleEditor` (Quick Entry, manual rows, bulk paste, or file upload)
+3. **Download Template** — static `.xlsx` file download (no processing)
 
-Three distinct paths:
-- **Path A (PDF)**: `UploadRouter` → `extractFromPDF()` (Anthropic/OpenAI OCR) → form pre-fill → `InputForm` → calculator
-- **Path B (structured file)**: `UploadRouter` → `parseFile()` (SheetJS / PapaParse) → blank form → `InputForm` → calculator
-- **Path C (manual)**: `UploadRouter` → `ScheduleEditor` (row-by-row or bulk paste entry) → `InputForm` → calculator
+Two processing paths (Scan and Input Schedule both converge):
+- **Scan path**: `UploadRouter` → `handlePDFUpload()` → `extractFromPDF()` → `ScheduleEditor` (pre-populated) → `InputForm` → `calculator.js` → Results
+- **Input path**: `UploadRouter` → `onManualEntry()` → `ScheduleEditor` (empty or file-loaded) → `InputForm` → `calculator.js` → Results
+
+Both converge at Results with identical output structure: `processedRows[]` + `processedParams` + `leaseMetadata`.
+
+Template download is isolated: no form, no processing, direct browser download.
 
 ### Engine pipeline (pure functions, no UI deps)
 

@@ -1,14 +1,10 @@
 /**
  * LedgerTable
- * Scrollable, paginated monthly ledger (Section 4).
- * - One row per lease month
- * - Abatement rows visually distinguished (amber background)
- * - Unresolved values display a visible flag rather than silent zero
- * - Each row expandable to show TracePanel
- * Flaw 3 fix: all values formatted per formatUtils conventions.
+ * Scrollable, paginated monthly ledger.
+ * Dynamic charge columns from row.chargeAmounts / row.chargeDetails.
  */
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import TracePanel from './TracePanel.jsx';
 import {
   formatDollar,
@@ -39,7 +35,7 @@ function Td({ children, className = '' }) {
 function UnresolvedFlag() {
   return (
     <span className="inline-flex items-center px-1 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-      ⚠ unresolved
+      unresolved
     </span>
   );
 }
@@ -53,7 +49,7 @@ function Paginator({ page, totalPages, onPage }) {
         disabled={page === 0}
         className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
       >
-        ← Prev
+        Prev
       </button>
       <span>Page {page + 1} of {totalPages}</span>
       <button
@@ -61,15 +57,40 @@ function Paginator({ page, totalPages, onPage }) {
         disabled={page === totalPages - 1}
         className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
       >
-        Next →
+        Next
       </button>
     </div>
   );
 }
 
+/**
+ * Derive charge column definitions from the first row's chargeDetails.
+ * Falls back to legacy hardcoded columns if chargeDetails is not present.
+ */
+function deriveChargeColumns(rows) {
+  const firstRow = rows[0];
+  if (firstRow?.chargeDetails && typeof firstRow.chargeDetails === 'object') {
+    return Object.entries(firstRow.chargeDetails).map(([key, detail]) => ({
+      key,
+      label: detail.displayLabel || key,
+    }));
+  }
+  // Legacy fallback
+  return [
+    { key: 'cams', label: 'CAMS' },
+    { key: 'insurance', label: 'Insurance' },
+    { key: 'taxes', label: 'Taxes' },
+    { key: 'security', label: 'Security' },
+    { key: 'otherItems', label: 'Other Items' },
+  ];
+}
+
 export default function LedgerTable({ rows = [] }) {
   const [page, setPage] = useState(0);
   const [expandedIdx, setExpandedIdx] = useState(null);
+
+  const chargeColumns = useMemo(() => deriveChargeColumns(rows), [rows]);
+  const totalColSpan = 10 + chargeColumns.length + 7; // expand/dates/year/month/rent/applied/abatement + charges + nnn/ot/othercharges/total/sf/remaining*3
 
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -93,17 +114,12 @@ export default function LedgerTable({ rows = [] }) {
               <Th>Month #</Th>
               <Th>Scheduled Base Rent</Th>
               <Th>Base Rent Applied</Th>
+              <Th>Abatement</Th>
               <Th>Proration Factor</Th>
-              <Th>CAMS ($)</Th>
-              <Th>CAMS Esc</Th>
-              <Th>Insurance ($)</Th>
-              <Th>Ins Esc</Th>
-              <Th>Taxes ($)</Th>
-              <Th>Tax Esc</Th>
-              <Th>Security ($)</Th>
-              <Th>Sec Esc</Th>
-              <Th>Other ($)</Th>
-              <Th>Other Esc</Th>
+              {chargeColumns.map((ch) => (
+                <Th key={ch.key}>{ch.label} ($)</Th>
+              ))}
+              <Th>Total NNN</Th>
               <Th>One-Time ($)</Th>
               <Th>Other Charges ($)</Th>
               <Th>Total Monthly</Th>
@@ -130,7 +146,7 @@ export default function LedgerTable({ rows = [] }) {
                     onClick={() => toggleRow(absIdx)}
                   >
                     <Td className="text-gray-400 select-none">
-                      {isExpanded ? '▼' : '▶'}
+                      {isExpanded ? String.fromCharCode(9660) : String.fromCharCode(9654)}
                     </Td>
                     <Td>{formatDateMDY(row.periodStart)}</Td>
                     <Td>{formatDateMDY(row.periodEnd)}</Td>
@@ -143,17 +159,24 @@ export default function LedgerTable({ rows = [] }) {
                       )}
                       {row.baseRentApplied != null ? formatDollar(row.baseRentApplied) : <UnresolvedFlag />}
                     </Td>
+                    <Td>{formatDollar(row.abatementAmount ?? 0)}</Td>
                     <Td className="font-mono text-gray-500">{formatFactor(row.baseRentProrationFactor)}</Td>
-                    <Td>{row.camsActive === false ? <span className="text-gray-400 italic text-xs">inactive</span> : formatDollar(row.camsAmount)}</Td>
-                    <Td>{formatPercent(row.camsEscPct)}</Td>
-                    <Td>{row.insuranceActive === false ? <span className="text-gray-400 italic text-xs">inactive</span> : formatDollar(row.insuranceAmount)}</Td>
-                    <Td>{formatPercent(row.insuranceEscPct)}</Td>
-                    <Td>{row.taxesActive === false ? <span className="text-gray-400 italic text-xs">inactive</span> : formatDollar(row.taxesAmount)}</Td>
-                    <Td>{formatPercent(row.taxesEscPct)}</Td>
-                    <Td>{row.securityActive === false ? <span className="text-gray-400 italic text-xs">inactive</span> : formatDollar(row.securityAmount)}</Td>
-                    <Td>{formatPercent(row.securityEscPct)}</Td>
-                    <Td>{row.otherItemsActive === false ? <span className="text-gray-400 italic text-xs">inactive</span> : formatDollar(row.otherItemsAmount)}</Td>
-                    <Td>{formatPercent(row.otherItemsEscPct)}</Td>
+
+                    {/* Dynamic charge columns */}
+                    {chargeColumns.map((ch) => {
+                      const detail = row.chargeDetails?.[ch.key];
+                      const amount = row.chargeAmounts?.[ch.key] ?? row[`${ch.key}Amount`] ?? 0;
+                      const active = detail?.active ?? row[`${ch.key}Active`];
+                      return (
+                        <Td key={ch.key}>
+                          {active === false
+                            ? <span className="text-gray-400 italic text-xs">inactive</span>
+                            : formatDollar(amount)}
+                        </Td>
+                      );
+                    })}
+
+                    <Td>{formatDollar(row.totalNNNAmount ?? 0)}</Td>
                     <Td>
                       {row.oneTimeChargesAmount
                         ? <span
@@ -165,7 +188,7 @@ export default function LedgerTable({ rows = [] }) {
                           >
                             {formatDollar(row.oneTimeChargesAmount)}
                           </span>
-                        : <span className="text-gray-300">—</span>
+                        : <span className="text-gray-300">-</span>
                       }
                     </Td>
                     <Td>{formatDollar(row.totalOtherChargesAmount)}</Td>
@@ -177,7 +200,7 @@ export default function LedgerTable({ rows = [] }) {
                   </tr>
                   {isExpanded && (
                     <tr key={`trace-${absIdx}`}>
-                      <td colSpan={25} className="p-0">
+                      <td colSpan={totalColSpan} className="p-0">
                         <TracePanel row={row} />
                       </td>
                     </tr>

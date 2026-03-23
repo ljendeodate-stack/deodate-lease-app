@@ -34,18 +34,27 @@ import {
  * }}
  *   rows           - Monthly rows sorted ascending by date, with sequence numbers assigned.
  *   duplicateDates - ISO date strings that appeared more than once (Flaw 5 surface).
+ *   warnings       - Descriptions of dropped rows (never silently filtered).
  *
  * @n8nNode "Expand Periods to Monthly Rows" + "Code in JavaScript" + "Calculate Year and Month Numbers"
  */
 export function expandPeriods(periodRows) {
   const rawMonthlyRecords = [];
+  const warnings = [];
 
-  for (const { periodStart, periodEnd, monthlyRent } of periodRows) {
-    if (!periodStart || !periodEnd) continue;
+  for (let i = 0; i < periodRows.length; i++) {
+    const { periodStart, periodEnd, monthlyRent } = periodRows[i];
+    if (!periodStart || !periodEnd) {
+      warnings.push(`Period row ${i + 1}: skipped — missing ${!periodStart ? 'start date' : 'end date'}.`);
+      continue;
+    }
 
     // Numeric validation — mirrors "Code in JavaScript" node
     const parsedRent = typeof monthlyRent === 'number' ? monthlyRent : parseFloat(String(monthlyRent));
-    if (isNaN(parsedRent)) continue;
+    if (isNaN(parsedRent)) {
+      warnings.push(`Period row ${i + 1}: skipped — rent "${monthlyRent}" is not a valid number.`);
+      continue;
+    }
 
     const nMonths = countMonthsInclusive(periodStart, periodEnd);
 
@@ -91,5 +100,5 @@ export function expandPeriods(periodRows) {
     'Year #': Math.floor(idx / 12) + 1,
   }));
 
-  return { rows, duplicateDates };
+  return { rows, duplicateDates, warnings };
 }

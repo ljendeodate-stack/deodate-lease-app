@@ -1,15 +1,14 @@
 /**
  * InputForm
- * Shared parameter form for both input paths (Section 2).
- * Flaw 4 fix: abatement percentage tooltip confirms convention (100 = full, 0 = none).
- * Flaw 6 fix: each NNN charge date field is labelled with its category name.
+ * Shared parameter form for both input paths.
+ * Dynamic charge model: form.charges[] replaces named fields.
  * Human-in-the-loop: confirm button is the only trigger for processing.
  */
 
 import { useState, useEffect } from 'react';
 import ValidationBanner from './ValidationBanner.jsx';
 import { formatDollar } from '../utils/formatUtils.js';
-import { NNN_BUCKET_KEYS, EXPENSE_CATEGORY_DEFS } from '../engine/labelClassifier.js';
+import { defaultChargesForm, emptyChargeForm, generateChargeKey, CANONICAL_TYPES } from '../engine/chargeTypes.js';
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -21,7 +20,7 @@ function FieldRow({ label, hint, error, children }) {
       <label className="text-sm font-medium text-gray-700">
         {label}
         {hint && (
-          <span className="ml-1 text-gray-400 cursor-help" title={hint}>ⓘ</span>
+          <span className="ml-1 text-gray-400 cursor-help" title={hint}>i</span>
         )}
       </label>
       {children}
@@ -48,22 +47,24 @@ function ConfidenceFlag({ flagged }) {
   if (!flagged) return null;
   return (
     <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
-      ⚠ Low confidence — verify
+      Low confidence — verify
     </span>
   );
 }
 
-function NNNSection({ label, prefix, values, onChange, confidenceFlags = [], fieldErrors = {}, defaultExpanded }) {
-  const flag = (field) => confidenceFlags.includes(`${prefix}.${field}`);
-  const err = (field) => fieldErrors[`${prefix}.${field}`];
+function ChargeSection({ charge, index, onChange, onRemove, confidenceFlags = [], fieldErrors = {}, defaultExpanded, isCustom }) {
+  const prefix = `charges.${index}`;
+  const flag = (field) => confidenceFlags.includes(`${charge.key}.${field}`) || confidenceFlags.includes(`${prefix}.${field}`);
+  const err = (field) => fieldErrors[`${prefix}.${field}`] || fieldErrors[`${charge.key}.${field}`];
   const hasAnyFlag = ['year1', 'escPct', 'chargeStart', 'escStart'].some((f) => flag(f));
 
   const [expanded, setExpanded] = useState(() => {
     if (defaultExpanded !== undefined) return defaultExpanded;
-    return hasAnyFlag || !values?.year1;
+    return hasAnyFlag || !charge?.year1;
   });
 
-  const year1Display = values?.year1 ? formatDollar(Number(values.year1)) : null;
+  const year1Display = charge?.year1 ? formatDollar(Number(charge.year1)) : null;
+  const typeLabel = charge.canonicalType === CANONICAL_TYPES.NNN ? 'NNN' : 'Other';
 
   return (
     <div className="rounded-lg border border-gray-200 overflow-hidden">
@@ -73,23 +74,59 @@ function NNNSection({ label, prefix, values, onChange, confidenceFlags = [], fie
         className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
       >
         <div className="flex items-center gap-3">
-          <span className="font-semibold text-gray-800 text-sm">{label}</span>
+          <span className="font-semibold text-gray-800 text-sm">{charge.displayLabel}</span>
+          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+            charge.canonicalType === CANONICAL_TYPES.NNN
+              ? 'bg-pink-100 text-pink-700'
+              : 'bg-gray-100 text-gray-600'
+          }`}>{typeLabel}</span>
           {!expanded && year1Display && (
             <span className="text-sm text-gray-500 font-mono">{year1Display}/mo</span>
           )}
           {hasAnyFlag && <ConfidenceFlag flagged={true} />}
         </div>
-        <span className="text-gray-400 text-xs">{expanded ? '▲' : '▼'}</span>
+        <div className="flex items-center gap-2">
+          {isCustom && (
+            <span
+              onClick={(e) => { e.stopPropagation(); onRemove(); }}
+              className="text-xs text-red-500 hover:text-red-700 cursor-pointer px-1"
+              title="Remove charge"
+            >remove</span>
+          )}
+          <span className="text-gray-400 text-xs">{expanded ? String.fromCharCode(9650) : String.fromCharCode(9660)}</span>
+        </div>
       </button>
 
       {expanded && (
         <div className="px-4 pb-4 pt-3 space-y-3 border-t border-gray-100">
+          {/* Label and type editing */}
+          <div className="grid grid-cols-2 gap-3">
+            <FieldRow label="Display Label">
+              <TextInput
+                value={charge.displayLabel}
+                onChange={(v) => onChange(index, 'displayLabel', v)}
+                placeholder="e.g. CAMS"
+              />
+            </FieldRow>
+            <FieldRow label="Routing" hint="NNN charges contribute to Total NNN. Other charges go to Other Charges bucket.">
+              <select
+                value={charge.canonicalType}
+                onChange={(e) => onChange(index, 'canonicalType', e.target.value)}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value={CANONICAL_TYPES.NNN}>NNN (Total NNN)</option>
+                <option value={CANONICAL_TYPES.OTHER}>Other (Other Charges)</option>
+              </select>
+            </FieldRow>
+          </div>
+
+          {/* Amount and escalation */}
           <div className="grid grid-cols-2 gap-3">
             <FieldRow label={<>Year 1 Monthly ($) <ConfidenceFlag flagged={flag('year1')} /></>} error={err('year1')}>
               <TextInput
                 type="number"
-                value={values.year1}
-                onChange={(v) => onChange(prefix, 'year1', v)}
+                value={charge.year1}
+                onChange={(v) => onChange(index, 'year1', v)}
                 placeholder="e.g. 500"
                 error={err('year1')}
               />
@@ -97,34 +134,36 @@ function NNNSection({ label, prefix, values, onChange, confidenceFlags = [], fie
             <FieldRow label={<>Annual Escalation (%) <ConfidenceFlag flagged={flag('escPct')} /></>} error={err('escPct')}>
               <TextInput
                 type="number"
-                value={values.escPct}
-                onChange={(v) => onChange(prefix, 'escPct', v)}
+                value={charge.escPct}
+                onChange={(v) => onChange(index, 'escPct', v)}
                 placeholder="e.g. 3"
                 error={err('escPct')}
               />
             </FieldRow>
           </div>
+
+          {/* Date fields */}
           <div className="grid grid-cols-2 gap-3">
             <FieldRow
-              label={<>{label} Billing Start Date <ConfidenceFlag flagged={flag('chargeStart')} /></>}
+              label={<>{charge.displayLabel} Billing Start Date <ConfidenceFlag flagged={flag('chargeStart')} /></>}
               hint="Leave blank if billing begins at lease commencement."
               error={err('chargeStart')}
             >
               <TextInput
-                value={values.chargeStart}
-                onChange={(v) => onChange(prefix, 'chargeStart', v)}
+                value={charge.chargeStart}
+                onChange={(v) => onChange(index, 'chargeStart', v)}
                 placeholder="MM/DD/YYYY (optional)"
                 error={err('chargeStart')}
               />
             </FieldRow>
             <FieldRow
-              label={<>{label} Escalation Start Date <ConfidenceFlag flagged={flag('escStart')} /></>}
+              label={<>{charge.displayLabel} Escalation Start Date <ConfidenceFlag flagged={flag('escStart')} /></>}
               hint="Leave blank if escalation begins at lease commencement."
               error={err('escStart')}
             >
               <TextInput
-                value={values.escStart}
-                onChange={(v) => onChange(prefix, 'escStart', v)}
+                value={charge.escStart}
+                onChange={(v) => onChange(index, 'escStart', v)}
                 placeholder="MM/DD/YYYY (optional)"
                 error={err('escStart')}
               />
@@ -153,11 +192,7 @@ export function emptyFormState() {
     abatementPct: '',
     nnnMode: 'individual',
     nnnAggregate: { year1: '', escPct: '' },
-    cams: emptyNNN(),
-    insurance: emptyNNN(),
-    taxes: emptyNNN(),
-    security: emptyNNN(),
-    otherItems: emptyNNN(),
+    charges: defaultChargesForm(),
     oneTimeItems: [],
   };
 }
@@ -167,14 +202,16 @@ export function emptyFormState() {
 // ---------------------------------------------------------------------------
 
 export default function InputForm({
-  initialValues,       // pre-populated from OCR (optional)
-  confidenceFlags,     // string[] — field paths flagged by OCR
-  notices,             // string[] — OCR notices
-  validationErrors,    // ValidationError[]
-  sfRequired,          // boolean — $/SF conversion needed
-  leaseStartDate,      // string|null — ISO date from first expanded row (e.g. "2018-03-01")
-  onSubmit,            // (params) => void
-  onBack,              // () => void
+  initialValues,
+  confidenceFlags,
+  notices,
+  validationErrors,
+  sfRequired,
+  leaseStartDate,
+  expandedRowCount,
+  onSubmit,
+  onBack,
+  onBackToSchedule,
   isProcessing,
 }) {
   const [form, setForm] = useState(() => ({
@@ -182,7 +219,6 @@ export default function InputForm({
     ...initialValues,
   }));
 
-  // Sync if parent updates initialValues (e.g. after OCR completes)
   useEffect(() => {
     if (initialValues) {
       setForm((prev) => ({ ...prev, ...initialValues }));
@@ -193,10 +229,27 @@ export default function InputForm({
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  function setNNN(prefix, field, value) {
+  function updateCharge(index, field, value) {
+    setForm((prev) => {
+      const charges = [...(prev.charges ?? [])];
+      charges[index] = { ...charges[index], [field]: value };
+      return { ...prev, charges };
+    });
+  }
+
+  function addCharge() {
+    setForm((prev) => {
+      const charges = prev.charges ?? [];
+      const existingKeys = charges.map((c) => c.key);
+      const key = generateChargeKey(existingKeys);
+      return { ...prev, charges: [...charges, emptyChargeForm(key)] };
+    });
+  }
+
+  function removeCharge(index) {
     setForm((prev) => ({
       ...prev,
-      [prefix]: { ...prev[prefix], [field]: value },
+      charges: (prev.charges ?? []).filter((_, i) => i !== index),
     }));
   }
 
@@ -207,40 +260,62 @@ export default function InputForm({
     }));
   }
 
-  // Build a quick lookup: field → error message
   const fieldErrors = {};
   for (const err of validationErrors ?? []) {
     fieldErrors[err.field] = err.message;
   }
+
+  // The default 5 charge keys that cannot be removed
+  const defaultKeys = new Set(['cams', 'insurance', 'taxes', 'security', 'otherItems']);
 
   function handleSubmit(e) {
     e.preventDefault();
     onSubmit(form);
   }
 
+  const charges = form.charges ?? defaultChargesForm();
+  const nnnCharges = charges.filter((ch) => ch.canonicalType === CANONICAL_TYPES.NNN);
+  const otherCharges = charges.filter((ch) => ch.canonicalType === CANONICAL_TYPES.OTHER);
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-900">Lease Parameters</h2>
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-sm text-gray-500 hover:text-gray-700 underline"
-        >
-          ← Back to upload
-        </button>
+        <div className="flex items-center gap-3">
+          {onBackToSchedule && (
+            <button
+              type="button"
+              onClick={onBackToSchedule}
+              className="text-sm text-blue-600 hover:text-blue-800 underline"
+            >
+              ← Edit schedule
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-sm text-gray-500 hover:text-gray-700 underline"
+          >
+            ← Start over
+          </button>
+        </div>
       </div>
 
-      {/* OCR notices */}
+      {expandedRowCount > 0 && (
+        <div className="rounded-md bg-gray-50 border border-gray-200 px-4 py-2 text-sm text-gray-600">
+          Rent schedule loaded: <strong>{expandedRowCount}</strong> monthly row{expandedRowCount !== 1 ? 's' : ''}
+          {leaseStartDate && <span className="ml-1">starting {leaseStartDate}</span>}
+        </div>
+      )}
+
       {notices?.length > 0 && (
         <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-1">
           {notices.map((n, i) => (
-            <p key={i} className="text-sm text-amber-800">⚠ {n}</p>
+            <p key={i} className="text-sm text-amber-800">{n}</p>
           ))}
         </div>
       )}
 
-      {/* Validation errors */}
       <ValidationBanner errors={validationErrors ?? []} />
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -279,7 +354,6 @@ export default function InputForm({
         <div className="rounded-lg border border-gray-200 p-4 space-y-3">
           <h4 className="font-semibold text-gray-800 text-sm">Rent Abatement (optional)</h4>
 
-          {/* Row 1: Months + End Date (linked) */}
           <div className="grid grid-cols-3 gap-3">
             <FieldRow
               label="# Months of Abatement"
@@ -291,7 +365,6 @@ export default function InputForm({
                 value={form.abatementMonths}
                 onChange={(v) => {
                   setTop('abatementMonths', v);
-                  // Auto-compute end date from lease start + N months
                   const n = parseInt(v, 10);
                   if (leaseStartDate && !isNaN(n) && n > 0) {
                     const parts = leaseStartDate.split('-').map(Number);
@@ -317,7 +390,6 @@ export default function InputForm({
                 value={form.abatementEndDate}
                 onChange={(v) => {
                   setTop('abatementEndDate', v);
-                  // Clear months when user manually edits the date
                   if (form.abatementMonths) setTop('abatementMonths', '');
                 }}
                 placeholder="MM/DD/YYYY"
@@ -330,8 +402,8 @@ export default function InputForm({
                   Abatement Percentage (%)
                   <span
                     className="ml-1 text-gray-400 cursor-help"
-                    title="100 = full abatement (tenant pays $0). 50 = half abatement (tenant pays half rent). 0 = no abatement (full rent applies). This is applied as: tenant pays = rent × (1 − abatementPct÷100)."
-                  >ⓘ</span>
+                    title="100 = full abatement (tenant pays $0). 50 = half abatement (tenant pays half rent). 0 = no abatement (full rent applies). This is applied as: tenant pays = rent x (1 - abatementPct/100)."
+                  >i</span>
                 </>
               }
               error={fieldErrors['abatementPct']}
@@ -346,7 +418,6 @@ export default function InputForm({
             </FieldRow>
           </div>
 
-          {/* Quick-select buttons for abatement percentage */}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">Quick set:</span>
             {[
@@ -369,7 +440,6 @@ export default function InputForm({
             ))}
           </div>
 
-          {/* Convention note */}
           <p className="text-xs text-gray-500">
             <strong>Convention:</strong> 100 = full abatement (tenant pays nothing).
             50 = half abatement (tenant pays half). 0 = no abatement (full rent due).
@@ -381,13 +451,12 @@ export default function InputForm({
           </p>
         </div>
 
-        {/* NNN charges — aggregate or individual path */}
+        {/* NNN charges — aggregate or individual + dynamic charge sections */}
         {form.nnnMode === 'aggregate' ? (
           <>
-            {/* Aggregate NNN warning */}
             <div className="rounded-md bg-amber-50 border border-amber-300 p-3 space-y-1">
               <p className="text-sm font-semibold text-amber-800">
-                ⚠ Aggregate NNN Estimate — No Line-Item Breakdown Available
+                Aggregate NNN Estimate — No Line-Item Breakdown Available
               </p>
               <p className="text-sm text-amber-700">
                 The lease states a combined operating expense estimate without separate CAMS, Insurance, and Taxes figures.
@@ -395,7 +464,6 @@ export default function InputForm({
               </p>
             </div>
 
-            {/* Single aggregate NNN section */}
             <div className="rounded-lg border border-amber-200 overflow-hidden">
               <div className="px-4 py-3 bg-amber-50 border-b border-amber-200">
                 <span className="font-semibold text-gray-800 text-sm">
@@ -433,50 +501,51 @@ export default function InputForm({
               </div>
             </div>
 
-            {/* Security and Other Items still shown individually */}
-            {['security', 'otherItems'].map((prefix) => {
-              const label = EXPENSE_CATEGORY_DEFS[prefix].displayLabel;
-              return { prefix, label };
-            }).map(({ prefix, label }) => {
-              const hasFlag = ['year1', 'escPct', 'chargeStart', 'escStart'].some(
-                (f) => confidenceFlags?.includes(`${prefix}.${f}`)
-              );
+            {/* In aggregate mode, show only non-NNN (Other) charges */}
+            {charges.filter((ch) => ch.canonicalType !== CANONICAL_TYPES.NNN).map((ch, _, arr) => {
+              const globalIdx = charges.indexOf(ch);
               return (
-                <NNNSection
-                  key={prefix}
-                  label={label}
-                  prefix={prefix}
-                  values={form[prefix]}
-                  onChange={setNNN}
+                <ChargeSection
+                  key={ch.key}
+                  charge={ch}
+                  index={globalIdx}
+                  onChange={updateCharge}
+                  onRemove={() => removeCharge(globalIdx)}
                   confidenceFlags={confidenceFlags}
                   fieldErrors={fieldErrors}
-                  defaultExpanded={hasFlag || !form[prefix]?.year1}
+                  defaultExpanded={!ch.year1}
+                  isCustom={!defaultKeys.has(ch.key)}
                 />
               );
             })}
           </>
         ) : (
-          /* Individual NNN mode — labels sourced from EXPENSE_CATEGORY_DEFS */
-          NNN_BUCKET_KEYS.map((prefix) => {
-            const label = EXPENSE_CATEGORY_DEFS[prefix].displayLabel;
-            return { prefix, label };
-          }).map(({ prefix, label }) => {
-            const hasFlag = ['year1', 'escPct', 'chargeStart', 'escStart'].some(
-              (f) => confidenceFlags?.includes(`${prefix}.${f}`)
-            );
-            return (
-              <NNNSection
-                key={prefix}
-                label={label}
-                prefix={prefix}
-                values={form[prefix]}
-                onChange={setNNN}
+          /* Individual mode — show all charges */
+          <>
+            <div className="flex items-center justify-between">
+              <h4 className="font-semibold text-gray-800 text-sm">Charges</h4>
+              <button
+                type="button"
+                onClick={addCharge}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+              >
+                + Add charge
+              </button>
+            </div>
+            {charges.map((ch, idx) => (
+              <ChargeSection
+                key={ch.key}
+                charge={ch}
+                index={idx}
+                onChange={updateCharge}
+                onRemove={() => removeCharge(idx)}
                 confidenceFlags={confidenceFlags}
                 fieldErrors={fieldErrors}
-                defaultExpanded={hasFlag || !form[prefix]?.year1}
+                defaultExpanded={!ch.year1}
+                isCustom={!defaultKeys.has(ch.key)}
               />
-            );
-          })
+            ))}
+          </>
         )}
 
         {/* One-time items */}
@@ -541,7 +610,7 @@ export default function InputForm({
                     }))}
                     className="text-xs text-red-500 hover:text-red-700 px-2"
                     title="Remove"
-                  >✕</button>
+                  >X</button>
                 </div>
               </FieldRow>
             </div>
@@ -555,7 +624,7 @@ export default function InputForm({
             disabled={isProcessing}
             className="flex-1 rounded-md bg-blue-600 text-white py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {isProcessing ? 'Processing…' : 'Confirm & Process Schedule'}
+            {isProcessing ? 'Processing...' : 'Confirm & Process Schedule'}
           </button>
         </div>
         <p className="text-xs text-gray-400 text-center">

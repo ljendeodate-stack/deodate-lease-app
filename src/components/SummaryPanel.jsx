@@ -45,32 +45,50 @@ export default function SummaryPanel({ rows = [] }) {
     const leaseStart = firstRow.periodStart;
     const leaseEnd = lastRow.periodEnd ?? lastRow.periodStart;
 
-    // Sum from rows
+    // Sum from rows — dynamic charge sums
     let sumScheduledBase = 0;
     let sumBaseApplied = 0;
-    let sumCAMS = 0;
-    let sumInsurance = 0;
-    let sumTaxes = 0;
-    let sumSecurity = 0;
-    let sumOtherItems = 0;
     let sumTotal = 0;
     let sumOneTimeCharges = 0;
     let sumOtherCharges = 0;
+    let sumNNNTotal = 0;
 
+    // Build dynamic charge sums
+    const chargeSums = {};
     for (const r of rows) {
       sumScheduledBase += r.scheduledBaseRent ?? 0;
       sumBaseApplied += r.baseRentApplied ?? 0;
-      sumCAMS += r.camsAmount ?? 0;
-      sumInsurance += r.insuranceAmount ?? 0;
-      sumTaxes += r.taxesAmount ?? 0;
-      sumSecurity += r.securityAmount ?? 0;
-      sumOtherItems += r.otherItemsAmount ?? 0;
       sumTotal += r.totalMonthlyObligation ?? 0;
       sumOneTimeCharges += r.oneTimeChargesAmount ?? 0;
       sumOtherCharges += r.totalOtherChargesAmount ?? 0;
+      sumNNNTotal += r.totalNNNAmount ?? 0;
+
+      // Accumulate per-charge sums
+      if (r.chargeAmounts) {
+        for (const [key, amt] of Object.entries(r.chargeAmounts)) {
+          chargeSums[key] = (chargeSums[key] || 0) + (amt ?? 0);
+        }
+      } else {
+        // Legacy fallback
+        for (const key of ['cams', 'insurance', 'taxes', 'security', 'otherItems']) {
+          chargeSums[key] = (chargeSums[key] || 0) + (r[`${key}Amount`] ?? 0);
+        }
+      }
     }
 
-    const sumNNN = sumCAMS + sumInsurance + sumTaxes + sumSecurity + sumOtherItems;
+    // Derive charge labels from the first row
+    const chargeLabels = {};
+    if (firstRow.chargeDetails) {
+      for (const [key, detail] of Object.entries(firstRow.chargeDetails)) {
+        chargeLabels[key] = detail.displayLabel || key;
+      }
+    } else {
+      chargeLabels.cams = 'CAMS'; chargeLabels.insurance = 'Insurance';
+      chargeLabels.taxes = 'Taxes'; chargeLabels.security = 'Security';
+      chargeLabels.otherItems = 'Other Items';
+    }
+
+    const sumNNN = sumNNNTotal;
 
     // The first row's "remaining" fields contain the full-term totals (reverse pass)
     const remainingFromFirstRow = {
@@ -106,11 +124,8 @@ export default function SummaryPanel({ rows = [] }) {
       totalMonths,
       sumScheduledBase,
       sumBaseApplied,
-      sumCAMS,
-      sumInsurance,
-      sumTaxes,
-      sumSecurity,
-      sumOtherItems,
+      chargeSums,
+      chargeLabels,
       sumNNN,
       sumTotal,
       sumOneTimeCharges,
@@ -125,7 +140,7 @@ export default function SummaryPanel({ rows = [] }) {
   const {
     leaseStart, leaseEnd, totalMonths,
     sumScheduledBase, sumBaseApplied,
-    sumCAMS, sumInsurance, sumTaxes, sumSecurity, sumOtherItems,
+    chargeSums, chargeLabels,
     sumNNN, sumTotal, sumOneTimeCharges, sumOtherCharges,
     remainingFromFirstRow, asOfRemaining,
   } = metrics;
@@ -156,17 +171,15 @@ export default function SummaryPanel({ rows = [] }) {
         />
       </div>
 
-      {/* Obligation breakdown */}
+      {/* Obligation breakdown — dynamic charge cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <MetricCard label="Total Base Rent (Applied)" value={formatDollar(sumBaseApplied)} />
-        <MetricCard label="Total CAMS" value={formatDollar(sumCAMS)} />
-        <MetricCard label="Total Insurance" value={formatDollar(sumInsurance)} />
-        <MetricCard label="Total Taxes" value={formatDollar(sumTaxes)} />
-        <MetricCard label="Total Security" value={formatDollar(sumSecurity)} />
-        <MetricCard label="Total Other Items" value={formatDollar(sumOtherItems)} />
+        {Object.entries(chargeSums).map(([key, sum]) => (
+          <MetricCard key={key} label={`Total ${chargeLabels[key] || key}`} value={formatDollar(sum)} />
+        ))}
         <MetricCard label="Total One-Time Charges" value={formatDollar(sumOneTimeCharges)} />
         <MetricCard label="Total Other Charges" value={formatDollar(sumOtherCharges)}
-          sub="Security + Other Items + One-Time" />
+          sub="Other-type charges + One-Time" />
       </div>
 
       <div className="grid grid-cols-2 gap-3">

@@ -161,10 +161,54 @@ function bufferToBase64(buffer) {
  * @returns {Promise<{ result: ExtractionResult, isLikelyScanned: boolean }>}
  * @throws {Error} On network failure or non-200 API response.
  */
+/**
+ * Empty extraction result used as fallback when OCR fails.
+ * Ensures downstream code always receives a well-shaped object.
+ */
+function emptyExtractionResult(notices = []) {
+  return {
+    rentSchedule: [],
+    leaseName: null,
+    squareFootage: null,
+    abatementEndDate: null,
+    abatementPct: null,
+    cams: { year1: null, escPct: null, chargeStart: null, escStart: null },
+    insurance: { year1: null, escPct: null, chargeStart: null, escStart: null },
+    taxes: { year1: null, escPct: null, chargeStart: null, escStart: null },
+    security: { year1: null, escPct: null, chargeStart: null, escStart: null },
+    otherItems: { year1: null, escPct: null, chargeStart: null, escStart: null },
+    securityDeposit: null,
+    securityDepositDate: null,
+    estimatedNNNMonthly: null,
+    confidenceFlags: [],
+    notices,
+    sfRequired: false,
+    overallConfidence: 'low',
+  };
+}
+
 export async function extractFromPDF(pdfBuffer) {
   const scanned = likelyScanned(pdfBuffer);
-  const base64PDF = bufferToBase64(pdfBuffer);
-  const { rawText, providerUsed, fallbackReason } = await extractOCRText(base64PDF);
+  let rawText;
+  let providerUsed;
+  let fallbackReason;
+
+  try {
+    const base64PDF = bufferToBase64(pdfBuffer);
+    const ocrResult = await extractOCRText(base64PDF);
+    rawText = ocrResult.rawText;
+    providerUsed = ocrResult.providerUsed;
+    fallbackReason = ocrResult.fallbackReason;
+  } catch (ocrError) {
+    // OCR completely failed — return empty result with notice instead of throwing
+    return {
+      result: emptyExtractionResult([
+        `OCR extraction failed: ${ocrError.message}. ` +
+        'You can still proceed by entering the rent schedule manually.',
+      ]),
+      isLikelyScanned: scanned,
+    };
+  }
 
   let result;
   try {
@@ -172,9 +216,14 @@ export async function extractFromPDF(pdfBuffer) {
     const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
     result = JSON.parse(cleaned);
   } catch {
-    throw new Error(
-      `OCR provider returned a response that could not be parsed as JSON.\n\nRaw response:\n${rawText}`
-    );
+    // JSON parse failed — return empty result with notice instead of throwing
+    return {
+      result: emptyExtractionResult([
+        'OCR provider returned a response that could not be parsed. ' +
+        'You can still proceed by entering the rent schedule manually.',
+      ]),
+      isLikelyScanned: scanned,
+    };
   }
 
   // Ensure required arrays/objects exist

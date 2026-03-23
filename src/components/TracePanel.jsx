@@ -7,11 +7,26 @@
 
 import { formatFactor, formatPercent } from '../utils/formatUtils.js';
 import { NNN_BUCKET_KEYS, EXPENSE_CATEGORY_DEFS } from '../engine/labelClassifier.js';
+import { CANONICAL_TYPES } from '../engine/chargeTypes.js';
 
-const CATEGORIES = NNN_BUCKET_KEYS.map((k) => ({
-  key: k,
-  label: EXPENSE_CATEGORY_DEFS[k].displayLabel,
-}));
+// Build categories from row.chargeDetails if available, else fall back to legacy
+function getCategories(row) {
+  if (row.chargeDetails && typeof row.chargeDetails === 'object') {
+    return Object.entries(row.chargeDetails).map(([key, detail]) => ({
+      key,
+      label: detail.displayLabel || EXPENSE_CATEGORY_DEFS[key]?.displayLabel || key,
+      ...detail,
+    }));
+  }
+  // Legacy fallback
+  return NNN_BUCKET_KEYS.map((k) => ({
+    key: k,
+    label: EXPENSE_CATEGORY_DEFS[k].displayLabel,
+    active: row[`${k}Active`],
+    escYears: row[`${k}EscYears`],
+    escPct: row[`${k}EscPct`],
+  }));
+}
 
 function TraceRow({ label, value, detail }) {
   return (
@@ -112,12 +127,10 @@ export default function TracePanel({ row }) {
             detail={prorationDetail}
           />
 
-          <tr><td colSpan={3} className="pt-2 pb-0.5"><span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">NNN Charges</span></td></tr>
+          <tr><td colSpan={3} className="pt-2 pb-0.5"><span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Charges</span></td></tr>
 
-          {CATEGORIES.map(({ key, label }) => {
-            const active = row[`${key}Active`];
-            const escYears = row[`${key}EscYears`];
-            const escPct = row[`${key}EscPct`];
+          {getCategories(row).map((cat) => {
+            const { key, label, active, escYears, escPct } = cat;
             return (
               <TraceRow
                 key={key}
@@ -125,7 +138,7 @@ export default function TracePanel({ row }) {
                 value={
                   active === false
                     ? 'INACTIVE'
-                    : `Year index: ${escYears ?? '—'} → ×(1 + ${escPct ?? 0}%)^${escYears ?? 0}`
+                    : `Year index: ${escYears ?? '—'} → x(1 + ${escPct ?? 0}%)^${escYears ?? 0}`
                 }
                 detail={
                   active === false

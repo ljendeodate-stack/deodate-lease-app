@@ -23,17 +23,20 @@ export function parseExcelDate(val) {
 
   // Excel serial number (numeric type)
   if (typeof val === 'number' && !isNaN(val)) {
+    // Reject implausible serials: < 1 (before 1900) or > 60000 (after ~2064)
+    if (val < 1 || val > 60000) return null;
     const d = new Date((val - 25569) * 86400 * 1000);
     d.setHours(0, 0, 0, 0);
-    return d;
+    return isNaN(d.getTime()) ? null : d;
   }
 
   // Numeric string that is an Excel serial
   if (typeof val === 'string' && val.trim() !== '' && !isNaN(Number(val))) {
     const n = Number(val);
+    if (n < 1 || n > 60000) return null;
     const d = new Date((n - 25569) * 86400 * 1000);
     d.setHours(0, 0, 0, 0);
-    return d;
+    return isNaN(d.getTime()) ? null : d;
   }
 
   // General date string (ISO, locale, etc.)

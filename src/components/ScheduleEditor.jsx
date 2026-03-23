@@ -34,6 +34,13 @@ function fmtDate(d) {
   return d ? toISOLocal(d) : null;
 }
 
+function fmtMDY(d) {
+  if (!d || !(d instanceof Date) || isNaN(d.getTime())) return '';
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${mm}/${dd}/${d.getFullYear()}`;
+}
+
 // ---------------------------------------------------------------------------
 // Quick Entry — auto-generate period rows from 4 inputs
 // ---------------------------------------------------------------------------
@@ -119,11 +126,14 @@ function ParsedPreview({ p, periodStr }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function ScheduleEditor({ onConfirm, onBack }) {
+export default function ScheduleEditor({ onConfirm, onBack, initialPeriodRows }) {
+  // If we have pre-populated period rows from a fallback, start in manual mode
+  const hasInitialRows = Array.isArray(initialPeriodRows) && initialPeriodRows.length > 0;
+
   // ---------------------------------------------------------------------------
   // Entry mode toggle: 'manual' (existing) or 'quick' (new)
   // ---------------------------------------------------------------------------
-  const [entryMode, setEntryMode] = useState('quick');
+  const [entryMode, setEntryMode] = useState(hasInitialRows ? 'manual' : 'quick');
 
   // ---------------------------------------------------------------------------
   // Quick Entry state
@@ -202,9 +212,20 @@ export default function ScheduleEditor({ onConfirm, onBack }) {
   }
 
   // ---------------------------------------------------------------------------
-  // Manual Entry state (unchanged from original)
+  // Manual Entry state — pre-populated from initialPeriodRows when available
   // ---------------------------------------------------------------------------
-  const [rows, setRows] = useState(() => [newRow(), newRow(), newRow()]);
+  const [rows, setRows] = useState(() => {
+    if (hasInitialRows) {
+      return initialPeriodRows.map((p) => ({
+        id: _nextId++,
+        periodStr: p.periodStart && p.periodEnd
+          ? `${fmtMDY(p.periodStart)}-${fmtMDY(p.periodEnd)}`
+          : p.periodStart ? fmtMDY(p.periodStart) : '',
+        rentStr: !isNaN(p.monthlyRent) ? String(p.monthlyRent) : '',
+      }));
+    }
+    return [newRow(), newRow(), newRow()];
+  });
   const [showBulkPaste, setShowBulkPaste] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [bulkParseWarnings, setBulkParseWarnings] = useState([]);

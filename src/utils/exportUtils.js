@@ -1,84 +1,38 @@
 /**
  * @fileoverview Professional XLSX export with full formatting and live formulas.
  *
+ * The column layout is now DYNAMIC — driven by the charge category registry
+ * in chargeCategories.js. Columns only appear when a charge category has data.
+ * Adding a new category requires only a registry entry; this file adapts automatically.
+ *
  * Row layout — Lease Schedule tab:
- *   Row  1        : title (merged A1:R1)
- *   Row  2        : subtitle (merged A2:R2)
- *   Row  3        : generated date (merged A3:R3)
+ *   Row  1        : title (merged)
+ *   Row  2        : subtitle (merged)
+ *   Row  3        : generated date (merged)
  *   Row  4        : blank
- *   Rows 5–22     : assumptions block (B = label, C = value)
- *   Row  23       : blank separator
- *   Row  24       : column headers
- *   Row  25+      : monthly data rows
- *
- * Assumption cell addresses (col C):
- *   $C$5  Rentable SF                          INPUT (blue)
- *   $C$6  Lease Commencement Date              CALC  (black)
- *   $C$7  Lease Expiration Date                CALC  (black)
- *   $C$8  Year 1 Monthly Base Rent             INPUT (blue)
- *   $C$9  Annual Base Rent Escalation Rate     INPUT (blue)
- *   $C$10 Lease Anniversary Month              CALC  (black)
- *   $C$11 Abatement Full-Month Count           CALC  (black)
- *   $C$12 Abatement Partial-Month Factor       CALC  (black)
- *   $C$13 CAMS Year 1 Monthly Amount             INPUT (blue)
- *   $C$14 CAMS Annual Escalation Rate (%)       INPUT (blue)
- *   $C$15 Insurance Year 1 Monthly Amount       INPUT (blue)
- *   $C$16 Insurance Annual Escalation Rate (%)  INPUT (blue)
- *   $C$17 Taxes Year 1 Monthly Amount           INPUT (blue)
- *   $C$18 Taxes Annual Escalation Rate (%)      INPUT (blue)
- *   $C$19 Security Year 1 Monthly Amount        INPUT (blue)
- *   $C$20 Security Annual Escalation Rate (%)   INPUT (blue)
- *   $C$21 Other Items Year 1 Monthly Amount     INPUT (blue)
- *   $C$22 Other Items Annual Escalation Rate (%) INPUT (blue)
- *
- * Column layout (0-based → letter):
- *   0  A  Period Start
- *   1  B  Period End
- *   2  C  Month #
- *   3  D  Year #
- *   4  E  Scheduled Base Rent      FORMULA  =$C$8*(1+$C$9)^(D{r}-1)
- *   5  F  Base Rent Applied        FORMULA  abatement IF referencing $C$11, $C$12
- *   6  G  CAMS                     FORMULA  =$C$13*(1+$C$14)^(D{r}-1)
- *   7  H  Insurance                FORMULA  =$C$15*(1+$C$16)^(D{r}-1)
- *   8  I  Taxes                    FORMULA  =$C$17*(1+$C$18)^(D{r}-1)
- *   9  J  Security                 FORMULA  =$C$19*(1+$C$20)^(D{r}-1)  [Other Charges]
- *  10  K  Other Items              FORMULA  =$C$21*(1+$C$22)^(D{r}-1)  [Other Charges]
- *  11  L  Total NNN ①             FORMULA  =G+H+I  (CAMS+Insurance+Taxes ONLY)
- *  12+ M… One-time charge cols     INPUT    blue hardcoded — one col per named OT item (0..N)
- *   +0  Total Monthly Obl. ②      FORMULA  =F+L+J+K+[OT cols]
- *   +1  Effective $/SF             FORMULA  =IF($C$5=0,0,TotalMonthly/$C$5)
- *   +2  Obligation Remaining       FORMULA  SUM tail of Total Monthly col
- *   +3  Base Rent Remaining        FORMULA  SUM tail of F
- *   +4  NNN Remaining              FORMULA  SUM tail of L
- *   +5  Other Charges Remaining    FORMULA  SUM(J tail)+SUM(K tail)+SUM(each OT col tail)
+ *   Rows 5–N      : assumptions block (dynamic, depends on active categories)
+ *   Row  N+1      : blank separator
+ *   Row  N+2      : column headers
+ *   Row  N+3+     : monthly data rows
  *
  * Color conventions:
  *   Blue  (fcInput)     = hard-coded user inputs
  *   Black (fcCalc)      = formula outputs / engine-calculated values
  *   Green (fcCrossSheet)= cross-sheet formulas (Annual Summary)
  *   Navy  (fcTotal)     = totals row
- *   Red-pink fill       = NNN/obligation columns (F–L)
+ *   Red-pink fill       = NNN/obligation columns
  *   Amber fill          = abatement period rows
  */
 
 import XLSX from 'xlsx-js-style';
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import Papa from 'papaparse';
-
-// ===========================================================================
-// Row layout constants
-// ===========================================================================
-//
-// Row 1: blank
-// Row 2: large bold title (Lease Name)
-// Row 3: blank spacer
-// Rows 4–21: assumptions block (18 rows)
-// Row 22: blank separator
-// Row 23: column headers
-// Row 24+: monthly data rows
-
-const HEADER_ROW     = 24;
-const FIRST_DATA_ROW = 25;
+import {
+  CHARGE_CATEGORIES,
+  getActiveCategories,
+  buildColumnLayout,
+  colIndexToLetter,
+} from '../engine/chargeCategories.js';
 
 // ===========================================================================
 // Colour palette
@@ -207,11 +161,6 @@ function toSerial(isoStr) {
   return Math.round((d.getTime() - epoch.getTime()) / 86400000);
 }
 
-/**
- * Parse an OTC charge date string (MM/DD/YYYY) to an Excel serial number.
- * Returns null for non-date text triggers (e.g. "Within 30 days of occupancy"),
- * which the caller treats as always-present (no expiry condition).
- */
 function parseOtcDateSerial(dateStr) {
   if (!dateStr) return null;
   const m = String(dateStr).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -225,32 +174,26 @@ function parseOtcDateSerial(dateStr) {
 // Cell factories
 // ===========================================================================
 
-/** Hard-coded user input — Blue font. */
 function cInput(v, fmt, fill, bold = false) {
   return { t: 'n', v: v ?? 0, s: ds(fill, fmt, { bold, fontColor: C.fcInput }) };
 }
 
-/** Engine-calculated value — Black font. */
 function cCalc(v, fmt, fill, bold = false) {
   return { t: 'n', v: v ?? 0, s: ds(fill, fmt, { bold, fontColor: C.fcCalc }) };
 }
 
-/** Same-sheet formula — Black font. */
 function cFmla(formula, fallback, fmt, fill, bold = false) {
   return { t: 'n', v: fallback ?? 0, f: formula, s: ds(fill, fmt, { bold, fontColor: C.fcCalc }) };
 }
 
-/** Blue formula — driven by user assumption cells. */
 function cFmlaInput(formula, fallback, fmt, fill) {
   return { t: 'n', v: fallback ?? 0, f: formula, s: ds(fill, fmt, { fontColor: C.fcInput }) };
 }
 
-/** Cross-sheet formula — Dark-green font. */
 function cXSheet(formula, fallback, fmt, fill) {
   return { t: 'n', v: fallback ?? 0, f: formula, s: ds(fill, fmt, { fontColor: C.fcCrossSheet }) };
 }
 
-/** Date cell — Black font (derived, not user input). */
 function cDate(isoStr, fill) {
   const serial = toSerial(isoStr);
   if (serial === null) {
@@ -287,23 +230,27 @@ function cBlankTotal() {
 // Assumptions computation
 // ===========================================================================
 
-function computeAssumptions(rows, params) {
+function computeAssumptions(rows, params, activeCategories) {
   const nnnMode = params.nnnMode ?? 'individual';
   const isAgg   = nnnMode === 'aggregate';
 
   if (!rows || !rows.length) {
-    return {
+    const result = {
       leaseName: params.leaseName || '',
       nnnMode,
       squareFootage: 0, commencementDate: null, expirationDate: null,
       year1BaseRent: 0, annualEscRate: 0, anniversaryMonth: 1,
       fullAbatementMonths: 0, abatementPartialFactor: 1,
-      camsYear1: 0,       camsEscRate: 0,
-      insuranceYear1: 0,  insuranceEscRate: 0,
-      taxesYear1: 0,      taxesEscRate: 0,
-      securityYear1: 0,   securityEscRate: 0,
-      otherItemsYear1: 0, otherItemsEscRate: 0,
+      categories: {},
     };
+    if (isAgg) {
+      result.nnnAggYear1 = 0;
+      result.nnnAggEscRate = 0;
+    }
+    for (const cat of activeCategories) {
+      result.categories[cat.key] = { year1: 0, escRate: 0 };
+    }
+    return result;
   }
 
   const firstRow = rows[0];
@@ -322,17 +269,7 @@ function computeAssumptions(rows, params) {
     ? (boundaryRow.baseRentProrationFactor ?? 1)
     : 1;
 
-  // In aggregate mode, row 12 holds nnnAggregate Year1, row 13 holds nnnAggregate Esc.
-  // Rows 14-17 (Insurance/Taxes) are left at zero (blank in assumptions block).
-  // Rows 18-21 hold Security/Other Items (same position as individual mode).
-  const camsYear1 = isAgg
-    ? (Number(params.nnnAggregate?.year1) || 0)
-    : (Number(params.cams?.year1) || 0);
-  const camsEsc = isAgg
-    ? (Number(params.nnnAggregate?.escPct) || 0) / 100
-    : (Number(params.cams?.escPct) || 0) / 100;
-
-  return {
+  const result = {
     leaseName:             String(params.leaseName || ''),
     nnnMode,
     squareFootage:         Number(params.squareFootage) || 0,
@@ -343,41 +280,29 @@ function computeAssumptions(rows, params) {
     anniversaryMonth:      1,
     fullAbatementMonths,
     abatementPartialFactor,
-    camsYear1:             Number(params.cams?.year1)         || 0,
-    camsEscRate:           (Number(params.cams?.escPct)       || 0) / 100,
-    insuranceYear1:        Number(params.insurance?.year1)    || 0,
-    insuranceEscRate:      (Number(params.insurance?.escPct)  || 0) / 100,
-    taxesYear1:            Number(params.taxes?.year1)        || 0,
-    taxesEscRate:          (Number(params.taxes?.escPct)      || 0) / 100,
-    securityYear1:         Number(params.security?.year1)     || 0,
-    securityEscRate:       (Number(params.security?.escPct)   || 0) / 100,
-    otherItemsYear1:       Number(params.otherItems?.year1)   || 0,
-    otherItemsEscRate:     (Number(params.otherItems?.escPct) || 0) / 100,
+    categories: {},
   };
+
+  // In aggregate mode, store aggregate NNN values
+  if (isAgg) {
+    result.nnnAggYear1   = Number(params.nnnAggregate?.year1)  || 0;
+    result.nnnAggEscRate = (Number(params.nnnAggregate?.escPct) || 0) / 100;
+  }
+
+  // Per-category assumption values
+  for (const cat of activeCategories) {
+    result.categories[cat.key] = {
+      year1:   Number(params[cat.paramKey]?.year1)  || 0,
+      escRate: (Number(params[cat.paramKey]?.escPct) || 0) / 100,
+    };
+  }
+
+  return result;
 }
 
 // ===========================================================================
 // Sheet 1 — Monthly Ledger
 // ===========================================================================
-
-// Base headers for columns 0–11 (A–L) — fixed regardless of OT count
-const LEDGER_HEADERS_BASE = [
-  'Period\nStart', 'Period\nEnd', 'Month\n#', 'Year\n#',
-  'Scheduled\nBase Rent', 'Base Rent\nApplied',
-  'CAMS', 'Insurance', 'Taxes', 'Security', 'Other\nItems',
-  'Total NNN ①',
-];
-// Tail headers after OT columns
-const LEDGER_HEADERS_TAIL = [
-  'Total Monthly\nObligation ②',
-  'Effective\n$/SF',
-  'Obligation\nRemaining', 'Base Rent\nRemaining', 'NNN\nRemaining', 'Other Charges\nRemaining',
-];
-
-// Base column widths for columns 0–11 (A–L)
-const LEDGER_WIDTHS_BASE = [13, 35, 9, 9, 20, 20, 12, 12, 12, 10, 12, 14];
-// Tail column widths (TotalMonthly, EffSF, ObligRem, BaseRem, NNNRem, OtherChargesRem)
-const LEDGER_WIDTHS_TAIL = [22, 14, 22, 20, 16, 22];
 
 // ---------------------------------------------------------------------------
 // Title block (rows 1–3)
@@ -422,7 +347,6 @@ function buildTitleBlock(ws, filename, lastCol) {
     },
   });
 
-  // Merge title rows across all columns
   ws['!merges'] = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: lastCol } },
     { s: { r: 1, c: 0 }, e: { r: 1, c: lastCol } },
@@ -431,10 +355,11 @@ function buildTitleBlock(ws, filename, lastCol) {
 }
 
 // ---------------------------------------------------------------------------
-// Assumption block writer (rows 5–22)
+// Dynamic assumption block writer
+// Returns { lastRow, cellMap } where cellMap maps keys to '$C$N' addresses
 // ---------------------------------------------------------------------------
 
-function buildAssumptionsBlock(ws, assump) {
+function buildAssumptionsBlock(ws, assump, activeCategories) {
   const labelStyle = {
     font:      { ...FONT_B, color: { rgb: '1F3864' } },
     fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
@@ -449,48 +374,470 @@ function buildAssumptionsBlock(ws, assump) {
   };
 
   const vFill = C.white;
+  const assumpBorder = {
+    top:    { style: 'thin', color: { rgb: 'B0B0B0' } },
+    bottom: { style: 'thin', color: { rgb: 'B0B0B0' } },
+    left:   { style: 'thin', color: { rgb: 'B0B0B0' } },
+    right:  { style: 'thin', color: { rgb: 'B0B0B0' } },
+  };
   const row = (r, label, cell) => {
     sc(ws, 1, r, { t: 's', v: label, s: labelStyle });
     sc(ws, 2, r, { ...cell, s: { ...cell.s, border: assumpBorder } });
   };
 
-  row(5,  'Rentable SF',
-      cInput(assump.squareFootage, FMT.int, vFill));           // FIX: was cCalc → now cInput (blue)
-  row(6,  'Lease Commencement Date',
-      cDate(assump.commencementDate, vFill));
-  row(7,  'Lease Expiration Date',
-      cDate(assump.expirationDate, vFill));
-  row(8,  'Year 1 Monthly Base Rent',
-      cInput(assump.year1BaseRent, FMT.currency, vFill));
-  row(9,  'Annual Base Rent Escalation Rate (%)',
-      cInput(assump.annualEscRate, FMT.pct, vFill));
-  row(10, 'Lease Anniversary Month',
-      cInput(assump.anniversaryMonth, FMT.int, vFill));
-  row(11, 'Abatement Full-Month Count',
-      cInput(assump.fullAbatementMonths, FMT.int, vFill));
-  row(12, 'Abatement Partial-Month Proration Factor',
-      cInput(assump.abatementPartialFactor, FMT.factor, vFill));
-  row(13, 'CAMS Year 1 Monthly Amount',
-      cInput(assump.camsYear1, FMT.currency, vFill));
-  row(14, 'CAMS Annual Escalation Rate (%)',
-      cInput(assump.camsEscRate, FMT.pct, vFill));
-  row(15, 'Insurance Year 1 Monthly Amount',
-      cInput(assump.insuranceYear1, FMT.currency, vFill));
-  row(16, 'Insurance Annual Escalation Rate (%)',
-      cInput(assump.insuranceEscRate, FMT.pct, vFill));
-  row(17, 'Taxes Year 1 Monthly Amount',
-      cInput(assump.taxesYear1, FMT.currency, vFill));
-  row(18, 'Taxes Annual Escalation Rate (%)',
-      cInput(assump.taxesEscRate, FMT.pct, vFill));
-  row(19, 'Security Year 1 Monthly Amount',
-      cInput(assump.securityYear1, FMT.currency, vFill));
-  row(20, 'Security Annual Escalation Rate (%)',
-      cInput(assump.securityEscRate, FMT.pct, vFill));
-  row(21, 'Other Items Year 1 Monthly Amount',
-      cInput(assump.otherItemsYear1, FMT.currency, vFill));
-  row(22, 'Other Items Annual Escalation Rate (%)',
-      cInput(assump.otherItemsEscRate, FMT.pct, vFill));
+  const cellMap = {};
+  let r = 5; // start at row 5
+
+  // Fixed assumptions (always present)
+  row(r, 'Rentable SF', cInput(assump.squareFootage, FMT.int, vFill));
+  cellMap.squareFootage = `$C$${r}`;
+  r++;
+
+  row(r, 'Lease Commencement Date', cDate(assump.commencementDate, vFill));
+  cellMap.commencementDate = `$C$${r}`;
+  r++;
+
+  row(r, 'Lease Expiration Date', cDate(assump.expirationDate, vFill));
+  cellMap.expirationDate = `$C$${r}`;
+  r++;
+
+  row(r, 'Year 1 Monthly Base Rent', cInput(assump.year1BaseRent, FMT.currency, vFill));
+  cellMap.year1BaseRent = `$C$${r}`;
+  r++;
+
+  row(r, 'Annual Base Rent Escalation Rate (%)', cInput(assump.annualEscRate, FMT.pct, vFill));
+  cellMap.annualEscRate = `$C$${r}`;
+  r++;
+
+  row(r, 'Lease Anniversary Month', cInput(assump.anniversaryMonth, FMT.int, vFill));
+  cellMap.anniversaryMonth = `$C$${r}`;
+  r++;
+
+  row(r, 'Abatement Full-Month Count', cInput(assump.fullAbatementMonths, FMT.int, vFill));
+  cellMap.abatementMonths = `$C$${r}`;
+  r++;
+
+  row(r, 'Abatement Partial-Month Proration Factor', cInput(assump.abatementPartialFactor, FMT.factor, vFill));
+  cellMap.abatementPartialFactor = `$C$${r}`;
+  r++;
+
+  // NNN aggregate assumptions (if aggregate mode)
+  if (assump.nnnMode === 'aggregate') {
+    row(r, 'NNN Combined Year 1 Monthly Amount', cInput(assump.nnnAggYear1 ?? 0, FMT.currency, vFill));
+    cellMap.nnnAgg_year1 = `$C$${r}`;
+    r++;
+    row(r, 'NNN Combined Annual Escalation Rate (%)', cInput(assump.nnnAggEscRate ?? 0, FMT.pct, vFill));
+    cellMap.nnnAgg_escRate = `$C$${r}`;
+    r++;
+  }
+
+  // Per-category assumptions (only for active categories)
+  for (const cat of activeCategories) {
+    const catData = assump.categories[cat.key] ?? { year1: 0, escRate: 0 };
+    row(r, cat.assumptionLabels.year1, cInput(catData.year1, FMT.currency, vFill));
+    cellMap[`${cat.key}_year1`] = `$C$${r}`;
+    r++;
+    row(r, cat.assumptionLabels.escRate, cInput(catData.escRate, FMT.pct, vFill));
+    cellMap[`${cat.key}_escRate`] = `$C$${r}`;
+    r++;
+  }
+
+  return { lastRow: r - 1, cellMap };
 }
+
+// ---------------------------------------------------------------------------
+// Main ledger builder
+// ---------------------------------------------------------------------------
+
+function buildLedger(rows, assump, otLabels, columns, activeCategories, cellMap, headerRow, firstDataRow, filename) {
+  const ws = {};
+
+  const LAST_COL = columns[columns.length - 1].index;
+  const FDR      = firstDataRow;
+  const HDR      = headerRow;
+  const lastData = FDR + rows.length - 1;
+  const totRow   = lastData + 1;
+  const noteRow  = totRow + 2;
+
+  // Build lookup maps from column layout
+  const colByKey = {};
+  for (const c of columns) colByKey[c.key] = c;
+
+  const nnnCols         = columns.filter((c) => c.group === 'nnn');
+  const otherChargeCols = columns.filter((c) => c.group === 'otherCharge');
+  const otCols          = columns.filter((c) => c.group === 'oneTime');
+
+  const sumRng = (ci) => `SUM(${col(ci)}${FDR}:${col(ci)}${lastData})`;
+
+  // ── Title block ────────────────────────────────────────────────────────
+  buildTitleBlock(ws, filename, LAST_COL);
+
+  // ── Assumptions block ──────────────────────────────────────────────────
+  buildAssumptionsBlock(ws, assump, activeCategories);
+
+  // ── Header row ─────────────────────────────────────────────────────────
+  columns.forEach((c) => sc(ws, c.index, HDR, cHdr(c.header, C.headerNavy)));
+
+  // ── Data rows ──────────────────────────────────────────────────────────
+  rows.forEach((row, idx) => {
+    const r = FDR + idx;
+
+    const rowFill = row.isAbatementRow
+      ? C.amber
+      : idx % 2 === 0 ? C.rowEven : C.rowOdd;
+    const nnnFill = C.softRedPink;
+
+    const lm = row.leaseMonth ?? row['Month #'] ?? 0;
+    const ly = row.leaseYear  ?? row['Year #']  ?? 0;
+
+    // Fixed prefix columns
+    sc(ws, colByKey.periodStart.index, r, cDate(row.periodStart, rowFill));
+    sc(ws, colByKey.periodEnd.index,   r, cDate(row.periodEnd,   rowFill));
+    sc(ws, colByKey.monthNum.index,    r, cInt(lm, rowFill, false, C.fcCalc));
+    sc(ws, colByKey.yearNum.index,     r, cInt(ly, rowFill, false, C.fcCalc));
+
+    const yearCol = colByKey.yearNum.letter;
+
+    // Scheduled Base Rent: formula referencing assumption cells
+    sc(ws, colByKey.scheduledBaseRent.index, r, cFmla(
+      `${cellMap.year1BaseRent}*(1+${cellMap.annualEscRate})^(${yearCol}${r}-1)`,
+      row.scheduledBaseRent ?? 0,
+      FMT.currency,
+      rowFill,
+    ));
+
+    // Base Rent Applied: abatement formula
+    const monthCol = colByKey.monthNum.letter;
+    const sbrCol   = colByKey.scheduledBaseRent.letter;
+    sc(ws, colByKey.baseRentApplied.index, r, cFmla(
+      `IF(${monthCol}${r}<=${cellMap.abatementMonths},0,IF(${monthCol}${r}=${cellMap.abatementMonths}+1,${sbrCol}${r}*${cellMap.abatementPartialFactor},${sbrCol}${r}))`,
+      row.baseRentApplied ?? 0,
+      FMT.currency,
+      nnnFill,
+    ));
+
+    // NNN charge columns
+    if (assump.nnnMode === 'aggregate' && colByKey.nnnAggregate) {
+      // Single aggregate NNN column
+      sc(ws, colByKey.nnnAggregate.index, r, cFmla(
+        `${cellMap.nnnAgg_year1}*(1+${cellMap.nnnAgg_escRate})^(${yearCol}${r}-1)`,
+        row.nnnAggregateAmount ?? 0,
+        FMT.currency,
+        nnnFill,
+      ));
+    } else {
+      // Individual NNN columns
+      for (const nnnCol of nnnCols) {
+        const cat = nnnCol.catDef;
+        if (!cat) continue;
+        const y1Cell  = cellMap[`${cat.key}_year1`];
+        const escCell = cellMap[`${cat.key}_escRate`];
+        sc(ws, nnnCol.index, r, cFmla(
+          `${y1Cell}*(1+${escCell})^(${yearCol}${r}-1)`,
+          row[cat.amountField] ?? 0,
+          FMT.currency,
+          nnnFill,
+        ));
+      }
+    }
+
+    // Other Charge columns (security, otherItems, etc.)
+    for (const ocCol of otherChargeCols) {
+      const cat = ocCol.catDef;
+      if (!cat) continue;
+      const y1Cell  = cellMap[`${cat.key}_year1`];
+      const escCell = cellMap[`${cat.key}_escRate`];
+      sc(ws, ocCol.index, r, cFmla(
+        `${y1Cell}*(1+${escCell})^(${yearCol}${r}-1)`,
+        row[cat.amountField] ?? 0,
+        FMT.currency,
+        nnnFill,
+      ));
+    }
+
+    // Total NNN: sum of all NNN group columns
+    const totalNNNCol = colByKey.totalNNN;
+    if (nnnCols.length > 0) {
+      const nnnFormula = nnnCols.map((c) => `${c.letter}${r}`).join('+');
+      const nnnFallback = nnnCols.reduce((sum, c) => {
+        if (c.catDef) return sum + (row[c.catDef.amountField] ?? 0);
+        // aggregate column
+        return sum + (row.nnnAggregateAmount ?? 0);
+      }, 0);
+      sc(ws, totalNNNCol.index, r, cFmla(nnnFormula, nnnFallback, FMT.currency, nnnFill));
+    } else {
+      sc(ws, totalNNNCol.index, r, cCalc(0, FMT.currency, nnnFill));
+    }
+
+    // One-time item columns
+    const otAmounts = row.oneTimeItemAmounts ?? {};
+    for (const otCol of otCols) {
+      const amt = Number(otAmounts[otCol.otLabel] ?? 0);
+      sc(ws, otCol.index, r, cInput(amt, FMT.currency, rowFill));
+    }
+
+    // Total Monthly Obligation: Base Rent Applied + Total NNN + Other Charges + OT
+    const tmCol = colByKey.totalMonthly;
+    const baseRentLetter = colByKey.baseRentApplied.letter;
+    const totalNNNLetter = totalNNNCol.letter;
+    const otherTerms = otherChargeCols.map((c) => `+${c.letter}${r}`).join('');
+    const otTerms    = otCols.map((c) => `+${c.letter}${r}`).join('');
+    sc(ws, tmCol.index, r, cFmla(
+      `${baseRentLetter}${r}+${totalNNNLetter}${r}${otherTerms}${otTerms}`,
+      row.totalMonthlyObligation ?? 0,
+      FMT.currency,
+      rowFill,
+    ));
+
+    // Effective $/SF
+    const tmLetter = tmCol.letter;
+    sc(ws, colByKey.effSF.index, r, cFmla(
+      `IF(${cellMap.squareFootage}=0,0,${tmLetter}${r}/${cellMap.squareFootage})`,
+      row.effectivePerSF ?? 0,
+      FMT.sf,
+      rowFill,
+    ));
+
+    // Remaining balances
+    sc(ws, colByKey.obligRem.index, r, cFmla(
+      `SUM(${tmLetter}${r}:${tmLetter}${lastData})`,
+      row.totalObligationRemaining ?? 0,
+      FMT.currency,
+      rowFill,
+    ));
+
+    sc(ws, colByKey.baseRem.index, r, cFmla(
+      `SUM(${baseRentLetter}${r}:${baseRentLetter}${lastData})`,
+      row.totalBaseRentRemaining ?? 0,
+      FMT.currency,
+      rowFill,
+    ));
+
+    sc(ws, colByKey.nnnRem.index, r, cFmla(
+      `SUM(${totalNNNLetter}${r}:${totalNNNLetter}${lastData})`,
+      row.totalNNNRemaining ?? 0,
+      FMT.currency,
+      rowFill,
+    ));
+
+    // Other Charges Remaining = future Other Charge cols + future OT cols
+    const otherChargesSumParts = [
+      ...otherChargeCols.map((c) => `SUM(${c.letter}${r}:${c.letter}${lastData})`),
+      ...otCols.map((c) => `SUM(${c.letter}${r}:${c.letter}${lastData})`),
+    ];
+    sc(ws, colByKey.otherRem.index, r, cFmla(
+      otherChargesSumParts.length > 0 ? otherChargesSumParts.join('+') : '0',
+      row.totalOtherChargesRemaining ?? 0,
+      FMT.currency,
+      rowFill,
+    ));
+  });
+
+  // ── Totals row ──────────────────────────────────────────────────────────
+  sc(ws, 0, totRow, cTotalLabel('TOTAL'));
+  // Blank cells for non-summable fixed columns
+  for (let ci = 1; ci <= 3; ci++) sc(ws, ci, totRow, cBlankTotal());
+
+  // Sum for every column from scheduledBaseRent through all charge/OT columns
+  const summableCols = columns.filter((c) =>
+    c.group !== 'fixed' || c.key === 'scheduledBaseRent' || c.key === 'baseRentApplied'
+  );
+  for (const c of summableCols) {
+    if (c.key === 'periodStart' || c.key === 'periodEnd' || c.key === 'monthNum' || c.key === 'yearNum') continue;
+    if (c.key === 'effSF' || c.key === 'obligRem' || c.key === 'baseRem' || c.key === 'nnnRem' || c.key === 'otherRem') {
+      sc(ws, c.index, totRow, cBlankTotal());
+    } else {
+      sc(ws, c.index, totRow, cTotal(sumRng(c.index), 0, FMT.currency));
+    }
+  }
+
+  // ── Footnotes ───────────────────────────────────────────────────────────
+  const noteStyle = {
+    font:      { ...FONT_SM, italic: true, color: { rgb: '555555' } },
+    fill:      { patternType: 'solid', fgColor: { rgb: C.note } },
+    alignment: { horizontal: 'left', vertical: 'middle', wrapText: true },
+    numFmt:    FMT.text,
+  };
+
+  const tmColName   = `col ${colByKey.totalMonthly.letter}`;
+  const nnnColLabel = colByKey.totalNNN.letter;
+  const nnnColNames = nnnCols.map((c) => `${c.header} (${c.letter})`).join(' + ');
+  const otherColNames = otherChargeCols.map((c) => `${c.header} (${c.letter})`).join(' + ');
+
+  const notes = [
+    `\u2460 Total NNN (col ${nnnColLabel}) = ${nnnColNames || 'N/A'}. Other Charges (${otherColNames || 'none'}) are NOT included in NNN.`,
+    `\u2461 Total Monthly Obligation (${tmColName}) = Base Rent Applied + Total NNN + Other Charges${otCols.length > 0 ? ' + one-time charge columns (blue)' : ''}.`,
+    `\u2462 Remaining: Obligation = SUM of future Total Monthly Obligation. Base Rent / NNN / Other Charges = tail-sums of their respective columns.`,
+    `\u2463 NNN escalation: Year 1 Monthly Amounts in assumption cells are compounded annually by their escalation rates. Charge columns are live formulas \u2014 edit assumptions to recalculate.`,
+    `\u2464 Color guide: Blue text = direct user inputs (incl. one-time charge event cells) | Black text = formula outputs | Red-pink fill = NNN/obligation columns | Amber rows = abatement periods.`,
+  ];
+  notes.forEach((txt, i) => {
+    sc(ws, 0, noteRow + i, { t: 's', v: txt, s: noteStyle });
+  });
+
+  // ── Sheet metadata ──────────────────────────────────────────────────────
+  ws['!cols'] = columns.map((c) => ({ wch: c.width }));
+
+  const assumpRowCount = assump.nnnMode === 'aggregate'
+    ? 8 + 2 + activeCategories.length * 2  // fixed + aggregate pair + category pairs
+    : 8 + activeCategories.length * 2;     // fixed + category pairs
+  ws['!rows'] = [
+    { hpt: 36 },                                          // row 1 — title
+    { hpt: 16 },                                          // row 2 — subtitle
+    { hpt: 14 },                                          // row 3 — generated date
+    {},                                                    // row 4 — blank
+    ...Array(assumpRowCount).fill({ hpt: 18 }),           // assumption rows
+    {},                                                    // blank separator
+    { hpt: 44 },                                           // header
+  ];
+
+  ws['!views']      = [{ state: 'frozen', xSplit: 4, ySplit: HDR }];
+  ws['!autofilter'] = { ref: `A${HDR}:${col(LAST_COL)}${HDR}` };
+
+  setRef(ws, LAST_COL, noteRow + 4);
+  return ws;
+}
+
+// ===========================================================================
+// Sheet 2 — Annual Summary
+// ===========================================================================
+
+const SUMMARY_HEADERS = [
+  'Period Start', 'Period End', 'Lease Year', 'Months',
+  'Base Rent Applied', 'Total NNN',
+  'Total Monthly Obligation', '% of Grand Total',
+];
+
+function buildAnnualSummary(rows, columns, firstDataRow) {
+  const ws = {};
+  const years = [...new Set(
+    rows.map((r) => r.leaseYear ?? r['Year #']).filter(Boolean)
+  )].sort((a, b) => a - b);
+
+  const firstLedger = firstDataRow;
+  const lastLedger  = firstDataRow + rows.length - 1;
+
+  // Find column letters from the layout
+  const colByKey = {};
+  for (const c of columns) colByKey[c.key] = c;
+
+  const yearColLetter     = colByKey.yearNum.letter;
+  const baseRentLetter    = colByKey.baseRentApplied.letter;
+  const totalNNNLetter    = colByKey.totalNNN.letter;
+  const totalMonthlyLetter = colByKey.totalMonthly.letter;
+
+  const LS   = "'Lease Schedule'";
+  const Dabs = `${LS}!$${yearColLetter}$${firstLedger}:$${yearColLetter}$${lastLedger}`;
+  const Fabs = `${LS}!$${baseRentLetter}$${firstLedger}:$${baseRentLetter}$${lastLedger}`;
+  const Labs = `${LS}!$${totalNNNLetter}$${firstLedger}:$${totalNNNLetter}$${lastLedger}`;
+  const Nabs = `${LS}!$${totalMonthlyLetter}$${firstLedger}:$${totalMonthlyLetter}$${lastLedger}`;
+
+  // Build year → {start, end} date map and month count from row data
+  const yearDateMap    = {};
+  const yearMonthCount = {};
+  for (const row of rows) {
+    const y = row.leaseYear ?? row['Year #'];
+    if (!y) continue;
+    if (!yearDateMap[y]) yearDateMap[y] = { start: row.periodStart, end: row.periodEnd };
+    else yearDateMap[y].end = row.periodEnd;
+    yearMonthCount[y] = (yearMonthCount[y] || 0) + 1;
+  }
+
+  SUMMARY_HEADERS.forEach((h, ci) => sc(ws, ci, 1, cHdr(h, C.headerBlue)));
+
+  const totGref = `G${years.length + 2}`;
+
+  years.forEach((year, idx) => {
+    const r       = idx + 2;
+    const fill    = idx % 2 === 0 ? C.rowEven : C.rowOdd;
+    const dates   = yearDateMap[year] ?? {};
+    const Cr      = `C${r}`;
+
+    sc(ws, 0, r, cDate(dates.start, fill));
+    sc(ws, 1, r, cDate(dates.end, fill));
+    sc(ws, 2, r, cInt(year, fill, false, C.fcInput));
+    sc(ws, 3, r, cXSheet(`COUNTIF(${Dabs},${Cr})`,                 12, FMT.int,      fill));
+    sc(ws, 4, r, cXSheet(`SUMIF(${Dabs},${Cr},${Fabs})`,            0, FMT.currency, fill));
+    sc(ws, 5, r, cXSheet(`SUMIF(${Dabs},${Cr},${Labs})`,            0, FMT.currency, fill));
+    sc(ws, 6, r, cXSheet(`SUMIF(${Dabs},${Cr},${Nabs})`,            0, FMT.currency, fill));
+    sc(ws, 7, r, cFmla(`IF(${totGref}=0,0,G${r}/${totGref})`,      0, FMT.pct,      fill));
+  });
+
+  const totRow  = years.length + 2;
+  const lastRow = totRow - 1;
+  const gsum    = (letter) => `SUM(${letter}2:${letter}${lastRow})`;
+
+  sc(ws, 0, totRow, cTotalLabel('GRAND TOTAL'));
+  sc(ws, 1, totRow, cBlankTotal());
+  sc(ws, 2, totRow, cBlankTotal());
+  sc(ws, 3, totRow, cTotal(gsum('D'), 0, FMT.int));
+  sc(ws, 4, totRow, cTotal(gsum('E'), 0, FMT.currency));
+  sc(ws, 5, totRow, cTotal(gsum('F'), 0, FMT.currency));
+  sc(ws, 6, totRow, cTotal(gsum('G'), 0, FMT.currency));
+  sc(ws, 7, totRow, { t: 's', v: '100.0%', s: TOTAL_BASE });
+
+  ws['!cols']  = [{ wch: 13 }, { wch: 13 }, { wch: 16 }, { wch: 9 }, { wch: 22 }, { wch: 16 }, { wch: 26 }, { wch: 16 }];
+  ws['!rows']  = [{ hpt: 40 }];
+  ws['!views'] = [{ state: 'frozen', ySplit: 1 }];
+  setRef(ws, 7, totRow);
+  return ws;
+}
+
+// ===========================================================================
+// Sheet 3 — Audit Trail
+// ===========================================================================
+
+function buildAuditTrail(rows, activeCategories) {
+  const ws = {};
+
+  // Build dynamic headers: fixed prefix + 2 columns per active category
+  const fixedHeaders = [
+    'Period Start', 'Month #',
+    'Period Factor', 'Proration Factor', 'Proration Basis',
+  ];
+  const catHeaders = [];
+  const catWidths  = [];
+  for (const cat of activeCategories) {
+    const shortLabel = cat.displayLabel.length > 5
+      ? cat.displayLabel.substring(0, 5)
+      : cat.displayLabel;
+    catHeaders.push(`${shortLabel} Esc Year`, `${shortLabel} Active`);
+    catWidths.push(13, 11);
+  }
+  const headers = [...fixedHeaders, ...catHeaders];
+  const widths  = [13, 9, 14, 16, 20, ...catWidths];
+
+  headers.forEach((h, ci) => sc(ws, ci, 1, cHdr(h, C.headerPurple)));
+
+  rows.forEach((row, idx) => {
+    const r    = idx + 2;
+    const fill = idx % 2 === 0 ? C.rowEven : C.rowOdd;
+
+    sc(ws, 0, r, cDate(row.periodStart, fill));
+    sc(ws, 1, r, cInt(row.leaseMonth ?? row['Month #'] ?? 0, fill, false, C.fcInput));
+    sc(ws, 2, r, cInput(row.periodFactor            ?? 1, FMT.factor, fill));
+    sc(ws, 3, r, cInput(row.baseRentProrationFactor ?? 1, FMT.factor, fill));
+    sc(ws, 4, r, cText(row.prorationBasis ?? '', fill, false, 'center', C.fcInput));
+
+    let ci = 5;
+    for (const cat of activeCategories) {
+      sc(ws, ci,     r, cInt(row[cat.escYearsField] ?? 0, fill, false, C.fcInput));
+      sc(ws, ci + 1, r, cText(String(row[cat.activeField] ?? ''), fill, false, 'center', C.fcInput));
+      ci += 2;
+    }
+  });
+
+  ws['!cols']  = widths.map((w) => ({ wch: w }));
+  ws['!rows']  = [{ hpt: 40 }];
+  ws['!views'] = [{ state: 'frozen', ySplit: 1 }];
+  setRef(ws, headers.length - 1, rows.length + 1);
+  return ws;
+}
+
+// ===========================================================================
+// Public exports
+// ===========================================================================
+
 
 // ===========================================================================
 // Scenario panel helpers (writeScenarioParams, writeCurrentRemainingObligations,
@@ -896,401 +1243,27 @@ function writeExitPanel(ws, cr, LS = '') {
 // Main ledger builder
 // ---------------------------------------------------------------------------
 
-function buildLedger(rows, assump, otLabels, filename) {
-  const ws = {};
-
-  const otCount = otLabels.length;
-
-  // Dynamic column indices (all 0-based)
-  const OT_START        = 12;                    // first OT column (col M when otCount ≥ 1)
-  const TOTAL_MONTHLY   = OT_START + otCount;    // Total Monthly Obligation column
-  const EFF_SF          = TOTAL_MONTHLY + 1;     // Effective $/SF
-  const OBLIG_REM       = EFF_SF + 1;            // Obligation Remaining
-  const BASE_REM        = OBLIG_REM + 1;         // Base Rent Remaining
-  const NNN_REM           = BASE_REM + 1;        // NNN Remaining (CAMS+Ins+Taxes tail-sum)
-  const OTHER_CHARGES_REM = NNN_REM + 1;         // Other Charges Remaining (Sec+Other+OT tail-sums)
-  const SCENARIO_START    = OTHER_CHARGES_REM + 1; // first scenario column (T when otCount=0)
-  const SCENARIO_COUNT    = 8;
-  const LAST_COL          = SCENARIO_START + SCENARIO_COUNT - 1;
-
-  const FDR      = FIRST_DATA_ROW;
-  const HDR      = HEADER_ROW;
-  const lastData = FDR + rows.length - 1;
-  const totRow   = lastData + 1;
-  const noteRow  = totRow + 2;
-
-  // Scenario column definitions (order must match SC indices 0–7)
-  const SCENARIO_COLS = [
-    { label: 'Renego: Modest\n(10%)',           pct: 0.1 },
-    { label: 'Renego: Material\n(20%)',          pct: 0.2 },
-    { label: 'Renego: Significant\n(30%)',       pct: 0.3 },
-    { label: 'Exit: Full Obligation\n(0%)',      pct: 0.0 },
-    { label: 'Exit: Mild Discount\n(20%)',       pct: 0.2 },
-    { label: 'Exit: Moderate Discount\n(30%)',   pct: 0.3 },
-    { label: 'Exit: Material Discount\n(40%)',   pct: 0.4 },
-    { label: 'Exit: Significant Discount\n(50%)', pct: 0.5 },
-  ];
-
-  // colRefs — shared by scenario panel helpers
-  const colRefs = {
-    TMO:   col(TOTAL_MONTHLY),
-    OBLIG: col(OBLIG_REM),
-    BASE:  col(BASE_REM),
-    NNN:   col(NNN_REM),
-    OTC:   col(OTHER_CHARGES_REM),
-    SC:    Array.from({ length: SCENARIO_COUNT }, (_, i) => col(SCENARIO_START + i)),
-    LAST:  lastData,
-    FDR,
-  };
-
-  // Column letter helpers for dynamic columns
-  const tmLetter  = col(TOTAL_MONTHLY);
-  const sumRng    = (ci) => `SUM(${col(ci)}${FDR}:${col(ci)}${lastData})`;
-
-  // ── Title block (rows 1–3) ───────────────────────────────────────────────
-  buildTitleBlock(ws, filename, LAST_COL);
-
-  // ── Assumptions block (rows 5–22, cols B–C) ──────────────────────────────
-  buildAssumptionsBlock(ws, assump);
-
-  // ── Header row (row 24) ──────────────────────────────────────────────────
-  const headers = [
-    ...LEDGER_HEADERS_BASE,
-    ...otLabels.map((lbl) => lbl.replace(/(.{16})/g, '$1\n').trim()),  // wrap long labels
-    ...LEDGER_HEADERS_TAIL,
-    ...SCENARIO_COLS.map((sc_) => sc_.label),
-  ];
-  headers.forEach((h, ci) => sc(ws, ci, HDR, cHdr(h, C.headerNavy)));
-
-  // ── Data rows ────────────────────────────────────────────────────────────
-  rows.forEach((row, idx) => {
-    const r = FDR + idx;
-
-    const rowFill = row.isAbatementRow
-      ? C.amber
-      : idx % 2 === 0 ? C.rowEven : C.rowOdd;
-    const nnnFill = C.softRedPink;
-
-    const lm = row.leaseMonth ?? row['Month #'] ?? 0;
-    const ly = row.leaseYear  ?? row['Year #']  ?? 0;
-
-    // A, B — Dates (black — derived from lease dates)
-    sc(ws, 0, r, cDate(row.periodStart, rowFill));
-    sc(ws, 1, r, cDate(row.periodEnd,   rowFill));
-
-    // C, D — Month #, Year # (black — sequential, engine-calculated)
-    sc(ws, 2, r, cInt(lm, rowFill, false, C.fcCalc));
-    sc(ws, 3, r, cInt(ly, rowFill, false, C.fcCalc));
-
-    // E — Scheduled Base Rent: BLACK formula referencing $C$8, $C$9
-    sc(ws, 4, r, cFmla(
-      `$C$8*(1+$C$9)^(D${r}-1)`,
-      row.scheduledBaseRent ?? 0,
-      FMT.currency,
-      rowFill,
-    ));
-
-    // F — Base Rent Applied: BLACK formula referencing $C$11 (abat count), $C$12 (partial factor)
-    sc(ws, 5, r, cFmla(
-      `IF(C${r}<=$C$11,0,IF(C${r}=$C$11+1,E${r}*$C$12,E${r}))`,
-      row.baseRentApplied ?? 0,
-      FMT.currency,
-      nnnFill,
-    ));
-
-    // G–K — NNN charges: BLACK formula cells referencing Year 1 + escalation rate assumptions
-    sc(ws, 6,  r, cFmla(`$C$13*(1+$C$14)^(D${r}-1)`, row.camsAmount      ?? 0, FMT.currency, nnnFill));
-    sc(ws, 7,  r, cFmla(`$C$15*(1+$C$16)^(D${r}-1)`, row.insuranceAmount  ?? 0, FMT.currency, nnnFill));
-    sc(ws, 8,  r, cFmla(`$C$17*(1+$C$18)^(D${r}-1)`, row.taxesAmount      ?? 0, FMT.currency, nnnFill));
-    sc(ws, 9,  r, cFmla(`$C$19*(1+$C$20)^(D${r}-1)`, row.securityAmount   ?? 0, FMT.currency, nnnFill));
-    sc(ws, 10, r, cFmla(`$C$21*(1+$C$22)^(D${r}-1)`, row.otherItemsAmount ?? 0, FMT.currency, nnnFill));
-
-    // L — Total NNN ①: BLACK formula — CAMS + Insurance + Taxes ONLY
-    // Security (J) and Other Items (K) are Other Charges, not NNN.
-    const trueNNNFallback =
-      (row.camsAmount ?? 0) + (row.insuranceAmount ?? 0) + (row.taxesAmount ?? 0);
-    sc(ws, 11, r, cFmla(
-      `G${r}+H${r}+I${r}`,
-      trueNNNFallback,
-      FMT.currency,
-      nnnFill,
-    ));
-
-    // OT columns (cols OT_START … OT_START+otCount−1): BLUE hardcoded input-driven values
-    const otAmounts = row.oneTimeItemAmounts ?? {};
-    otLabels.forEach((lbl, j) => {
-      const amt = Number(otAmounts[lbl] ?? 0);
-      sc(ws, OT_START + j, r, cInput(amt, FMT.currency, rowFill));
-    });
-
-    // Total Monthly Obligation ②: BLACK formula
-    // = Base Rent Applied (F) + True NNN (L=G+H+I) + Security (J) + Other Items (K) + one-time cols
-    const otTerms = otCount > 0
-      ? '+' + otLabels.map((_, j) => `${col(OT_START + j)}${r}`).join('+')
-      : '';
-    sc(ws, TOTAL_MONTHLY, r, cFmla(
-      `F${r}+L${r}+J${r}+K${r}${otTerms}`,
-      row.totalMonthlyObligation ?? 0,
-      FMT.currency,
-      rowFill,
-    ));
-
-    // Effective $/SF: BLACK formula referencing $C$5 (Rentable SF)
-    sc(ws, EFF_SF, r, cFmla(
-      `IF($C$5=0,0,${tmLetter}${r}/$C$5)`,
-      row.effectivePerSF ?? 0,
-      FMT.sf,
-      rowFill,
-    ));
-
-    // Remaining balances: BLACK tail-sum formulas
-    sc(ws, OBLIG_REM, r, cFmla(`SUM(${tmLetter}${r}:${tmLetter}${lastData})`, row.totalObligationRemaining    ?? 0, FMT.currency, rowFill));
-    sc(ws, BASE_REM,  r, cFmla(`SUM(F${r}:F${lastData})`,                     row.totalBaseRentRemaining      ?? 0, FMT.currency, rowFill));
-    sc(ws, NNN_REM,   r, cFmla(`SUM(L${r}:L${lastData})`,                     row.totalNNNRemaining           ?? 0, FMT.currency, rowFill));
-
-    // Other Charges Remaining = future Security (J) + future Other Items (K) + future one-time cols
-    const otherChargesSumParts = [
-      `SUM(J${r}:J${lastData})`,
-      `SUM(K${r}:K${lastData})`,
-      ...otLabels.map((_, j) => `SUM(${col(OT_START + j)}${r}:${col(OT_START + j)}${lastData})`),
-    ];
-    sc(ws, OTHER_CHARGES_REM, r, cFmla(
-      otherChargesSumParts.join('+'),
-      row.totalOtherChargesRemaining ?? 0,
-      FMT.currency,
-      rowFill,
-    ));
-
-    // Scenario columns: Base Rent Applied × (1−pct) + Total NNN
-    SCENARIO_COLS.forEach((s_, j) => {
-      const pctStr = s_.pct === 0 ? '0' : s_.pct.toString();
-      sc(ws, SCENARIO_START + j, r, cFmla(
-        `F${r}*(1-${pctStr})+L${r}`,
-        (row.baseRentApplied ?? 0) * (1 - s_.pct) + ((row.camsAmount ?? 0) + (row.insuranceAmount ?? 0) + (row.taxesAmount ?? 0)),
-        FMT.currency,
-        C.softRedPink,
-      ));
-    });
-  });
-
-  // ── Totals row ────────────────────────────────────────────────────────────
-  sc(ws, 0, totRow, cTotalLabel('TOTAL'));
-  sc(ws, 1, totRow, cBlankTotal());
-  sc(ws, 2, totRow, cBlankTotal());
-  sc(ws, 3, totRow, cBlankTotal());
-  sc(ws, 4, totRow, cTotal(sumRng(4),  0, FMT.currency));   // E — Scheduled Base Rent
-  sc(ws, 5, totRow, cTotal(sumRng(5),  0, FMT.currency));   // F — Base Rent Applied
-  sc(ws, 6, totRow, cTotal(sumRng(6),  0, FMT.currency));   // G — CAMS
-  sc(ws, 7, totRow, cTotal(sumRng(7),  0, FMT.currency));   // H — Insurance
-  sc(ws, 8, totRow, cTotal(sumRng(8),  0, FMT.currency));   // I — Taxes
-  sc(ws, 9, totRow, cTotal(sumRng(9),  0, FMT.currency));   // J — Security
-  sc(ws, 10, totRow, cTotal(sumRng(10), 0, FMT.currency));  // K — Other Items
-  sc(ws, 11, totRow, cTotal(sumRng(11), 0, FMT.currency));  // L — Total NNN
-  for (let j = 0; j < otCount; j++) {
-    sc(ws, OT_START + j, totRow, cTotal(sumRng(OT_START + j), 0, FMT.currency));
-  }
-  sc(ws, TOTAL_MONTHLY, totRow, cTotal(sumRng(TOTAL_MONTHLY), 0, FMT.currency));
-  sc(ws, EFF_SF,        totRow, cBlankTotal());
-  sc(ws, OBLIG_REM,     totRow, cBlankTotal());
-  sc(ws, BASE_REM,      totRow, cBlankTotal());
-  sc(ws, NNN_REM,           totRow, cBlankTotal());
-  sc(ws, OTHER_CHARGES_REM, totRow, cBlankTotal());
-  for (let j = 0; j < SCENARIO_COUNT; j++) {
-    sc(ws, SCENARIO_START + j, totRow, cTotal(sumRng(SCENARIO_START + j), 0, FMT.currency));
-  }
-
-  // ── Footnotes ─────────────────────────────────────────────────────────────
-  const noteStyle = {
-    font:      { ...FONT_SM, italic: true, color: { rgb: '555555' } },
-    fill:      { patternType: 'solid', fgColor: { rgb: C.note } },
-    alignment: { horizontal: 'left', vertical: 'middle', wrapText: true },
-    numFmt:    FMT.text,
-  };
-  const tmColName = `col ${tmLetter}`;
-  [
-    '① Total NNN (col L) = CAMS + Insurance + Taxes ONLY. Security (col J) and Other Items (col K) are classified as Other Charges, not NNN.',
-    `② Total Monthly Obligation (${tmColName}) = Base Rent Applied + Total NNN (L) + Security (J) + Other Items (K)${otCount > 0 ? ' + one-time charge columns (blue)' : ''}.`,
-    `③ Remaining: Obligation = SUM of future Total Monthly Obligation. Base Rent / NNN / Other Charges = tail-sums of their respective columns. Other Charges Remaining includes Security, Other Items, and all one-time charge columns.`,
-    '④ NNN escalation: Year 1 Monthly Amounts in assumption cells C13/C15/C17/C19/C21 are compounded annually by escalation rates in C14/C16/C18/C20/C22. Cols G–K are live formulas — edit assumptions to recalculate.',
-    '⑤ Color guide: Blue text = direct user inputs (incl. one-time charge event cells) | Black text = formula outputs | Red-pink fill = NNN/obligation columns | Amber rows = abatement periods.',
-  ].forEach((txt, i) => {
-    sc(ws, 0, noteRow + i, { t: 's', v: txt, s: noteStyle });
-  });
-
-  // ── Sheet metadata ────────────────────────────────────────────────────────
-  const colWidths = [
-    ...LEDGER_WIDTHS_BASE,
-    ...Array(otCount).fill(22),  // one column per OT label
-    ...LEDGER_WIDTHS_TAIL,
-    ...Array(SCENARIO_COUNT).fill(24),  // scenario cols
-  ];
-  ws['!cols'] = colWidths.map((w) => ({ wch: w }));
-
-  ws['!rows'] = [
-    { hpt: 36 },                    // row 1 — title
-    { hpt: 16 },                    // row 2 — subtitle
-    { hpt: 14 },                    // row 3 — generated date
-    {},                              // row 4 — blank
-    ...Array(18).fill({ hpt: 18 }), // rows 5–22 — assumption rows
-    {},                              // row 23 — blank separator
-    { hpt: 44 },                     // row 24 — header
-  ];
-
-  ws['!views']      = [{ state: 'frozen', xSplit: 4, ySplit: HDR }];
-  ws['!autofilter'] = { ref: `A${HDR}:${col(LAST_COL)}${HDR}` };
-
-  setRef(ws, LAST_COL, noteRow + 4);
-  return ws;
-}
-
-// ===========================================================================
-// Sheet 2 — Annual Summary
-// ===========================================================================
-
-const SUMMARY_HEADERS = [
-  'Period Start', 'Period End', 'Lease Year', 'Months',
-  'Base Rent Applied', 'Total NNN',
-  'Total Monthly Obligation', '% of Grand Total',
-];
-
-function buildAnnualSummary(rows, otCount) {
-  const ws = {};
-  const years = [...new Set(
-    rows.map((r) => r.leaseYear ?? r['Year #']).filter(Boolean)
-  )].sort((a, b) => a - b);
-
-  const firstLedger = FIRST_DATA_ROW;                      // 25
-  const lastLedger  = FIRST_DATA_ROW + rows.length - 1;
-
-  // Total Monthly Obligation column shifts right with each OT column added
-  const totalMonthlyLetter = col(12 + otCount);
-
-  const LS   = "'Lease Schedule'";
-  const Dabs = `${LS}!$D$${firstLedger}:$D$${lastLedger}`;
-  const Fabs = `${LS}!$F$${firstLedger}:$F$${lastLedger}`;
-  const Labs = `${LS}!$L$${firstLedger}:$L$${lastLedger}`;
-  const Nabs = `${LS}!$${totalMonthlyLetter}$${firstLedger}:$${totalMonthlyLetter}$${lastLedger}`;
-
-  // Build year → {start, end} date map and month count from row data
-  const yearDateMap    = {};
-  const yearMonthCount = {};
-  for (const row of rows) {
-    const y = row.leaseYear ?? row['Year #'];
-    if (!y) continue;
-    if (!yearDateMap[y]) yearDateMap[y] = { start: row.periodStart, end: row.periodEnd };
-    else yearDateMap[y].end = row.periodEnd;
-    yearMonthCount[y] = (yearMonthCount[y] || 0) + 1;
-  }
-
-  // New layout: 8 columns — Period Start | Period End | Lease Year | Months |
-  //             Base Rent Applied | Total NNN | Total Monthly Obligation | % of Grand Total
-  SUMMARY_HEADERS.forEach((h, ci) => sc(ws, ci, 1, cHdr(h, C.headerBlue)));
-
-  years.forEach((year, idx) => {
-    const r       = idx + 2;
-    const fill    = idx % 2 === 0 ? C.rowEven : C.rowOdd;
-    const isStub  = (yearMonthCount[year] ?? 12) < 12;
-    const totGref = `G${years.length + 2}`;
-
-    sc(ws, 0, r, cInt(year, fill, false, C.fcInput));
-    sc(ws, 1, r, cXSheet(`COUNTIF(${Dabs},${Ar})`,        12, FMT.int,      fill));
-    sc(ws, 2, r, cXSheet(`SUMIF(${Dabs},${Ar},${Fabs})`,   0, FMT.currency, fill));
-    sc(ws, 3, r, cXSheet(`SUMIF(${Dabs},${Ar},${Labs})`,   0, FMT.currency, fill));
-    sc(ws, 4, r, cXSheet(`SUMIF(${Dabs},${Ar},${Nabs})`,   0, FMT.currency, fill));
-    sc(ws, 5, r, cFmla(`IF(${totE}=0,0,E${r}/${totE})`,    0, FMT.pct,      fill));
-  });
-
-  const totRow  = years.length + 2;
-  const lastRow = totRow - 1;
-  const gsum    = (letter) => `SUM(${letter}2:${letter}${lastRow})`;
-
-  sc(ws, 0, totRow, cTotalLabel('GRAND TOTAL'));
-  sc(ws, 1, totRow, cBlankTotal());
-  sc(ws, 2, totRow, cBlankTotal());
-  sc(ws, 3, totRow, cTotal(gsum('D'), 0, FMT.int));
-  sc(ws, 4, totRow, cTotal(gsum('E'), 0, FMT.currency));
-  sc(ws, 5, totRow, cTotal(gsum('F'), 0, FMT.currency));
-  sc(ws, 6, totRow, cTotal(gsum('G'), 0, FMT.currency));
-  sc(ws, 7, totRow, { t: 's', v: '100.0%', s: TOTAL_BASE });
-
-  ws['!cols']  = [{ wch: 13 }, { wch: 13 }, { wch: 16 }, { wch: 9 }, { wch: 22 }, { wch: 16 }, { wch: 26 }, { wch: 16 }];
-  ws['!rows']  = [{ hpt: 40 }];
-  ws['!views'] = [{ state: 'frozen', ySplit: 1 }];
-  setRef(ws, 7, totRow);
-  return ws;
-}
-
-// ===========================================================================
-// Sheet 3 — Audit Trail
-// ===========================================================================
-
-const AUDIT_HEADERS = [
-  'Period Start', 'Month #',
-  'Period Factor', 'Proration Factor', 'Proration Basis',
-  'CAMS Esc Year', 'CAMS Active',
-  'Ins Esc Year', 'Ins Active',
-  'Tax Esc Year', 'Tax Active',
-  'Sec Esc Year', 'Sec Active',
-  'Other Esc Year', 'Other Active',
-];
-
-const AUDIT_WIDTHS = [
-  13, 9, 14, 16, 20,
-  13, 11, 13, 11, 13, 11, 13, 11, 14, 11,
-];
-
-function buildAuditTrail(rows) {
-  const ws = {};
-
-  AUDIT_HEADERS.forEach((h, ci) => sc(ws, ci, 1, cHdr(h, C.headerPurple)));
-
-  rows.forEach((row, idx) => {
-    const r    = idx + 2;
-    const fill = idx % 2 === 0 ? C.rowEven : C.rowOdd;
-
-    sc(ws,  0, r, cDate(row.periodStart, fill));
-    sc(ws,  1, r, cInt(row.leaseMonth ?? row['Month #'] ?? 0, fill, false, C.fcInput));
-    sc(ws,  2, r, cInput(row.periodFactor            ?? 1, FMT.factor, fill));
-    sc(ws,  3, r, cInput(row.baseRentProrationFactor ?? 1, FMT.factor, fill));
-    sc(ws,  4, r, cText(row.prorationBasis ?? '', fill, false, 'center', C.fcInput));
-    sc(ws,  5, r, cInt(row.camsEscYears      ?? 0, fill, false, C.fcInput));
-    sc(ws,  6, r, cText(String(row.camsActive      ?? ''), fill, false, 'center', C.fcInput));
-    sc(ws,  7, r, cInt(row.insuranceEscYears ?? 0, fill, false, C.fcInput));
-    sc(ws,  8, r, cText(String(row.insuranceActive ?? ''), fill, false, 'center', C.fcInput));
-    sc(ws,  9, r, cInt(row.taxesEscYears     ?? 0, fill, false, C.fcInput));
-    sc(ws, 10, r, cText(String(row.taxesActive     ?? ''), fill, false, 'center', C.fcInput));
-    sc(ws, 11, r, cInt(row.securityEscYears  ?? 0, fill, false, C.fcInput));
-    sc(ws, 12, r, cText(String(row.securityActive  ?? ''), fill, false, 'center', C.fcInput));
-    sc(ws, 13, r, cInt(row.otherItemsEscYears ?? 0, fill, false, C.fcInput));
-    sc(ws, 14, r, cText(String(row.otherItemsActive ?? ''), fill, false, 'center', C.fcInput));
-  });
-
-  ws['!cols']  = AUDIT_WIDTHS.map((w) => ({ wch: w }));
-  ws['!rows']  = [{ hpt: 40 }];
-  ws['!views'] = [{ state: 'frozen', ySplit: 1 }];
-  setRef(ws, 14, rows.length + 1);
-  return ws;
-}
 
 // ===========================================================================
 // Sheet 4 — Scenario Analysis
 // ===========================================================================
 
-function buildScenarioSheet(rows, otLabels) {
+function buildScenarioSheet(rows, otLabels, columns, firstDataRow) {
   const ws = {};
   ws['!merges'] = [];
 
-  const otCount           = otLabels.length;
-  const OT_START          = 12;
-  const TOTAL_MONTHLY     = OT_START + otCount;
-  const EFF_SF            = TOTAL_MONTHLY + 1;
-  const OBLIG_REM         = EFF_SF + 1;
-  const BASE_REM          = OBLIG_REM + 1;
-  const NNN_REM           = BASE_REM + 1;
-  const OTHER_CHARGES_REM = NNN_REM + 1;
+  // Derive column positions from the dynamic layout (mirrors Lease Schedule sheet)
+  const colByKey = {};
+  for (const c of columns) colByKey[c.key] = c;
+  const TOTAL_MONTHLY     = colByKey.totalMonthly.index;
+  const EFF_SF            = colByKey.effSF.index;
+  const OBLIG_REM         = colByKey.obligRem.index;
+  const BASE_REM          = colByKey.baseRem.index;
+  const NNN_REM           = colByKey.nnnRem.index;
+  const OTHER_CHARGES_REM = colByKey.otherRem.index;
   const SCENARIO_START    = OTHER_CHARGES_REM + 1;
   const SCENARIO_COUNT    = 8;
-  const FDR      = FIRST_DATA_ROW;
+  const FDR      = firstDataRow;
   const lastData = FDR + rows.length - 1;
 
   const colRefs = {
@@ -1345,9 +1318,6 @@ function buildScenarioSheet(rows, otLabels) {
   return ws;
 }
 
-// ===========================================================================
-// Public exports
-// ===========================================================================
 
 export function exportToXLSX(rows, params = {}, filename = 'lease-schedule') {
   const wb = XLSX.utils.book_new();
@@ -1357,12 +1327,15 @@ export function exportToXLSX(rows, params = {}, filename = 'lease-schedule') {
     CreatedDate: new Date(),
   };
 
-  const assump = computeAssumptions(rows, params);
+  const nnnMode = params.nnnMode ?? 'individual';
 
-  // Derive OT labels from the processed rows — the calculator has already assigned
-  // oneTimeItemAmounts to every row, so this is the authoritative source regardless
-  // of whether params.oneTimeItems was forwarded correctly.
-  // Scan in row order so labels appear left-to-right by first occurrence (chronological).
+  // Determine which charge categories are active based on data and params
+  const activeCategories = getActiveCategories(rows, params, nnnMode);
+
+  // Compute assumption values
+  const assump = computeAssumptions(rows, params, activeCategories);
+
+  // Derive OT labels from processed rows (authoritative source)
   const seenLabels = new Set();
   const otLabels = [];
   for (const row of rows) {
@@ -1374,26 +1347,51 @@ export function exportToXLSX(rows, params = {}, filename = 'lease-schedule') {
     }
   }
 
-  XLSX.utils.book_append_sheet(wb, buildLedger(rows, assump, otLabels, filename), 'Lease Schedule');
-  XLSX.utils.book_append_sheet(wb, buildAnnualSummary(rows, otLabels.length),    'Annual Summary');
-  XLSX.utils.book_append_sheet(wb, buildAuditTrail(rows),                         'Audit Trail');
-  XLSX.utils.book_append_sheet(wb, buildScenarioSheet(rows, otLabels),            'Scenario Analysis');
+  // Build dynamic column layout
+  const columns = buildColumnLayout(activeCategories, otLabels, nnnMode);
+
+  // Compute dynamic row positions based on assumptions block size
+  const dummyWs = {};
+  const { lastRow: assumpLastRow, cellMap } = buildAssumptionsBlock(dummyWs, assump, activeCategories);
+  const headerRow    = assumpLastRow + 2;  // 1 blank separator row
+  const firstDataRow = headerRow + 1;
+
+  // Build sheets
+  XLSX.utils.book_append_sheet(
+    wb,
+    buildLedger(rows, assump, otLabels, columns, activeCategories, cellMap, headerRow, firstDataRow, filename),
+    'Lease Schedule',
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    buildAnnualSummary(rows, columns, firstDataRow),
+    'Annual Summary',
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    buildAuditTrail(rows, activeCategories),
+    'Audit Trail',
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    buildScenarioSheet(rows, otLabels, columns, firstDataRow),
+    'Scenario Analysis',
+  );
 
   const xlsxBytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
 
-  // Unzip the XLSX package (XLSX files are ZIP archives)
+  // Unzip the XLSX package to inject data validation
   const unzipped = unzipSync(new Uint8Array(xlsxBytes));
 
-  // Inject dataValidation XML into the Lease Schedule sheet
   const sheetKey = 'xl/worksheets/sheet1.xml';
   if (unzipped[sheetKey]) {
     let xml = strFromU8(unzipped[sheetKey]);
-    const lastDataRow = FIRST_DATA_ROW + rows.length - 1;
+    const lastDataRow = firstDataRow + rows.length - 1;
     const dvXml =
       `<dataValidations count="1">` +
       `<dataValidation type="list" sqref="I5" showDropDown="0" ` +
       `showErrorMessage="0" showInputMessage="0">` +
-      `<formula1>$A${FIRST_DATA_ROW}:$A${lastDataRow}</formula1>` +
+      `<formula1>$A${firstDataRow}:$A${lastDataRow}</formula1>` +
       `</dataValidation></dataValidations>`;
     if (xml.includes('<ignoredErrors')) {
       xml = xml.replace('<ignoredErrors', dvXml + '<ignoredErrors');
@@ -1418,27 +1416,46 @@ export function exportToXLSX(rows, params = {}, filename = 'lease-schedule') {
   URL.revokeObjectURL(url);
 }
 
-export function exportToCSV(rows, filename = 'lease-schedule') {
-  const COLS = [
+export function exportToCSV(rows, params = {}, filename = 'lease-schedule') {
+  const nnnMode = params.nnnMode ?? 'individual';
+  const activeCategories = getActiveCategories(rows, params, nnnMode);
+
+  // Build dynamic CSV columns
+  const baseCols = [
     { key: 'periodStart',              label: 'Period Start' },
     { key: 'periodEnd',                label: 'Period End' },
     { key: 'leaseYear',                label: 'Lease Year #' },
     { key: 'leaseMonth',               label: 'Lease Month #' },
     { key: 'scheduledBaseRent',        label: 'Scheduled Base Rent ($)' },
     { key: 'baseRentApplied',          label: 'Base Rent Applied ($)' },
-    { key: 'camsAmount',               label: 'CAMS ($)' },
-    { key: 'insuranceAmount',          label: 'Insurance ($)' },
-    { key: 'taxesAmount',              label: 'Taxes ($)' },
-    { key: 'securityAmount',           label: 'Security ($)' },
-    { key: 'otherItemsAmount',         label: 'Other Items ($)' },
-    { key: 'oneTimeChargesAmount',     label: 'One-time Charges ($)' },
-    { key: 'totalMonthlyObligation',   label: 'Total Monthly Obligation ($)' },
-    { key: 'effectivePerSF',           label: 'Effective $/SF' },
+  ];
+
+  // NNN columns based on mode
+  const nnnCsvCols = [];
+  if (nnnMode === 'aggregate') {
+    nnnCsvCols.push({ key: 'nnnAggregateAmount', label: 'NNN Combined ($)' });
+  } else {
+    for (const cat of activeCategories.filter((c) => c.group === 'nnn')) {
+      nnnCsvCols.push({ key: cat.amountField, label: `${cat.displayLabel} ($)` });
+    }
+  }
+
+  // Other charge columns
+  const otherCsvCols = activeCategories
+    .filter((c) => c.group === 'otherCharge')
+    .map((cat) => ({ key: cat.amountField, label: `${cat.displayLabel} ($)` }));
+
+  const tailCols = [
+    { key: 'oneTimeChargesAmount',       label: 'One-time Charges ($)' },
+    { key: 'totalMonthlyObligation',     label: 'Total Monthly Obligation ($)' },
+    { key: 'effectivePerSF',             label: 'Effective $/SF' },
     { key: 'totalObligationRemaining',   label: 'Total Obligation Remaining ($)' },
     { key: 'totalBaseRentRemaining',     label: 'Base Rent Remaining ($)' },
     { key: 'totalNNNRemaining',          label: 'NNN Remaining ($)' },
     { key: 'totalOtherChargesRemaining', label: 'Other Charges Remaining ($)' },
   ];
+
+  const COLS = [...baseCols, ...nnnCsvCols, ...otherCsvCols, ...tailCols];
 
   const data = rows.map((row) => {
     const obj = {};
