@@ -72,7 +72,7 @@ export function buildLeaseScheduleSpec(assump, rows, otLabels, filename, L, reg)
       { hpt: 16 },   // row 2 — subtitle
       { hpt: 14 },   // row 3 — generated date
       {},             // row 4 — blank
-      ...Array(8 + 2 * chargeCount).fill({ hpt: 18 }), // assumption rows
+      ...Array(22 + 2 * chargeCount + Math.max(otCount, 1)).fill({ hpt: 18 }), // assumption rows
       {},             // blank separator
       { hpt: 44 },   // header row
     ],
@@ -80,7 +80,7 @@ export function buildLeaseScheduleSpec(assump, rows, otLabels, filename, L, reg)
     // ── Sections ─────────────────────────────────────────────────────────
     sections: {
       title:       buildTitleSection(filename, LAST_COL),
-      assumptions: buildAssumptionsSection(assump, charges),
+      assumptions: buildAssumptionsSection(assump, charges, otLabels),
       header:      buildHeaderSection(HDR, charges, otLabels, chargeCount),
       data:        buildDataSection(rows, otLabels, FDR, lastData, charges,
                                     nnnChargeColIndices, otherChargeColIndices,
@@ -142,7 +142,12 @@ function buildTitleSection(filename, lastCol) {
   };
 }
 
-function buildAssumptionsSection(assump, charges) {
+function buildAssumptionsSection(assump, charges, otLabels) {
+  const N = charges.length;
+  const vFill = C.white;
+  const cells = [];
+
+  // ── Style helpers ─────────────────────────────────────────────────────────
   const labelStyle = {
     font:      { ...FONT_B, color: { rgb: '1F3864' } },
     fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
@@ -151,31 +156,93 @@ function buildAssumptionsSection(assump, charges) {
     numFmt:    FMT.text,
   };
 
-  const vFill = C.white;
-  const cells = [];
+  const sectionHeadStyle = {
+    font:      { ...FONT_B, sz: 10, color: { rgb: C.white } },
+    fill:      { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
+    alignment: { horizontal: 'left', vertical: 'middle' },
+    border:    ASSUMPTION_BORDER,
+    numFmt:    FMT.text,
+  };
 
   function addRow(r, label, valueCell) {
     cells.push({ col: 1, row: r, cell: { t: 's', v: label, s: labelStyle } });
     cells.push({ col: 2, row: r, cell: { ...valueCell, s: { ...valueCell.s, border: ASSUMPTION_BORDER } } });
   }
 
-  addRow(5,  'Rentable SF',                              inputCell(assump.squareFootage, FMT.int, vFill));
-  addRow(6,  'Lease Commencement Date',                  dateCell(assump.commencementDate, vFill));
-  addRow(7,  'Lease Expiration Date',                    dateCell(assump.expirationDate, vFill));
-  addRow(8,  'Year 1 Monthly Base Rent',                 inputCell(assump.year1BaseRent, FMT.currency, vFill));
-  addRow(9,  'Annual Base Rent Escalation Rate (%)',     inputCell(assump.annualEscRate, FMT.pct, vFill));
-  addRow(10, 'Lease Anniversary Month',                  inputCell(assump.anniversaryMonth, FMT.int, vFill));
-  addRow(11, 'Abatement Full-Month Count',               inputCell(assump.fullAbatementMonths, FMT.int, vFill));
-  addRow(12, 'Abatement Partial-Month Proration Factor', inputCell(assump.abatementPartialFactor, FMT.factor, vFill));
+  function addHeading(r, title) {
+    cells.push({ col: 1, row: r, cell: { t: 's', v: title, s: sectionHeadStyle } });
+    cells.push({ col: 2, row: r, cell: { t: 's', v: '',    s: sectionHeadStyle } });
+  }
 
+  function textCell(v) {
+    return {
+      t: 's', v: v ?? '',
+      s: { ...dsLocal(vFill, FMT.text, { align: 'left', fontColor: C.fcInput }), border: ASSUMPTION_BORDER },
+    };
+  }
+
+  // ── Section 1: Lease Drivers (rows 5–11) ──────────────────────────────────
+  addHeading(5, 'LEASE DRIVERS');
+  addRow(6,  'Lease Name',                 textCell(assump.leaseName || ''));
+  addRow(7,  'Rentable SF',                inputCell(assump.squareFootage, FMT.int, vFill));
+  addRow(8,  'Lease Commencement Date',    dateCell(assump.commencementDate, vFill));
+  addRow(9,  'Lease Expiration Date',      dateCell(assump.expirationDate, vFill));
+  addRow(10, 'Rent Commencement Date',     dateCell(assump.rentCommencementDate ?? null, vFill));
+  addRow(11, 'Effective Analysis Date',    dateCell(assump.effectiveAnalysisDate ?? null, vFill));
+
+  // ── Section 2: Monthly Rent Breakdown (rows 12–(14+N)) ───────────────────
+  addHeading(12, 'MONTHLY RENT BREAKDOWN');
+  addRow(13, 'NNN Mode',                   textCell(assump.nnnMode === 'aggregate' ? 'Aggregate' : 'Individual'));
+  addRow(14, 'Year 1 Monthly Base Rent',   inputCell(assump.year1BaseRent, FMT.currency, vFill));
   charges.forEach((ch, idx) => {
-    const y1Row  = 13 + idx * 2;
-    const escRow = y1Row + 1;
-    const label  = ch.displayLabel || ch.key;
+    const label   = ch.displayLabel || ch.key;
     const typeTag = ch.canonicalType === CANONICAL_TYPES.NNN ? ' [NNN]' : ' [Other]';
-    addRow(y1Row,  `${label} Year 1 Monthly Amount${typeTag}`, inputCell(ch.year1, FMT.currency, vFill));
-    addRow(escRow, `${label} Annual Escalation Rate (%)`,      inputCell(ch.escRate, FMT.pct, vFill));
+    addRow(15 + idx, `${label} Year 1 Monthly Amount${typeTag}`, inputCell(ch.year1, FMT.currency, vFill));
   });
+
+  // ── Section 3: Escalation Assumptions (rows (15+N)–(17+2N)) ─────────────
+  addHeading(15 + N, 'ESCALATION ASSUMPTIONS');
+  addRow(16 + N, 'Annual Base Rent Escalation Rate (%)',      inputCell(assump.annualEscRate, FMT.pct, vFill));
+  addRow(17 + N, 'Lease Anniversary Month',                   inputCell(assump.anniversaryMonth, FMT.int, vFill));
+  charges.forEach((ch, idx) => {
+    const label = ch.displayLabel || ch.key;
+    addRow(18 + N + idx, `${label} Annual Escalation Rate (%)`, inputCell(ch.escRate, FMT.pct, vFill));
+  });
+
+  // ── Section 4: Abatement (rows (18+2N)–(22+2N)) ─────────────────────────
+  addHeading(18 + 2*N, 'ABATEMENT');
+  addRow(19 + 2*N, 'Abatement Full-Month Count',               inputCell(assump.fullAbatementMonths, FMT.int, vFill));
+  addRow(20 + 2*N, 'Abatement End Date',                       dateCell(assump.abatementEndDate ?? null, vFill));
+  addRow(21 + 2*N, 'Abatement Percentage (%)',                  inputCell((assump.abatementPct ?? 0) / 100, FMT.pct, vFill));
+  addRow(22 + 2*N, 'Abatement Partial-Month Proration Factor',  inputCell(assump.abatementPartialFactor, FMT.factor, vFill));
+
+  // ── Section 5: Free Rent (rows (23+2N)–(25+2N)) ──────────────────────────
+  addHeading(23 + 2*N, 'FREE RENT');
+  addRow(24 + 2*N, 'Free Rent Months',   inputCell(assump.freeRentMonths ?? 0, FMT.int, vFill));
+  addRow(25 + 2*N, 'Free Rent End Date', dateCell(assump.freeRentEndDate ?? null, vFill));
+
+  // ── Section 6: Non-Recurring Charges (rows (26+2N)+) ─────────────────────
+  addHeading(26 + 2*N, 'NON-RECURRING CHARGES');
+  const otItems = assump.oneTimeItems ?? [];
+  if (otItems.length === 0) {
+    // Show a "(none)" placeholder row so the section always has at least one row
+    cells.push({ col: 1, row: 27 + 2*N, cell: {
+      t: 's', v: '(none)',
+      s: { ...labelStyle, font: { ...FONT_B, color: { rgb: 'AAAAAA' }, sz: 10, italic: true } },
+    }});
+    cells.push({ col: 2, row: 27 + 2*N, cell: { t: 's', v: '', s: { ...labelStyle } } });
+  } else {
+    otItems.forEach((item, idx) => {
+      const r = 27 + 2*N + idx;
+      cells.push({ col: 1, row: r, cell: { t: 's', v: item.label || '', s: labelStyle } });
+      cells.push({ col: 2, row: r, cell: { ...dateCell(item.date ?? null, vFill), s: { ...dateCell(item.date ?? null, vFill).s, border: ASSUMPTION_BORDER } } });
+      // Amount in col 3 (D)
+      cells.push({ col: 3, row: r, cell: {
+        ...inputCell(item.amount ?? 0, FMT.currency, vFill),
+        s: { ...inputCell(item.amount ?? 0, FMT.currency, vFill).s, border: ASSUMPTION_BORDER },
+      }});
+    });
+  }
 
   return { cells };
 }

@@ -74,6 +74,13 @@ function buildInitialCharges(result, nnnToForm) {
 }
 
 export function formToCalculatorParams(form) {
+  // Free Rent takes precedence over Abatement when set.
+  // Free rent is 100% abatement for the specified period.
+  const hasFreeRent = Boolean(
+    form.freeRentEndDate ||
+    (form.freeRentMonths && Number(form.freeRentMonths) > 0)
+  );
+
   return {
     leaseName: String(form.leaseName || '').trim(),
     nnnMode: form.nnnMode ?? 'individual',
@@ -82,8 +89,17 @@ export function formToCalculatorParams(form) {
       escPct: Number(form.nnnAggregate?.escPct) || 0,
     },
     squareFootage: Number(form.squareFootage) || 0,
-    abatementEndDate: parseMDYStrict(form.abatementEndDate),
-    abatementPct: Number(form.abatementPct) || 0,
+    // Lease Drivers metadata — preserved in params for export model / scenario use.
+    rentCommencementDate:  parseMDYStrict(form.rentCommencementDate),
+    effectiveAnalysisDate: parseMDYStrict(form.effectiveAnalysisDate),
+    // Free rent overrides abatement when set (always 100% for the free rent period).
+    abatementEndDate: hasFreeRent
+      ? parseMDYStrict(form.freeRentEndDate)
+      : parseMDYStrict(form.abatementEndDate),
+    abatementPct: hasFreeRent ? 100 : (Number(form.abatementPct) || 0),
+    // Preserve raw free-rent fields for export display (separate from resolved abatement).
+    freeRentMonths: hasFreeRent ? (Number(form.freeRentMonths) || 0) : 0,
+    freeRentEndDate: hasFreeRent ? parseMDYStrict(form.freeRentEndDate) : null,
     oneTimeItems: (form.oneTimeItems ?? [])
       .map((item) => ({
         label:  item.label ?? '',
@@ -91,6 +107,18 @@ export function formToCalculatorParams(form) {
         amount: Number(item.amount) || 0,
       }))
       .filter((item) => item.amount !== 0),
+    // Normalized charges array — drives dynamic charge calculation in calculator.js.
+    // Preserves all user-defined charges (including custom keys) with parsed dates.
+    charges: (form.charges ?? []).map((c) => ({
+      key:          c.key,
+      canonicalType: c.canonicalType ?? 'other',
+      displayLabel:  c.displayLabel ?? c.key,
+      year1:        Number(c.year1) || 0,
+      escPct:       Number(c.escPct) || 0,
+      escStart:     parseMDYStrict(c.escStart),
+      chargeStart:  parseMDYStrict(c.chargeStart),
+    })),
+    // Legacy charge params retained for backward compat (consumed when charges[] absent).
     cams: mapChargeFormToParams(form, 'cams'),
     insurance: mapChargeFormToParams(form, 'insurance'),
     taxes: mapChargeFormToParams(form, 'taxes'),
@@ -618,8 +646,16 @@ export default function App() {
               validationErrors={validationErrors}
               sfRequired={sfRequired}
               leaseStartDate={expandedRows.length > 0 ? expandedRows[0].date : null}
+              leaseEndDate={expandedRows.length > 0 ? expandedRows[expandedRows.length - 1].periodEnd : null}
+              scheduledBaseRent={expandedRows.length > 0 ? expandedRows[0].monthlyRent : null}
+              expandedRowCount={expandedRows.length}
               onSubmit={handleFormSubmit}
               onBack={() => setStep(STEP.UPLOAD)}
+              onBackToSchedule={() => {
+                setFallbackPeriodRows(null);
+                setFallbackReason(null);
+                setStep(STEP.SCHEDULE);
+              }}
               isProcessing={isProcessing}
             />
           </div>

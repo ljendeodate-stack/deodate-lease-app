@@ -18,6 +18,17 @@ import { buildAuditTrailSpec } from './specs/auditTrailSpec.js';
 import { renderSheet } from './engine/sheetWriter.js';
 import { verifyWorkbook } from './engine/verify.js';
 
+// ── Date helpers ────────────────────────────────────────────────────────────
+
+/** Convert a Date object or ISO string to a YYYY-MM-DD ISO string, or null. */
+function dateToISO(d) {
+  if (!d) return null;
+  if (typeof d === 'string') return d.length === 10 ? d : null;
+  if (!(d instanceof Date) || isNaN(d.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 // ── Charges normalization ───────────────────────────────────────────────────
 
 function resolveCharges(params) {
@@ -29,6 +40,8 @@ function resolveCharges(params) {
       year1: Number(ch.year1) || 0,
       escPct: Number(ch.escPct) || 0,
       escRate: (Number(ch.escPct) || 0) / 100,
+      escStart: ch.escStart ?? null,
+      chargeStart: ch.chargeStart ?? null,
     }));
   }
   const safe = (obj) => ({ year1: 0, escPct: 0, ...obj });
@@ -44,6 +57,8 @@ function resolveCharges(params) {
     year1: Number(ch.year1) || 0,
     escPct: Number(ch.escPct) || 0,
     escRate: (Number(ch.escPct) || 0) / 100,
+    escStart: null,
+    chargeStart: null,
   }));
 }
 
@@ -57,8 +72,17 @@ function computeAssumptions(rows, params, charges) {
     leaseName: params.leaseName || '',
     nnnMode,
     squareFootage: 0, commencementDate: null, expirationDate: null,
+    rentCommencementDate: dateToISO(params.rentCommencementDate),
+    effectiveAnalysisDate: dateToISO(params.effectiveAnalysisDate),
     year1BaseRent: 0, annualEscRate: 0, anniversaryMonth: 1,
     fullAbatementMonths: 0, abatementPartialFactor: 1,
+    abatementEndDate: dateToISO(params.abatementEndDate),
+    abatementPct: Number(params.abatementPct) || 0,
+    freeRentMonths: Number(params.freeRentMonths) || 0,
+    freeRentEndDate: dateToISO(params.freeRentEndDate),
+    oneTimeItems: Array.isArray(params.oneTimeItems)
+      ? params.oneTimeItems.map((i) => ({ label: i.label ?? '', date: dateToISO(i.date), amount: Number(i.amount) || 0 }))
+      : [],
     charges,
   };
 
@@ -100,11 +124,24 @@ function computeAssumptions(rows, params, charges) {
     squareFootage:         Number(params.squareFootage) || 0,
     commencementDate:      firstRow.periodStart ?? null,
     expirationDate:        lastRow.periodEnd    ?? null,
+    rentCommencementDate:  dateToISO(params.rentCommencementDate),
+    effectiveAnalysisDate: dateToISO(params.effectiveAnalysisDate),
     year1BaseRent,
     annualEscRate,
     anniversaryMonth:      1,
     fullAbatementMonths,
     abatementPartialFactor,
+    abatementEndDate:      dateToISO(params.abatementEndDate),
+    abatementPct:          Number(params.abatementPct) || 0,
+    freeRentMonths:        Number(params.freeRentMonths) || 0,
+    freeRentEndDate:       dateToISO(params.freeRentEndDate),
+    oneTimeItems: Array.isArray(params.oneTimeItems)
+      ? params.oneTimeItems.map((i) => ({
+          label:  i.label  ?? '',
+          date:   dateToISO(i.date),
+          amount: Number(i.amount) || 0,
+        }))
+      : [],
     charges: effectiveCharges,
   };
 }

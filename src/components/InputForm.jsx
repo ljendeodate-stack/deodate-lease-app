@@ -1,7 +1,13 @@
 /**
  * InputForm
- * Shared parameter form for both input paths.
- * Dynamic charge model: form.charges[] replaces named fields.
+ * Assumption entry form organized into six visible sections:
+ *   1. Lease Drivers
+ *   2. Monthly Rent Breakdown
+ *   3. Escalation Assumptions
+ *   4. Abatement
+ *   5. Free Rent
+ *   6. Non-Recurring Charges
+ *
  * Human-in-the-loop: confirm button is the only trigger for processing.
  */
 
@@ -11,16 +17,33 @@ import { formatDollar } from '../utils/formatUtils.js';
 import { defaultChargesForm, emptyChargeForm, generateChargeKey, CANONICAL_TYPES } from '../engine/chargeTypes.js';
 
 // ---------------------------------------------------------------------------
-// Sub-components
+// Primitive UI helpers
 // ---------------------------------------------------------------------------
+
+function SectionBox({ title, hint, children, actions }) {
+  return (
+    <div className="rounded-lg border border-gray-200 overflow-hidden">
+      <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h4 className="font-semibold text-gray-800 text-sm">{title}</h4>
+          {hint && (
+            <span className="text-gray-400 cursor-help text-xs" title={hint}>ⓘ</span>
+          )}
+        </div>
+        {actions && <div className="flex items-center gap-2">{actions}</div>}
+      </div>
+      <div className="px-4 py-4">{children}</div>
+    </div>
+  );
+}
 
 function FieldRow({ label, hint, error, children }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-sm font-medium text-gray-700">
+      <label className="text-xs font-medium text-gray-600">
         {label}
         {hint && (
-          <span className="ml-1 text-gray-400 cursor-help" title={hint}>i</span>
+          <span className="ml-1 text-gray-400 cursor-help" title={hint}>ⓘ</span>
         )}
       </label>
       {children}
@@ -29,16 +52,16 @@ function FieldRow({ label, hint, error, children }) {
   );
 }
 
-function TextInput({ value, onChange, placeholder, type = 'text', error }) {
+function TextInput({ value, onChange, placeholder, type = 'text', error, className = '' }) {
   return (
     <input
       type={type}
-      value={value}
+      value={value ?? ''}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className={`rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+      className={`rounded border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full ${
         error ? 'border-red-400 bg-red-50' : 'border-gray-300'
-      }`}
+      } ${className}`}
     />
   );
 }
@@ -52,127 +75,20 @@ function ConfidenceFlag({ flagged }) {
   );
 }
 
-function ChargeSection({ charge, index, onChange, onRemove, confidenceFlags = [], fieldErrors = {}, defaultExpanded, isCustom }) {
-  const prefix = `charges.${index}`;
-  const flag = (field) => confidenceFlags.includes(`${charge.key}.${field}`) || confidenceFlags.includes(`${prefix}.${field}`);
-  const err = (field) => fieldErrors[`${prefix}.${field}`] || fieldErrors[`${charge.key}.${field}`];
-  const hasAnyFlag = ['year1', 'escPct', 'chargeStart', 'escStart'].some((f) => flag(f));
-
-  const [expanded, setExpanded] = useState(() => {
-    if (defaultExpanded !== undefined) return defaultExpanded;
-    return hasAnyFlag || !charge?.year1;
-  });
-
-  const year1Display = charge?.year1 ? formatDollar(Number(charge.year1)) : null;
-  const typeLabel = charge.canonicalType === CANONICAL_TYPES.NNN ? 'NNN' : 'Other';
-
+function DisplayField({ value, placeholder }) {
   return (
-    <div className="rounded-lg border border-gray-200 overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setExpanded((prev) => !prev)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
-      >
-        <div className="flex items-center gap-3">
-          <span className="font-semibold text-gray-800 text-sm">{charge.displayLabel}</span>
-          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-            charge.canonicalType === CANONICAL_TYPES.NNN
-              ? 'bg-pink-100 text-pink-700'
-              : 'bg-gray-100 text-gray-600'
-          }`}>{typeLabel}</span>
-          {!expanded && year1Display && (
-            <span className="text-sm text-gray-500 font-mono">{year1Display}/mo</span>
-          )}
-          {hasAnyFlag && <ConfidenceFlag flagged={true} />}
-        </div>
-        <div className="flex items-center gap-2">
-          {isCustom && (
-            <span
-              onClick={(e) => { e.stopPropagation(); onRemove(); }}
-              className="text-xs text-red-500 hover:text-red-700 cursor-pointer px-1"
-              title="Remove charge"
-            >remove</span>
-          )}
-          <span className="text-gray-400 text-xs">{expanded ? String.fromCharCode(9650) : String.fromCharCode(9660)}</span>
-        </div>
-      </button>
-
-      {expanded && (
-        <div className="px-4 pb-4 pt-3 space-y-3 border-t border-gray-100">
-          {/* Label and type editing */}
-          <div className="grid grid-cols-2 gap-3">
-            <FieldRow label="Display Label">
-              <TextInput
-                value={charge.displayLabel}
-                onChange={(v) => onChange(index, 'displayLabel', v)}
-                placeholder="e.g. CAMS"
-              />
-            </FieldRow>
-            <FieldRow label="Routing" hint="NNN charges contribute to Total NNN. Other charges go to Other Charges bucket.">
-              <select
-                value={charge.canonicalType}
-                onChange={(e) => onChange(index, 'canonicalType', e.target.value)}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value={CANONICAL_TYPES.NNN}>NNN (Total NNN)</option>
-                <option value={CANONICAL_TYPES.OTHER}>Other (Other Charges)</option>
-              </select>
-            </FieldRow>
-          </div>
-
-          {/* Amount and escalation */}
-          <div className="grid grid-cols-2 gap-3">
-            <FieldRow label={<>Year 1 Monthly ($) <ConfidenceFlag flagged={flag('year1')} /></>} error={err('year1')}>
-              <TextInput
-                type="number"
-                value={charge.year1}
-                onChange={(v) => onChange(index, 'year1', v)}
-                placeholder="e.g. 500"
-                error={err('year1')}
-              />
-            </FieldRow>
-            <FieldRow label={<>Annual Escalation (%) <ConfidenceFlag flagged={flag('escPct')} /></>} error={err('escPct')}>
-              <TextInput
-                type="number"
-                value={charge.escPct}
-                onChange={(v) => onChange(index, 'escPct', v)}
-                placeholder="e.g. 3"
-                error={err('escPct')}
-              />
-            </FieldRow>
-          </div>
-
-          {/* Date fields */}
-          <div className="grid grid-cols-2 gap-3">
-            <FieldRow
-              label={<>{charge.displayLabel} Billing Start Date <ConfidenceFlag flagged={flag('chargeStart')} /></>}
-              hint="Leave blank if billing begins at lease commencement."
-              error={err('chargeStart')}
-            >
-              <TextInput
-                value={charge.chargeStart}
-                onChange={(v) => onChange(index, 'chargeStart', v)}
-                placeholder="MM/DD/YYYY (optional)"
-                error={err('chargeStart')}
-              />
-            </FieldRow>
-            <FieldRow
-              label={<>{charge.displayLabel} Escalation Start Date <ConfidenceFlag flagged={flag('escStart')} /></>}
-              hint="Leave blank if escalation begins at lease commencement."
-              error={err('escStart')}
-            >
-              <TextInput
-                value={charge.escStart}
-                onChange={(v) => onChange(index, 'escStart', v)}
-                placeholder="MM/DD/YYYY (optional)"
-                error={err('escStart')}
-              />
-            </FieldRow>
-          </div>
-        </div>
-      )}
+    <div className="rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm text-gray-700 min-h-[34px]">
+      {value || <span className="text-gray-400 italic text-xs">{placeholder ?? 'Not available'}</span>}
     </div>
   );
+}
+
+// Format ISO date string (YYYY-MM-DD) to MM/DD/YYYY for display.
+function fmtISO(isoStr) {
+  if (!isoStr) return '';
+  const m = String(isoStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return isoStr;
+  return `${m[2]}/${m[3]}/${m[1]}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,15 +101,19 @@ export function emptyNNN() {
 
 export function emptyFormState() {
   return {
-    leaseName: '',
-    squareFootage: '',
-    abatementEndDate: '',
-    abatementMonths: '',
-    abatementPct: '',
-    nnnMode: 'individual',
-    nnnAggregate: { year1: '', escPct: '' },
-    charges: defaultChargesForm(),
-    oneTimeItems: [],
+    leaseName:             '',
+    squareFootage:         '',
+    rentCommencementDate:  '',
+    effectiveAnalysisDate: '',
+    abatementEndDate:      '',
+    abatementMonths:       '',
+    abatementPct:          '',
+    freeRentMonths:        '',
+    freeRentEndDate:       '',
+    nnnMode:               'individual',
+    nnnAggregate:          { year1: '', escPct: '' },
+    charges:               defaultChargesForm(),
+    oneTimeItems:          [],
   };
 }
 
@@ -208,6 +128,8 @@ export default function InputForm({
   validationErrors,
   sfRequired,
   leaseStartDate,
+  leaseEndDate,
+  scheduledBaseRent,
   expandedRowCount,
   onSubmit,
   onBack,
@@ -260,27 +182,69 @@ export default function InputForm({
     }));
   }
 
+  // Auto-compute abatementEndDate when abatementMonths changes.
+  function handleAbatementMonths(v) {
+    setTop('abatementMonths', v);
+    const n = parseInt(v, 10);
+    if (leaseStartDate && !isNaN(n) && n > 0) {
+      const parts = leaseStartDate.split('-').map(Number);
+      const endDate = new Date(parts[0], parts[1] - 1 + n, 0);
+      const mm = String(endDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(endDate.getDate()).padStart(2, '0');
+      setTop('abatementEndDate', `${mm}/${dd}/${endDate.getFullYear()}`);
+    } else if (!v || v === '0') {
+      setTop('abatementEndDate', '');
+    }
+  }
+
+  // Auto-compute freeRentEndDate when freeRentMonths changes.
+  function handleFreeRentMonths(v) {
+    setTop('freeRentMonths', v);
+    const n = parseInt(v, 10);
+    if (leaseStartDate && !isNaN(n) && n > 0) {
+      const parts = leaseStartDate.split('-').map(Number);
+      const endDate = new Date(parts[0], parts[1] - 1 + n, 0);
+      const mm = String(endDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(endDate.getDate()).padStart(2, '0');
+      setTop('freeRentEndDate', `${mm}/${dd}/${endDate.getFullYear()}`);
+    } else if (!v || v === '0') {
+      setTop('freeRentEndDate', '');
+    }
+  }
+
   const fieldErrors = {};
   for (const err of validationErrors ?? []) {
     fieldErrors[err.field] = err.message;
   }
 
-  // The default 5 charge keys that cannot be removed
   const defaultKeys = new Set(['cams', 'insurance', 'taxes', 'security', 'otherItems']);
+  const charges = form.charges ?? defaultChargesForm();
+  const flag = (f) => confidenceFlags?.includes(f);
 
   function handleSubmit(e) {
     e.preventDefault();
     onSubmit(form);
   }
 
-  const charges = form.charges ?? defaultChargesForm();
-  const nnnCharges = charges.filter((ch) => ch.canonicalType === CANONICAL_TYPES.NNN);
-  const otherCharges = charges.filter((ch) => ch.canonicalType === CANONICAL_TYPES.OTHER);
+  // ── NNN mode toggle element (reused in Monthly Rent Breakdown header) ──────
+  const nnnModeToggle = (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-gray-500">NNN mode:</span>
+      <select
+        value={form.nnnMode}
+        onChange={(e) => setTop('nnnMode', e.target.value)}
+        className="rounded border border-gray-300 px-2 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+      >
+        <option value="individual">Individual line items</option>
+        <option value="aggregate">Aggregate estimate</option>
+      </select>
+    </div>
+  );
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-900">Lease Parameters</h2>
+        <h2 className="text-xl font-bold text-gray-900">Lease Assumptions</h2>
         <div className="flex items-center gap-3">
           {onBackToSchedule && (
             <button
@@ -304,7 +268,7 @@ export default function InputForm({
       {expandedRowCount > 0 && (
         <div className="rounded-md bg-gray-50 border border-gray-200 px-4 py-2 text-sm text-gray-600">
           Rent schedule loaded: <strong>{expandedRowCount}</strong> monthly row{expandedRowCount !== 1 ? 's' : ''}
-          {leaseStartDate && <span className="ml-1">starting {leaseStartDate}</span>}
+          {leaseStartDate && <span className="ml-1">starting {fmtISO(leaseStartDate)}</span>}
         </div>
       )}
 
@@ -318,72 +282,262 @@ export default function InputForm({
 
       <ValidationBanner errors={validationErrors ?? []} />
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Lease Name */}
-        <FieldRow
-          label={<>Lease Name <ConfidenceFlag flagged={confidenceFlags?.includes('leaseName')} /></>}
-          hint="Used as the title in the exported Excel workbook."
+      <form onSubmit={handleSubmit} className="space-y-5">
+
+        {/* ══ 1. Lease Drivers ══════════════════════════════════════════════ */}
+        <SectionBox title="Lease Drivers">
+          <div className="grid grid-cols-2 gap-3">
+            <FieldRow label={<>Lease Name <ConfidenceFlag flagged={flag('leaseName')} /></>}>
+              <TextInput
+                value={form.leaseName}
+                onChange={(v) => setTop('leaseName', v)}
+                placeholder="e.g. Anita's Mexican Foods"
+              />
+            </FieldRow>
+
+            <FieldRow
+              label={
+                <>
+                  Rentable SF
+                  {sfRequired && <span className="ml-1 text-red-600 font-semibold">(required)</span>}
+                  <ConfidenceFlag flagged={flag('squareFootage')} />
+                </>
+              }
+              error={fieldErrors['squareFootage']}
+            >
+              <TextInput
+                type="number"
+                value={form.squareFootage}
+                onChange={(v) => setTop('squareFootage', v)}
+                placeholder="e.g. 5000"
+                error={fieldErrors['squareFootage']}
+              />
+            </FieldRow>
+
+            <FieldRow label="Lease Commencement" hint="Derived from the loaded rent schedule. Edit the schedule to change.">
+              <DisplayField value={fmtISO(leaseStartDate)} placeholder="Load a rent schedule first" />
+            </FieldRow>
+
+            <FieldRow label="Lease Expiration" hint="Derived from the loaded rent schedule.">
+              <DisplayField value={fmtISO(leaseEndDate)} placeholder="Load a rent schedule first" />
+            </FieldRow>
+
+            <FieldRow
+              label="Rent Commencement Date"
+              hint="If rent obligations begin on a date different from the lease commencement date, enter it here."
+            >
+              <TextInput
+                value={form.rentCommencementDate}
+                onChange={(v) => setTop('rentCommencementDate', v)}
+                placeholder="MM/DD/YYYY (optional)"
+              />
+            </FieldRow>
+
+            <FieldRow
+              label="Effective Date of Analysis"
+              hint="As-of date used to compute remaining obligations in the summary panel. Leave blank to use lease commencement."
+            >
+              <TextInput
+                value={form.effectiveAnalysisDate}
+                onChange={(v) => setTop('effectiveAnalysisDate', v)}
+                placeholder="MM/DD/YYYY (optional)"
+              />
+            </FieldRow>
+          </div>
+        </SectionBox>
+
+        {/* ══ 2. Monthly Rent Breakdown ═════════════════════════════════════ */}
+        <SectionBox
+          title="Monthly Rent Breakdown"
+          hint="Year 1 monthly amounts for base rent and each recurring charge."
+          actions={nnnModeToggle}
         >
-          <TextInput
-            value={form.leaseName}
-            onChange={(v) => setTop('leaseName', v)}
-            placeholder="e.g. Anita's Mexican Foods"
-          />
-        </FieldRow>
+          {form.nnnMode === 'aggregate' && (
+            <div className="rounded bg-amber-50 border border-amber-200 p-2 mb-3 text-xs text-amber-700">
+              Aggregate NNN mode — a single combined NNN estimate replaces individual CAMS, Insurance, and Taxes line items.
+            </div>
+          )}
 
-        {/* Square footage */}
-        <FieldRow
-          label={
-            <>
-              Square Footage {sfRequired && <span className="ml-1 text-red-600 font-semibold">(required for $/SF conversion)</span>}
-              <ConfidenceFlag flagged={confidenceFlags?.includes('squareFootage')} />
-            </>
-          }
-          error={fieldErrors['squareFootage']}
+          {/* Column headers */}
+          <div className="grid grid-cols-[1fr_80px_120px_28px] gap-x-2 mb-1 text-xs font-medium text-gray-500 uppercase tracking-wide">
+            <span>Charge</span>
+            <span>Type</span>
+            <span>Year 1 Monthly ($)</span>
+            <span />
+          </div>
+
+          {/* Base rent row (read-only, from schedule) */}
+          {scheduledBaseRent != null && (
+            <div className="grid grid-cols-[1fr_80px_120px_28px] gap-x-2 items-center py-1.5 border-b border-gray-100">
+              <span className="text-sm text-gray-700 font-medium">Base Rent</span>
+              <span className="text-xs text-gray-400 italic">—</span>
+              <div className="rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm text-gray-600 font-mono">
+                {formatDollar(scheduledBaseRent)}
+              </div>
+              <span />
+            </div>
+          )}
+
+          {/* Aggregate NNN row */}
+          {form.nnnMode === 'aggregate' && (
+            <div className="grid grid-cols-[1fr_80px_120px_28px] gap-x-2 items-center py-1.5 border-b border-gray-100">
+              <span className="text-sm text-gray-700 font-medium">
+                NNN — Aggregate Estimate
+                <ConfidenceFlag flagged={flag('nnnAggregate.year1')} />
+              </span>
+              <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-pink-100 text-pink-700 self-center">NNN</span>
+              <TextInput
+                type="number"
+                value={form.nnnAggregate?.year1 ?? ''}
+                onChange={(v) => setNNNAggregate('year1', v)}
+                placeholder="0.00"
+                error={fieldErrors['nnnAggregate.year1']}
+              />
+              <span />
+            </div>
+          )}
+
+          {/* Individual charge rows */}
+          {charges.map((charge, idx) => {
+            if (form.nnnMode === 'aggregate' && charge.canonicalType === CANONICAL_TYPES.NNN) return null;
+            const isCustom = !defaultKeys.has(charge.key);
+            return (
+              <div key={charge.key} className="grid grid-cols-[1fr_80px_120px_28px] gap-x-2 items-center py-1.5 border-b border-gray-100 last:border-0">
+                <TextInput
+                  value={charge.displayLabel}
+                  onChange={(v) => updateCharge(idx, 'displayLabel', v)}
+                  placeholder="Charge name"
+                />
+                <select
+                  value={charge.canonicalType}
+                  onChange={(e) => updateCharge(idx, 'canonicalType', e.target.value)}
+                  className="rounded border border-gray-300 px-1 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
+                  title="NNN charges contribute to Total NNN. Other charges go to the Other Charges bucket."
+                >
+                  <option value={CANONICAL_TYPES.NNN}>NNN</option>
+                  <option value={CANONICAL_TYPES.OTHER}>Other</option>
+                </select>
+                <TextInput
+                  type="number"
+                  value={charge.year1}
+                  onChange={(v) => updateCharge(idx, 'year1', v)}
+                  placeholder="0"
+                  error={fieldErrors[`charges.${idx}.year1`]}
+                />
+                {isCustom ? (
+                  <button
+                    type="button"
+                    onClick={() => removeCharge(idx)}
+                    className="text-sm text-red-400 hover:text-red-600 font-medium leading-none"
+                    title="Remove charge"
+                  >
+                    ×
+                  </button>
+                ) : (
+                  <span />
+                )}
+              </div>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={addCharge}
+            className="mt-3 text-xs text-blue-600 hover:text-blue-800 font-medium"
+          >
+            + Add recurring charge
+          </button>
+        </SectionBox>
+
+        {/* ══ 3. Escalation Assumptions ════════════════════════════════════ */}
+        <SectionBox
+          title="Escalation Assumptions"
+          hint="Annual escalation rates and optional start dates for each recurring charge."
         >
-          <TextInput
-            type="number"
-            value={form.squareFootage}
-            onChange={(v) => setTop('squareFootage', v)}
-            placeholder="e.g. 5000"
-            error={fieldErrors['squareFootage']}
-          />
-        </FieldRow>
+          {/* Column headers */}
+          <div className="grid grid-cols-[1fr_100px_140px_140px] gap-x-2 mb-1 text-xs font-medium text-gray-500 uppercase tracking-wide">
+            <span>Charge</span>
+            <span>Annual Rate (%)</span>
+            <span>Escalation Start</span>
+            <span>Billing Start</span>
+          </div>
 
-        {/* Abatement */}
-        <div className="rounded-lg border border-gray-200 p-4 space-y-3">
-          <h4 className="font-semibold text-gray-800 text-sm">Rent Abatement (optional)</h4>
+          {/* Aggregate NNN escalation row */}
+          {form.nnnMode === 'aggregate' && (
+            <div className="grid grid-cols-[1fr_100px_140px_140px] gap-x-2 items-center py-1.5 border-b border-gray-100">
+              <span className="text-sm text-gray-700">NNN — Aggregate</span>
+              <TextInput
+                type="number"
+                value={form.nnnAggregate?.escPct ?? ''}
+                onChange={(v) => setNNNAggregate('escPct', v)}
+                placeholder="0"
+                error={fieldErrors['nnnAggregate.escPct']}
+              />
+              <span className="text-xs text-gray-400 py-1.5">—</span>
+              <span className="text-xs text-gray-400 py-1.5">—</span>
+            </div>
+          )}
 
+          {/* Individual charge escalation rows */}
+          {charges.map((charge, idx) => {
+            if (form.nnnMode === 'aggregate' && charge.canonicalType === CANONICAL_TYPES.NNN) return null;
+            return (
+              <div key={charge.key} className="grid grid-cols-[1fr_100px_140px_140px] gap-x-2 items-center py-1.5 border-b border-gray-100 last:border-0">
+                <span className="text-sm text-gray-700 truncate">
+                  {charge.displayLabel || charge.key}
+                  <ConfidenceFlag flagged={flag(`${charge.key}.escPct`) || flag(`charges.${idx}.escPct`)} />
+                </span>
+                <TextInput
+                  type="number"
+                  value={charge.escPct}
+                  onChange={(v) => updateCharge(idx, 'escPct', v)}
+                  placeholder="0"
+                  error={fieldErrors[`charges.${idx}.escPct`]}
+                />
+                <TextInput
+                  value={charge.escStart}
+                  onChange={(v) => updateCharge(idx, 'escStart', v)}
+                  placeholder="MM/DD/YYYY"
+                  error={fieldErrors[`charges.${idx}.escStart`]}
+                />
+                <TextInput
+                  value={charge.chargeStart}
+                  onChange={(v) => updateCharge(idx, 'chargeStart', v)}
+                  placeholder="MM/DD/YYYY"
+                  error={fieldErrors[`charges.${idx}.chargeStart`]}
+                />
+              </div>
+            );
+          })}
+
+          <p className="text-xs text-gray-400 mt-2">
+            Leave Escalation Start and Billing Start blank to anchor from lease commencement.
+          </p>
+        </SectionBox>
+
+        {/* ══ 4. Abatement ═════════════════════════════════════════════════ */}
+        <SectionBox
+          title="Abatement"
+          hint="Partial or full rent reduction for a specified period (e.g. during tenant improvement work). Percentage applies to base rent."
+        >
           <div className="grid grid-cols-3 gap-3">
             <FieldRow
               label="# Months of Abatement"
-              hint="Number of months of abatement starting from lease commencement. Auto-computes the end date."
+              hint="Abatement period beginning at lease commencement. Auto-computes end date."
               error={fieldErrors['abatementMonths']}
             >
               <TextInput
                 type="number"
                 value={form.abatementMonths}
-                onChange={(v) => {
-                  setTop('abatementMonths', v);
-                  const n = parseInt(v, 10);
-                  if (leaseStartDate && !isNaN(n) && n > 0) {
-                    const parts = leaseStartDate.split('-').map(Number);
-                    const endDate = new Date(parts[0], parts[1] - 1 + n, 0);
-                    const mm = String(endDate.getMonth() + 1).padStart(2, '0');
-                    const dd = String(endDate.getDate()).padStart(2, '0');
-                    const yyyy = endDate.getFullYear();
-                    setTop('abatementEndDate', `${mm}/${dd}/${yyyy}`);
-                  } else if (!v || v === '0') {
-                    setTop('abatementEndDate', '');
-                  }
-                }}
+                onChange={handleAbatementMonths}
                 placeholder="e.g. 6"
                 error={fieldErrors['abatementMonths']}
               />
             </FieldRow>
+
             <FieldRow
-              label={<>Abatement End Date <ConfidenceFlag flagged={confidenceFlags?.includes('abatementEndDate')} /></>}
-              hint="Last day of the abatement period (inclusive). Auto-filled when you enter months, or enter directly."
+              label={<>Abatement End Date <ConfidenceFlag flagged={flag('abatementEndDate')} /></>}
+              hint="Last day of abatement (inclusive). Auto-filled from months, or enter directly."
               error={fieldErrors['abatementEndDate']}
             >
               <TextInput
@@ -396,16 +550,10 @@ export default function InputForm({
                 error={fieldErrors['abatementEndDate']}
               />
             </FieldRow>
+
             <FieldRow
-              label={
-                <>
-                  Abatement Percentage (%)
-                  <span
-                    className="ml-1 text-gray-400 cursor-help"
-                    title="100 = full abatement (tenant pays $0). 50 = half abatement (tenant pays half rent). 0 = no abatement (full rent applies). This is applied as: tenant pays = rent x (1 - abatementPct/100)."
-                  >i</span>
-                </>
-              }
+              label="Abatement Percentage (%)"
+              hint="100 = full abatement (tenant pays $0). 50 = half (tenant pays half). 0 = no abatement."
               error={fieldErrors['abatementPct']}
             >
               <TextInput
@@ -418,7 +566,7 @@ export default function InputForm({
             </FieldRow>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 mt-2">
             <span className="text-xs text-gray-500">Quick set:</span>
             {[
               { label: 'Full (100%)', value: '100' },
@@ -439,183 +587,130 @@ export default function InputForm({
               </button>
             ))}
           </div>
+        </SectionBox>
 
-          <p className="text-xs text-gray-500">
-            <strong>Convention:</strong> 100 = full abatement (tenant pays nothing).
-            50 = half abatement (tenant pays half). 0 = no abatement (full rent due).
-            {leaseStartDate && form.abatementMonths && (
-              <span className="ml-1 text-blue-600">
-                Computed from lease start {leaseStartDate} + {form.abatementMonths} month{form.abatementMonths !== '1' ? 's' : ''}.
-              </span>
-            )}
-          </p>
-        </div>
-
-        {/* NNN charges — aggregate or individual + dynamic charge sections */}
-        {form.nnnMode === 'aggregate' ? (
-          <>
-            <div className="rounded-md bg-amber-50 border border-amber-300 p-3 space-y-1">
-              <p className="text-sm font-semibold text-amber-800">
-                Aggregate NNN Estimate — No Line-Item Breakdown Available
-              </p>
-              <p className="text-sm text-amber-700">
-                The lease states a combined operating expense estimate without separate CAMS, Insurance, and Taxes figures.
-                The schedule will show a single "NNN — Aggregate Estimate" column. Individual category columns will not be allocated.
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-amber-200 overflow-hidden">
-              <div className="px-4 py-3 bg-amber-50 border-b border-amber-200">
-                <span className="font-semibold text-gray-800 text-sm">
-                  NNN — Aggregate Estimate
-                  <ConfidenceFlag flagged={confidenceFlags?.includes('nnnAggregate.year1')} />
-                </span>
-              </div>
-              <div className="px-4 pb-4 pt-3 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <FieldRow
-                    label={<>Year 1 Monthly ($) <ConfidenceFlag flagged={confidenceFlags?.includes('nnnAggregate.year1')} /></>}
-                    error={fieldErrors['nnnAggregate.year1']}
-                  >
-                    <TextInput
-                      type="number"
-                      value={form.nnnAggregate?.year1 ?? ''}
-                      onChange={(v) => setNNNAggregate('year1', v)}
-                      placeholder="e.g. 24506.50"
-                      error={fieldErrors['nnnAggregate.year1']}
-                    />
-                  </FieldRow>
-                  <FieldRow
-                    label={<>Annual Escalation (%) <ConfidenceFlag flagged={confidenceFlags?.includes('nnnAggregate.escPct')} /></>}
-                    error={fieldErrors['nnnAggregate.escPct']}
-                  >
-                    <TextInput
-                      type="number"
-                      value={form.nnnAggregate?.escPct ?? ''}
-                      onChange={(v) => setNNNAggregate('escPct', v)}
-                      placeholder="e.g. 3"
-                      error={fieldErrors['nnnAggregate.escPct']}
-                    />
-                  </FieldRow>
-                </div>
-              </div>
-            </div>
-
-            {/* In aggregate mode, show only non-NNN (Other) charges */}
-            {charges.filter((ch) => ch.canonicalType !== CANONICAL_TYPES.NNN).map((ch, _, arr) => {
-              const globalIdx = charges.indexOf(ch);
-              return (
-                <ChargeSection
-                  key={ch.key}
-                  charge={ch}
-                  index={globalIdx}
-                  onChange={updateCharge}
-                  onRemove={() => removeCharge(globalIdx)}
-                  confidenceFlags={confidenceFlags}
-                  fieldErrors={fieldErrors}
-                  defaultExpanded={!ch.year1}
-                  isCustom={!defaultKeys.has(ch.key)}
-                />
-              );
-            })}
-          </>
-        ) : (
-          /* Individual mode — show all charges */
-          <>
-            <div className="flex items-center justify-between">
-              <h4 className="font-semibold text-gray-800 text-sm">Charges</h4>
-              <button
-                type="button"
-                onClick={addCharge}
-                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-              >
-                + Add charge
-              </button>
-            </div>
-            {charges.map((ch, idx) => (
-              <ChargeSection
-                key={ch.key}
-                charge={ch}
-                index={idx}
-                onChange={updateCharge}
-                onRemove={() => removeCharge(idx)}
-                confidenceFlags={confidenceFlags}
-                fieldErrors={fieldErrors}
-                defaultExpanded={!ch.year1}
-                isCustom={!defaultKeys.has(ch.key)}
+        {/* ══ 5. Free Rent ══════════════════════════════════════════════════ */}
+        <SectionBox
+          title="Free Rent"
+          hint="Period in which the tenant pays no rent. Semantically distinct from partial abatement. If both Free Rent and Abatement are filled, Free Rent takes precedence."
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <FieldRow
+              label="# Months of Free Rent"
+              hint="Tenant pays $0 for this many months from lease commencement. Auto-computes the end date."
+            >
+              <TextInput
+                type="number"
+                value={form.freeRentMonths}
+                onChange={handleFreeRentMonths}
+                placeholder="e.g. 3"
               />
-            ))}
-          </>
-        )}
+            </FieldRow>
 
-        {/* One-time items */}
-        <div className="rounded-lg border border-gray-200 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h4 className="font-semibold text-gray-800 text-sm">One-time Charges (optional)</h4>
+            <FieldRow
+              label="Free Rent End Date"
+              hint="Last day of the free rent period (inclusive). Auto-filled from months, or enter directly."
+            >
+              <TextInput
+                value={form.freeRentEndDate}
+                onChange={(v) => {
+                  setTop('freeRentEndDate', v);
+                  if (form.freeRentMonths) setTop('freeRentMonths', '');
+                }}
+                placeholder="MM/DD/YYYY"
+              />
+            </FieldRow>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Free rent is applied as 100% abatement for the specified period. Use the Abatement section above for partial rent reductions.
+          </p>
+        </SectionBox>
+
+        {/* ══ 6. Non-Recurring Charges ════════════════════════════════════ */}
+        <SectionBox
+          title="Non-Recurring Charges"
+          hint="One-time charges assigned to a specific month (e.g. key money, security deposit, special assessments)."
+          actions={
             <button
               type="button"
-              onClick={() => setForm((prev) => ({
-                ...prev,
-                oneTimeItems: [...(prev.oneTimeItems ?? []), { label: '', date: '', amount: '' }],
-              }))}
+              onClick={() =>
+                setForm((prev) => ({
+                  ...prev,
+                  oneTimeItems: [...(prev.oneTimeItems ?? []), { label: '', date: '', amount: '' }],
+                }))
+              }
               className="text-xs text-blue-600 hover:text-blue-800 font-medium"
             >
               + Add item
             </button>
-          </div>
-          {(form.oneTimeItems ?? []).length === 0 && (
-            <p className="text-xs text-gray-400">No one-time charges. Click "+ Add item" to add key money, deposits, etc.</p>
-          )}
-          {(form.oneTimeItems ?? []).map((item, idx) => (
-            <div key={idx} className="grid grid-cols-3 gap-2 items-end">
-              <FieldRow label="Label">
-                <TextInput
-                  value={item.label}
-                  onChange={(v) => setForm((prev) => {
-                    const items = [...prev.oneTimeItems];
-                    items[idx] = { ...items[idx], label: v };
-                    return { ...prev, oneTimeItems: items };
-                  })}
-                  placeholder="e.g. Key Money"
-                />
-              </FieldRow>
-              <FieldRow label="Date" hint="Leave blank to assign to lease commencement.">
-                <TextInput
-                  value={item.date}
-                  onChange={(v) => setForm((prev) => {
-                    const items = [...prev.oneTimeItems];
-                    items[idx] = { ...items[idx], date: v };
-                    return { ...prev, oneTimeItems: items };
-                  })}
-                  placeholder="MM/DD/YYYY (optional)"
-                />
-              </FieldRow>
-              <FieldRow label="Amount ($)">
-                <div className="flex gap-1">
+          }
+        >
+          {(form.oneTimeItems ?? []).length === 0 ? (
+            <p className="text-xs text-gray-400">
+              No non-recurring charges. Click "+ Add item" to add key money, deposits, or other one-time items.
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-[1fr_140px_120px_28px] gap-x-2 mb-1 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <span>Label</span>
+                <span>Date</span>
+                <span>Amount ($)</span>
+                <span />
+              </div>
+              {(form.oneTimeItems ?? []).map((item, idx) => (
+                <div key={idx} className="grid grid-cols-[1fr_140px_120px_28px] gap-x-2 items-center mb-2">
+                  <TextInput
+                    value={item.label}
+                    onChange={(v) =>
+                      setForm((prev) => {
+                        const items = [...prev.oneTimeItems];
+                        items[idx] = { ...items[idx], label: v };
+                        return { ...prev, oneTimeItems: items };
+                      })
+                    }
+                    placeholder="e.g. Key Money"
+                  />
+                  <TextInput
+                    value={item.date}
+                    onChange={(v) =>
+                      setForm((prev) => {
+                        const items = [...prev.oneTimeItems];
+                        items[idx] = { ...items[idx], date: v };
+                        return { ...prev, oneTimeItems: items };
+                      })
+                    }
+                    placeholder="MM/DD/YYYY (optional)"
+                  />
                   <TextInput
                     type="number"
                     value={item.amount}
-                    onChange={(v) => setForm((prev) => {
-                      const items = [...prev.oneTimeItems];
-                      items[idx] = { ...items[idx], amount: v };
-                      return { ...prev, oneTimeItems: items };
-                    })}
-                    placeholder="e.g. 5000"
+                    onChange={(v) =>
+                      setForm((prev) => {
+                        const items = [...prev.oneTimeItems];
+                        items[idx] = { ...items[idx], amount: v };
+                        return { ...prev, oneTimeItems: items };
+                      })
+                    }
+                    placeholder="0"
                   />
                   <button
                     type="button"
-                    onClick={() => setForm((prev) => ({
-                      ...prev,
-                      oneTimeItems: prev.oneTimeItems.filter((_, i) => i !== idx),
-                    }))}
-                    className="text-xs text-red-500 hover:text-red-700 px-2"
+                    onClick={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        oneTimeItems: prev.oneTimeItems.filter((_, i) => i !== idx),
+                      }))
+                    }
+                    className="text-sm text-red-400 hover:text-red-600 font-medium leading-none"
                     title="Remove"
-                  >X</button>
+                  >
+                    ×
+                  </button>
                 </div>
-              </FieldRow>
-            </div>
-          ))}
-        </div>
+              ))}
+            </>
+          )}
+        </SectionBox>
 
         {/* Submit */}
         <div className="flex items-center gap-4 pt-2">

@@ -84,12 +84,42 @@ export const CHARGE_CATEGORIES = [
  * A category is active if any processed row has a non-zero amount
  * or if the user provided a non-zero year1 value in params.
  *
- * In aggregate NNN mode, individual NNN categories (cams, insurance, taxes)
- * are excluded — replaced by a single aggregate NNN column.
+ * In aggregate NNN mode, individual NNN categories are excluded —
+ * replaced by a single aggregate NNN column.
+ *
+ * When params.charges (normalized array) is present, derives categories
+ * from it rather than the static registry.
  */
 export function getActiveCategories(rows, params, nnnMode) {
+  if (Array.isArray(params?.charges) && params.charges.length > 0) {
+    // Dynamic path: build category descriptors from the normalized charges array.
+    return params.charges
+      .filter((c) => {
+        if (nnnMode === 'aggregate' && c.canonicalType === 'nnn') return false;
+        const hasData  = rows.some((r) =>
+          (r.chargeAmounts?.[c.key] ?? r[`${c.key}Amount`] ?? 0) !== 0
+        );
+        const hasParam = Number(c.year1) > 0;
+        return hasData || hasParam;
+      })
+      .map((c) => ({
+        key:              c.key,
+        displayLabel:     c.displayLabel,
+        group:            c.canonicalType === 'nnn' ? 'nnn' : 'otherCharge',
+        amountField:      `${c.key}Amount`,
+        escYearsField:    `${c.key}EscYears`,
+        activeField:      `${c.key}Active`,
+        paramKey:         c.key,
+        assumptionLabels: {
+          year1:   `${c.displayLabel} Year 1 Monthly Amount`,
+          escRate: `${c.displayLabel} Annual Escalation Rate (%)`,
+        },
+        colWidth: 14,
+      }));
+  }
+
+  // Static registry fallback (legacy path / test fixtures without params.charges).
   return CHARGE_CATEGORIES.filter((cat) => {
-    // In aggregate mode, individual NNN buckets are replaced by aggregate column
     if (nnnMode === 'aggregate' && cat.group === 'nnn') return false;
 
     const hasData  = rows.some((r) => (r[cat.amountField] ?? 0) !== 0);

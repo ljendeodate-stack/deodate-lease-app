@@ -221,20 +221,23 @@ export function calculateAllCharges(expandedRows, params) {
     security,
     otherItems,
     oneTimeItems = [],
+    charges: paramCharges = [],
   } = params;
 
   const isAggregate = nnnMode === 'aggregate';
+  // When a normalized charges array is provided, use dynamic path.
+  const useDynamicCharges = Array.isArray(paramCharges) && paramCharges.length > 0;
 
   // Flaw 4 fix: convention explicitly enforced — 100 = full abatement (tenant pays 0).
   const tenantPaysFraction = 1 - (Math.min(Math.max(Number(abatementPct) || 0, 0), 100) / 100);
 
-  // Pre-compute escalation rates as decimals
+  // Pre-compute escalation rates as decimals (legacy path)
   const nnnAggEsc     = (Number(nnnAggregate?.escPct) || 0) / 100;
-  const camsEsc       = (Number(cams.escPct)       || 0) / 100;
-  const insuranceEsc  = (Number(insurance.escPct)  || 0) / 100;
-  const taxesEsc      = (Number(taxes.escPct)      || 0) / 100;
-  const securityEsc   = (Number(security.escPct)   || 0) / 100;
-  const otherItemsEsc = (Number(otherItems.escPct) || 0) / 100;
+  const camsEsc       = (Number(cams?.escPct)       || 0) / 100;
+  const insuranceEsc  = (Number(insurance?.escPct)  || 0) / 100;
+  const taxesEsc      = (Number(taxes?.escPct)      || 0) / 100;
+  const securityEsc   = (Number(security?.escPct)   || 0) / 100;
+  const otherItemsEsc = (Number(otherItems?.escPct) || 0) / 100;
 
   // Sort rows ascending by date (defensive — expander already sorts)
   const rows = expandedRows
@@ -384,65 +387,141 @@ export function calculateAllCharges(expandedRows, params) {
                             periodEnd !== null &&
                             periodEnd.getTime() <= abatementEndDate.getTime();
 
-    // --- NNN charges: gate, escalate, apply periodFactor ---
+    // --- Charge computation: dynamic path (params.charges) or legacy 5-category path ---
 
+    // chargeAmounts: { [key]: amount } — canonical per-row charge values
+    // chargeDetails: { [key]: { displayLabel, canonicalType, active, escYears, escPct } }
+    const chargeAmounts = {};
+    const chargeDetails = {};
+
+    // Legacy individual fields (kept for backward compat with Pass 2 and export consumers).
     let camsAmount = 0, camsEscYears = null, camsActive = false;
     let insuranceAmount = 0, insuranceEscYears = null, insuranceActive = false;
     let taxesAmount = 0, taxesEscYears = null, taxesActive = false;
     let nnnAggregateAmount = 0;
+    let securityAmount = 0, securityEscYears = null, securityActive = false;
+    let otherItemsAmount = 0, otherItemsEscYears = null, otherItemsActive = false;
+
+    let trueNNN = 0;
+    let otherChargesBase = 0;
 
     if (isAggregate) {
-      // Aggregate mode: single NNN total, individual CAMS/Insurance/Taxes remain zero
+      // Aggregate NNN: single combined amount.
       nnnAggregateAmount = Number(computeChargeAmount(
         Number(nnnAggregate?.year1) || 0, nnnAggEsc, null, leaseYear, periodFactor
       ).toFixed(2));
-    } else {
-      // Individual mode
-      camsActive   = isChargeActive(periodStart, cams.chargeStart);
-      camsEscYears = camsActive ? yearsSinceStart(periodStart, cams.escStart) : null;
-      camsAmount   = camsActive
-        ? Number(computeChargeAmount(Number(cams.year1) || 0, camsEsc, camsEscYears, leaseYear, periodFactor).toFixed(2))
-        : 0;
-
-      insuranceActive   = isChargeActive(periodStart, insurance.chargeStart);
-      insuranceEscYears = insuranceActive ? yearsSinceStart(periodStart, insurance.escStart) : null;
-      insuranceAmount   = insuranceActive
-        ? Number(computeChargeAmount(Number(insurance.year1) || 0, insuranceEsc, insuranceEscYears, leaseYear, periodFactor).toFixed(2))
-        : 0;
-
-      taxesActive   = isChargeActive(periodStart, taxes.chargeStart);
-      taxesEscYears = taxesActive ? yearsSinceStart(periodStart, taxes.escStart) : null;
-      taxesAmount   = taxesActive
-        ? Number(computeChargeAmount(Number(taxes.year1) || 0, taxesEsc, taxesEscYears, leaseYear, periodFactor).toFixed(2))
-        : 0;
+      trueNNN = nnnAggregateAmount;
+      chargeAmounts['nnnAggregate'] = nnnAggregateAmount;
+      chargeDetails['nnnAggregate'] = {
+        displayLabel: 'NNN (Aggregate)',
+        canonicalType: 'nnn',
+        active: true,
+        escYears: null,
+        escPct: Number(nnnAggregate?.escPct) || 0,
+      };
     }
 
-    // Security
-    const securityActive   = isChargeActive(periodStart, security.chargeStart);
-    const securityEscYears = securityActive ? yearsSinceStart(periodStart, security.escStart) : null;
-    const securityAmount   = securityActive
-      ? Number(computeChargeAmount(Number(security.year1) || 0, securityEsc, securityEscYears, leaseYear, periodFactor).toFixed(2))
-      : 0;
+    if (useDynamicCharges) {
+      // Dynamic charges path: iterate over normalized params.charges array.
+      // In aggregate mode, NNN-type charges are skipped (aggregate column takes priority).
+      for (const charge of paramCharges) {
+        if (isAggregate && charge.canonicalType === 'nnn') continue;
 
-    // Other Items
-    const otherItemsActive   = isChargeActive(periodStart, otherItems.chargeStart);
-    const otherItemsEscYears = otherItemsActive ? yearsSinceStart(periodStart, otherItems.escStart) : null;
-    const otherItemsAmount   = otherItemsActive
-      ? Number(computeChargeAmount(Number(otherItems.year1) || 0, otherItemsEsc, otherItemsEscYears, leaseYear, periodFactor).toFixed(2))
-      : 0;
+        const escRate = (Number(charge.escPct) || 0) / 100;
+        const active  = isChargeActive(periodStart, charge.chargeStart);
+        const escYears = active ? yearsSinceStart(periodStart, charge.escStart) : null;
+        const amount  = active
+          ? Number(computeChargeAmount(
+              Number(charge.year1) || 0, escRate, escYears, leaseYear, periodFactor
+            ).toFixed(2))
+          : 0;
 
-    // True NNN = CAMS + Insurance + Taxes only.
-    // Security and Other Items are "Other Charges", not NNN.
-    const trueNNN = camsAmount + insuranceAmount + taxesAmount;
+        chargeAmounts[charge.key] = amount;
+        chargeDetails[charge.key] = {
+          displayLabel: charge.displayLabel,
+          canonicalType: charge.canonicalType,
+          active,
+          escYears,
+          escPct: Number(charge.escPct) || 0,
+        };
+
+        if (charge.canonicalType === 'nnn') {
+          trueNNN += amount;
+        } else {
+          otherChargesBase += amount;
+        }
+
+        // Mirror to legacy named fields for backward compat.
+        switch (charge.key) {
+          case 'cams':       camsAmount = amount; camsEscYears = escYears; camsActive = active; break;
+          case 'insurance':  insuranceAmount = amount; insuranceEscYears = escYears; insuranceActive = active; break;
+          case 'taxes':      taxesAmount = amount; taxesEscYears = escYears; taxesActive = active; break;
+          case 'security':   securityAmount = amount; securityEscYears = escYears; securityActive = active; break;
+          case 'otherItems': otherItemsAmount = amount; otherItemsEscYears = escYears; otherItemsActive = active; break;
+        }
+      }
+    } else {
+      // Legacy path — hardcoded 5-category computation (unchanged behaviour).
+      if (!isAggregate) {
+        camsActive   = isChargeActive(periodStart, cams?.chargeStart);
+        camsEscYears = camsActive ? yearsSinceStart(periodStart, cams?.escStart) : null;
+        camsAmount   = camsActive
+          ? Number(computeChargeAmount(Number(cams?.year1) || 0, camsEsc, camsEscYears, leaseYear, periodFactor).toFixed(2))
+          : 0;
+
+        insuranceActive   = isChargeActive(periodStart, insurance?.chargeStart);
+        insuranceEscYears = insuranceActive ? yearsSinceStart(periodStart, insurance?.escStart) : null;
+        insuranceAmount   = insuranceActive
+          ? Number(computeChargeAmount(Number(insurance?.year1) || 0, insuranceEsc, insuranceEscYears, leaseYear, periodFactor).toFixed(2))
+          : 0;
+
+        taxesActive   = isChargeActive(periodStart, taxes?.chargeStart);
+        taxesEscYears = taxesActive ? yearsSinceStart(periodStart, taxes?.escStart) : null;
+        taxesAmount   = taxesActive
+          ? Number(computeChargeAmount(Number(taxes?.year1) || 0, taxesEsc, taxesEscYears, leaseYear, periodFactor).toFixed(2))
+          : 0;
+
+        trueNNN = camsAmount + insuranceAmount + taxesAmount;
+      }
+
+      securityActive   = isChargeActive(periodStart, security?.chargeStart);
+      securityEscYears = securityActive ? yearsSinceStart(periodStart, security?.escStart) : null;
+      securityAmount   = securityActive
+        ? Number(computeChargeAmount(Number(security?.year1) || 0, securityEsc, securityEscYears, leaseYear, periodFactor).toFixed(2))
+        : 0;
+
+      otherItemsActive   = isChargeActive(periodStart, otherItems?.chargeStart);
+      otherItemsEscYears = otherItemsActive ? yearsSinceStart(periodStart, otherItems?.escStart) : null;
+      otherItemsAmount   = otherItemsActive
+        ? Number(computeChargeAmount(Number(otherItems?.year1) || 0, otherItemsEsc, otherItemsEscYears, leaseYear, periodFactor).toFixed(2))
+        : 0;
+
+      otherChargesBase = securityAmount + otherItemsAmount;
+
+      // Populate chargeAmounts/chargeDetails from legacy results so consumers can
+      // always use the normalized fields.
+      if (!isAggregate) {
+        chargeAmounts.cams      = camsAmount;
+        chargeAmounts.insurance = insuranceAmount;
+        chargeAmounts.taxes     = taxesAmount;
+        chargeDetails.cams      = { displayLabel: 'CAMS',      canonicalType: 'nnn', active: camsActive,      escYears: camsEscYears,      escPct: Number(cams?.escPct)      || 0 };
+        chargeDetails.insurance = { displayLabel: 'Insurance', canonicalType: 'nnn', active: insuranceActive, escYears: insuranceEscYears, escPct: Number(insurance?.escPct) || 0 };
+        chargeDetails.taxes     = { displayLabel: 'Taxes',     canonicalType: 'nnn', active: taxesActive,     escYears: taxesEscYears,     escPct: Number(taxes?.escPct)     || 0 };
+      }
+      chargeAmounts.security   = securityAmount;
+      chargeAmounts.otherItems = otherItemsAmount;
+      chargeDetails.security   = { displayLabel: 'Security',    canonicalType: 'other', active: securityActive,   escYears: securityEscYears,   escPct: Number(security?.escPct)   || 0 };
+      chargeDetails.otherItems = { displayLabel: 'Other Items', canonicalType: 'other', active: otherItemsActive, escYears: otherItemsEscYears, escPct: Number(otherItems?.escPct) || 0 };
+    }
 
     const oneTimeItemAmounts = oneTimeByRow[i];  // { [label]: amount }
     const oneTimeChargesAmount = Number(
       Object.values(oneTimeItemAmounts).reduce((s, v) => s + v, 0).toFixed(2)
     );
 
-    // Other Charges bucket = Security + Other Items + all one-time items
+    // Other Charges bucket = other-canonicalType charges + all one-time items.
     const totalOtherChargesAmount = Number(
-      (securityAmount + otherItemsAmount + oneTimeChargesAmount).toFixed(2)
+      (otherChargesBase + oneTimeChargesAmount).toFixed(2)
     );
 
     const totalMonthlyObligation = Number(
@@ -479,33 +558,33 @@ export function calculateAllCharges(expandedRows, params) {
       nnnMode: isAggregate ? 'aggregate' : 'individual',
       nnnAggregateAmount,
 
-      // CAMS
+      // Normalized charge maps (always populated regardless of path)
+      chargeAmounts,
+      chargeDetails,
+
+      // Legacy individual charge fields (backward compat)
       camsAmount,
-      camsEscPct:   Number(cams.escPct) || 0,
+      camsEscPct:   Number(cams?.escPct) || 0,
       camsEscYears,
       camsActive,
 
-      // Insurance
       insuranceAmount,
-      insuranceEscPct:   Number(insurance.escPct) || 0,
+      insuranceEscPct:   Number(insurance?.escPct) || 0,
       insuranceEscYears,
       insuranceActive,
 
-      // Taxes
       taxesAmount,
-      taxesEscPct:   Number(taxes.escPct) || 0,
+      taxesEscPct:   Number(taxes?.escPct) || 0,
       taxesEscYears,
       taxesActive,
 
-      // Security
       securityAmount,
-      securityEscPct:   Number(security.escPct) || 0,
+      securityEscPct:   Number(security?.escPct) || 0,
       securityEscYears,
       securityActive,
 
-      // Other Items
       otherItemsAmount,
-      otherItemsEscPct:   Number(otherItems.escPct) || 0,
+      otherItemsEscPct:   Number(otherItems?.escPct) || 0,
       otherItemsEscYears,
       otherItemsActive,
 
@@ -534,15 +613,16 @@ export function calculateAllCharges(expandedRows, params) {
   // Matches the n8n second-pass logic exactly.
   // -------------------------------------------------------------------------
   let runningTotal        = 0;
-  let runningNNN          = 0;   // CAMS + Insurance + Taxes only
+  let runningNNN          = 0;
   let runningBase         = 0;
-  let runningOtherCharges = 0;   // Security + Other Items + one-time items
+  let runningOtherCharges = 0;
 
   for (let i = totalRows - 1; i >= 0; i--) {
     const row = rows[i];
 
     runningTotal        += row.totalMonthlyObligation;
-    runningNNN          += (row.camsAmount + row.insuranceAmount + row.taxesAmount);
+    // Use the canonical totalNNNAmount (covers both individual and aggregate modes).
+    runningNNN          += row.totalNNNAmount;
     runningBase         += row.baseRentApplied;
     runningOtherCharges += row.totalOtherChargesAmount;
 

@@ -34,4 +34,89 @@ describe('formToCalculatorParams', () => {
     expect(params.oneTimeItems[0].label).toBe('Key Money');
     expect(params.oneTimeItems[0].amount).toBe(5000);
   });
+
+  it('populates normalized charges array from form.charges', () => {
+    const params = formToCalculatorParams({
+      leaseName: 'Test',
+      nnnMode: 'individual',
+      squareFootage: '5000',
+      charges: [
+        { key: 'cams', canonicalType: 'nnn', displayLabel: 'CAMS', year1: '500', escPct: '3', escStart: '', chargeStart: '' },
+        { key: 'custom_1', canonicalType: 'other', displayLabel: 'Parking', year1: '200', escPct: '0', escStart: '', chargeStart: '' },
+      ],
+      oneTimeItems: [],
+    });
+
+    expect(params.charges).toHaveLength(2);
+    expect(params.charges[0]).toMatchObject({ key: 'cams', canonicalType: 'nnn', year1: 500, escPct: 3 });
+    expect(params.charges[1]).toMatchObject({ key: 'custom_1', canonicalType: 'other', displayLabel: 'Parking', year1: 200 });
+    // escStart / chargeStart are parsed to Date or null
+    expect(params.charges[0].escStart).toBeNull();
+    expect(params.charges[0].chargeStart).toBeNull();
+  });
+
+  it('preserves custom charge keys that have no legacy equivalent', () => {
+    const params = formToCalculatorParams({
+      nnnMode: 'individual',
+      charges: [
+        { key: 'custom_99', canonicalType: 'nnn', displayLabel: 'Admin Fee', year1: '75', escPct: '2', escStart: '', chargeStart: '' },
+      ],
+      oneTimeItems: [],
+    });
+
+    expect(params.charges).toHaveLength(1);
+    expect(params.charges[0].key).toBe('custom_99');
+    expect(params.charges[0].year1).toBe(75);
+    // Legacy params for unknown key resolve to zero (no crash)
+    expect(params.cams.year1).toBe(0);
+  });
+
+  it('produces empty charges array when form.charges is absent', () => {
+    const params = formToCalculatorParams({ nnnMode: 'individual', oneTimeItems: [] });
+    expect(params.charges).toEqual([]);
+  });
+
+  it('free rent overrides abatement when freeRentEndDate is set', () => {
+    const params = formToCalculatorParams({
+      nnnMode: 'individual',
+      abatementEndDate: '03/31/2026',
+      abatementPct: '50',
+      freeRentEndDate: '01/31/2026',
+      oneTimeItems: [],
+    });
+    // Free rent takes precedence: 100% abatement until free rent end date
+    expect(params.abatementPct).toBe(100);
+    expect(params.abatementEndDate).not.toBeNull();
+    // The abatement end date should be 01/31/2026, not 03/31/2026
+    expect(params.abatementEndDate.getFullYear()).toBe(2026);
+    expect(params.abatementEndDate.getMonth()).toBe(0); // January = 0
+    expect(params.abatementEndDate.getDate()).toBe(31);
+  });
+
+  it('abatement fields apply normally when free rent is not set', () => {
+    const params = formToCalculatorParams({
+      nnnMode: 'individual',
+      abatementEndDate: '06/30/2026',
+      abatementPct: '75',
+      freeRentMonths: '',
+      freeRentEndDate: '',
+      oneTimeItems: [],
+    });
+    expect(params.abatementPct).toBe(75);
+    expect(params.abatementEndDate).not.toBeNull();
+    expect(params.abatementEndDate.getMonth()).toBe(5); // June = 5
+  });
+
+  it('preserves rentCommencementDate and effectiveAnalysisDate in params', () => {
+    const params = formToCalculatorParams({
+      nnnMode: 'individual',
+      rentCommencementDate: '02/01/2026',
+      effectiveAnalysisDate: '03/24/2026',
+      oneTimeItems: [],
+    });
+    expect(params.rentCommencementDate).not.toBeNull();
+    expect(params.rentCommencementDate.getMonth()).toBe(1); // February = 1
+    expect(params.effectiveAnalysisDate).not.toBeNull();
+    expect(params.effectiveAnalysisDate.getDate()).toBe(24);
+  });
 });

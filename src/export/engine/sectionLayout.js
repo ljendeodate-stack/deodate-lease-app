@@ -9,8 +9,24 @@
  * with dynamic charge/OT columns inserted at known positions.
  */
 
-const BASE_ASSUMPTIONS_COUNT = 8;    // rows 5–12
-const CHARGE_ASSUMPTIONS_START = 13; // first charge assumption row (1-based)
+/**
+ * Row layout for the expanded six-section assumptions block (1-based row numbers):
+ *
+ *  Section 1 — LEASE DRIVERS       rows  5–11   (7 rows: heading + 6 fields)
+ *  Section 2 — MONTHLY RENT        rows 12–(14+N) (3+N rows: heading + mode + base rent + N charges)
+ *  Section 3 — ESCALATIONS         rows (15+N)–(17+2N) (3+N rows: heading + esc rate + anniv month + N charges)
+ *  Section 4 — ABATEMENT           rows (18+2N)–(22+2N) (5 rows: heading + 4 fields)
+ *  Section 5 — FREE RENT           rows (23+2N)–(25+2N) (3 rows: heading + 2 fields)
+ *  Section 6 — NON-RECURRING       rows (26+2N)–(26+2N+max(M,1)) (1+max(M,1) rows: heading + M items or "(none)")
+ *
+ * Total assumption rows = 22 + 2N + max(M,1)
+ * Last assumption row   = 26 + 2N + max(M,1)
+ * HEADER_ROW            = 28 + 2N + max(M,1)   (blank separator at 27+…)
+ */
+
+/** Number of assumption rows preceding the data header (static portion only). */
+const BASE_ASSUMPTIONS_COUNT = 8;    // retained for backward compat export
+const CHARGE_ASSUMPTIONS_START = 13; // retained for backward compat export
 
 /**
  * Compute row and column layout given charge and OT counts.
@@ -21,7 +37,7 @@ const CHARGE_ASSUMPTIONS_START = 13; // first charge assumption row (1-based)
  * @returns {object}
  */
 export function computeLayout(chargeCount, otCount) {
-  const HEADER_ROW     = 14 + 2 * chargeCount;
+  const HEADER_ROW     = 28 + 2 * chargeCount + Math.max(otCount, 1);
   const FIRST_DATA_ROW = HEADER_ROW + 1;
 
   // Column indices (0-based)
@@ -49,27 +65,36 @@ export function computeLayout(chargeCount, otCount) {
 /**
  * Register all assumption-block symbols into the registry.
  *
+ * Row positions match the six-section layout computed by buildAssumptionsSection.
+ * Only cells that are referenced by live Excel formulas need to be registered.
+ *
  * @param {import('./registry.js').SymbolRegistry} reg
  * @param {Array} charges — resolved charge objects
  */
 export function registerAssumptionSymbols(reg, charges) {
-  // Base assumptions — column C (index 2), rows 5–12
-  reg.register('ASSUMP.squareFootage',       { row: 5,  col: 2 });
-  reg.register('ASSUMP.commencementDate',    { row: 6,  col: 2 });
-  reg.register('ASSUMP.expirationDate',      { row: 7,  col: 2 });
-  reg.register('ASSUMP.year1BaseRent',       { row: 8,  col: 2 });
-  reg.register('ASSUMP.annualEscRate',       { row: 9,  col: 2 });
-  reg.register('ASSUMP.anniversaryMonth',    { row: 10, col: 2 });
-  reg.register('ASSUMP.fullAbatementMonths', { row: 11, col: 2 });
-  reg.register('ASSUMP.abatementPartialFactor', { row: 12, col: 2 });
+  const N = charges.length;
 
-  // Dynamic charge assumptions — 2 rows per charge starting at row 13
+  // Section 1 — Lease Drivers (rows 5–11): squareFootage at row 7
+  reg.register('ASSUMP.squareFootage',          { row: 7,         col: 2 });
+  reg.register('ASSUMP.commencementDate',       { row: 8,         col: 2 });
+  reg.register('ASSUMP.expirationDate',         { row: 9,         col: 2 });
+
+  // Section 2 — Monthly Rent Breakdown: year1BaseRent at row 14, charges at rows 15…14+N
+  reg.register('ASSUMP.year1BaseRent',          { row: 14,        col: 2 });
   charges.forEach((ch, idx) => {
-    const y1Row  = CHARGE_ASSUMPTIONS_START + idx * 2;
-    const escRow = y1Row + 1;
-    reg.register(`ASSUMP.charge.${ch.key}.year1`,   { row: y1Row,  col: 2 });
-    reg.register(`ASSUMP.charge.${ch.key}.escRate`,  { row: escRow, col: 2 });
+    reg.register(`ASSUMP.charge.${ch.key}.year1`, { row: 15 + idx, col: 2 });
   });
+
+  // Section 3 — Escalation Assumptions: annualEscRate at row 16+N, anniversaryMonth at 17+N, charges at 18+N…
+  reg.register('ASSUMP.annualEscRate',          { row: 16 + N,    col: 2 });
+  reg.register('ASSUMP.anniversaryMonth',       { row: 17 + N,    col: 2 });
+  charges.forEach((ch, idx) => {
+    reg.register(`ASSUMP.charge.${ch.key}.escRate`, { row: 18 + N + idx, col: 2 });
+  });
+
+  // Section 4 — Abatement: fullAbatementMonths at row 19+2N, abatementPartialFactor at 22+2N
+  reg.register('ASSUMP.fullAbatementMonths',    { row: 19 + 2*N,  col: 2 });
+  reg.register('ASSUMP.abatementPartialFactor', { row: 22 + 2*N,  col: 2 });
 }
 
 /**

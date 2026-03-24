@@ -41,16 +41,16 @@ describe('buildLegacyLeaseScheduleSpec', () => {
     const spec = buildLegacyLeaseScheduleSpec(model, layout);
     const worksheet = renderLeaseScheduleWorksheet(spec);
 
-    expect(worksheet.E19.f).toBe('$C$8*(1+$C$9)^(D19-1)');
-    expect(worksheet.F19.f).toBe('IF(C19<=$C$11,0,IF(C19=$C$11+1,E19*$C$12,E19))');
-    expect(worksheet.G19.f).toBe('$C$13*(1+$C$14)^(D19-1)');
-    expect(worksheet.H19.f).toBe('$C$15*(1+$C$16)^(D19-1)');
-    expect(worksheet.I19.f).toBe('G19');
-    expect(worksheet.K19.f).toBe('F19+I19+H19+J19');
-    expect(worksheet.L19.f).toBe('IF($C$5=0,0,K19/$C$5)');
-    expect(worksheet.P19.f).toBe('SUM(H19:H19)+SUM(J19:J19)');
-    expect(worksheet.A23.v).toContain('Total NNN');
-    expect(worksheet['!autofilter'].ref).toBe('A18:P18');
+    expect(worksheet.E34.f).toBe('$C$14*(1+$C$18)^(D34-1)');
+    expect(worksheet.F34.f).toBe('IF(C34<=$C$23,0,IF(C34=$C$23+1,E34*$C$26,E34))');
+    expect(worksheet.G34.f).toBe('$C$15*(1+$C$20)^(D34-1)');
+    expect(worksheet.H34.f).toBe('$C$16*(1+$C$21)^(D34-1)');
+    expect(worksheet.I34.f).toBe('G34');
+    expect(worksheet.K34.f).toBe('F34+I34+H34+J34');
+    expect(worksheet.L34.f).toBe('IF($C$7=0,0,K34/$C$7)');
+    expect(worksheet.P34.f).toBe('SUM(H34:H34)+SUM(J34:J34)');
+    expect(worksheet.A37.v).toContain('Total NNN');
+    expect(worksheet['!autofilter'].ref).toBe('A33:P33');
   });
 
   it('uses the aggregate NNN assumption pair when aggregate mode is active', () => {
@@ -85,9 +85,9 @@ describe('buildLegacyLeaseScheduleSpec', () => {
     const spec = buildLegacyLeaseScheduleSpec(model, layout);
     const worksheet = renderLeaseScheduleWorksheet(spec);
 
-    expect(layout.firstDataRow).toBe(17);
-    expect(worksheet.G17.f).toBe('$C$13*(1+$C$14)^(D17-1)');
-    expect(worksheet.H17.f).toBe('G17');
-    expect(worksheet.I17.f).toBe('F17+H17');
+    expect(layout.firstDataRow).toBe(32);
+    expect(worksheet.G32.f).toBe('$C$15*(1+$C$19)^(D32-1)');
+    expect(worksheet.H32.f).toBe('G32');
+    expect(worksheet.I32.f).toBe('F32+H32');
   });
 });

@@ -100,30 +100,64 @@ function buildTitleSection(filename, lastCol) {
 
 function buildAssumptionsSection(assumptionEntries) {
   const labelStyle = {
-    font: { ...FONT_B, color: { rgb: '1F3864' } },
-    fill: { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
+    font:      { ...FONT_B, color: { rgb: '1F3864' } },
+    fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
     alignment: { horizontal: 'left', vertical: 'middle', wrapText: true },
-    border: ASSUMPTION_BORDER,
-    numFmt: FMT.text,
+    border:    ASSUMPTION_BORDER,
+    numFmt:    FMT.text,
+  };
+
+  const sectionHeadStyle = {
+    font:      { ...FONT_B, sz: 10, color: { rgb: C.white } },
+    fill:      { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
+    alignment: { horizontal: 'left', vertical: 'middle' },
+    border:    ASSUMPTION_BORDER,
+    numFmt:    FMT.text,
+  };
+
+  const textValueStyle = {
+    font:      { name: 'Calibri', sz: 11, color: { rgb: C.fcInput } },
+    fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
+    alignment: { horizontal: 'left', vertical: 'middle' },
+    border:    ASSUMPTION_BORDER,
+    numFmt:    FMT.text,
   };
 
   const cells = [];
+
   for (const entry of assumptionEntries) {
-    cells.push({
-      col: 1,
-      row: entry.row,
-      cell: { t: 's', v: entry.label, s: labelStyle },
-    });
+    const r = entry.row;
 
-    const valueCell = entry.kind === 'date'
-      ? dateCell(entry.value, C.white)
-      : inputCell(entry.value, FMT[entry.format], C.white);
+    if (entry.kind === 'heading') {
+      // Section heading — navy background, white bold text, spans cols B and C
+      cells.push({ col: 1, row: r, cell: { t: 's', v: entry.label, s: sectionHeadStyle } });
+      cells.push({ col: 2, row: r, cell: { t: 's', v: '',           s: sectionHeadStyle } });
+      continue;
+    }
 
-    cells.push({
-      col: 2,
-      row: entry.row,
-      cell: { ...valueCell, s: { ...valueCell.s, border: ASSUMPTION_BORDER } },
-    });
+    if (entry.kind === 'ot_item') {
+      // Non-recurring charge row: col B = label, col C = date, col D = amount
+      cells.push({ col: 1, row: r, cell: { t: 's', v: entry.label || '', s: labelStyle } });
+      const dc = dateCell(entry.otDate, C.white);
+      cells.push({ col: 2, row: r, cell: { ...dc, s: { ...dc.s, border: ASSUMPTION_BORDER } } });
+      const ac = inputCell(entry.value ?? 0, FMT.currency, C.white);
+      cells.push({ col: 3, row: r, cell: { ...ac, s: { ...ac.s, border: ASSUMPTION_BORDER } } });
+      continue;
+    }
+
+    // Label cell (col B) — always present
+    cells.push({ col: 1, row: r, cell: { t: 's', v: entry.label, s: labelStyle } });
+
+    // Value cell (col C)
+    let valueCell;
+    if (entry.kind === 'date') {
+      valueCell = dateCell(entry.value, C.white);
+    } else if (entry.kind === 'text') {
+      valueCell = { t: 's', v: String(entry.value ?? ''), s: textValueStyle };
+    } else {
+      valueCell = inputCell(entry.value, FMT[entry.format], C.white);
+    }
+    cells.push({ col: 2, row: r, cell: { ...valueCell, s: { ...valueCell.s, border: ASSUMPTION_BORDER } } });
   }
 
   return { cells };

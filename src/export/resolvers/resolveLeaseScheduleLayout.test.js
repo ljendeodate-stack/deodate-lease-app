@@ -51,16 +51,28 @@ describe('resolveLeaseScheduleLayout', () => {
     const model = buildExportModel(rows, params, 'spec-check');
     const layout = resolveLeaseScheduleLayout(model);
 
-    expect(layout.assumptionEntries).toHaveLength(12);
-    expect(layout.cellMap.squareFootage).toBe('$C$5');
-    expect(layout.cellMap.cams_year1).toBe('$C$13');
-    expect(layout.cellMap.cams_escRate).toBe('$C$14');
-    expect(layout.cellMap.security_year1).toBe('$C$15');
-    expect(layout.cellMap.security_escRate).toBe('$C$16');
-    expect(layout.headerRow).toBe(18);
-    expect(layout.firstDataRow).toBe(19);
-    expect(layout.totalsRow).toBe(21);
-    expect(layout.noteRow).toBe(23);
+    // Six-section assumptions block: 7+5+5+5+3+2 = 27 entries (heading + leaseName + squareFootage
+    // + commencementDate + expirationDate + rentCommencementDate + effectiveAnalysisDate |
+    // heading + nnnMode + year1BaseRent + cams_year1 + security_year1 |
+    // heading + annualEscRate + anniversaryMonth + cams_escRate + security_escRate |
+    // heading + abatementMonths + abatementEndDate + abatementPct + abatementPartialFactor |
+    // heading + freeRentMonths + freeRentEndDate |
+    // heading + "(none)")
+    expect(layout.assumptionEntries).toHaveLength(27);
+    // Row positions: assumptionStartRow(5) + index
+    expect(layout.cellMap.squareFootage).toBe('$C$7');       // index 2
+    expect(layout.cellMap.year1BaseRent).toBe('$C$14');      // index 9
+    expect(layout.cellMap.annualEscRate).toBe('$C$18');      // index 13
+    expect(layout.cellMap.abatementMonths).toBe('$C$23');    // index 18
+    expect(layout.cellMap.abatementPartialFactor).toBe('$C$26'); // index 21
+    expect(layout.cellMap.cams_year1).toBe('$C$15');         // index 10
+    expect(layout.cellMap.cams_escRate).toBe('$C$20');       // index 15
+    expect(layout.cellMap.security_year1).toBe('$C$16');     // index 11
+    expect(layout.cellMap.security_escRate).toBe('$C$21');   // index 16
+    expect(layout.headerRow).toBe(33);    // 5 + 27 - 1 + 2
+    expect(layout.firstDataRow).toBe(34); // headerRow + 1
+    expect(layout.totalsRow).toBe(36);    // lastDataRow(35) + 1 for 2 data rows
+    expect(layout.noteRow).toBe(38);      // totalsRow + 2
     expect(layout.colByKey.totalMonthly.letter).toBe('K');
   });
 
@@ -96,11 +108,12 @@ describe('resolveLeaseScheduleLayout', () => {
     const model = buildExportModel(rows, params, 'aggregate-case');
     const layout = resolveLeaseScheduleLayout(model);
 
-    expect(layout.assumptionEntries).toHaveLength(12);
-    expect(layout.cellMap.nnnAgg_year1).toBe('$C$13');
-    expect(layout.cellMap.nnnAgg_escRate).toBe('$C$14');
-    expect(layout.cellMap.security_year1).toBe('$C$15');
-    expect(layout.headerRow).toBe(18);
+    // Aggregate mode: same 27-entry count (nnnAgg entries replace cams/insurance/taxes in sections 2/3)
+    expect(layout.assumptionEntries).toHaveLength(27);
+    expect(layout.cellMap.nnnAgg_year1).toBe('$C$15');    // index 10 — after heading+mode+year1BaseRent
+    expect(layout.cellMap.nnnAgg_escRate).toBe('$C$20');  // index 15 — after heading+annualEscRate+anniversaryMonth+nnnAgg_year1(sec2)
+    expect(layout.cellMap.security_year1).toBe('$C$16');  // index 11
+    expect(layout.headerRow).toBe(33);
     expect(layout.colByKey.nnnAggregate.letter).toBe('G');
     expect(layout.colByKey.totalNNN.letter).toBe('I');
   });
