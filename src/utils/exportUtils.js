@@ -1111,6 +1111,8 @@ function writeRenegotiationPanel(ws, cr, LS = '') {
   const SR  = `${LS}$${SBRENT}$${FDR}:$${SBRENT}$${LAST}`; // Scheduled Base Rent (snapshot lookup)
   const NR  = `${LS}$${TNNN}$${FDR}:$${TNNN}$${LAST}`;
   const TR  = `${LS}$${TMO}$${FDR}:$${TMO}$${LAST}`;
+  const ER  = SR;
+  const LR  = NR;
   const npvPeriod =
     `(YEAR(${LS}$A$${FDR}:$A$${LAST})-YEAR($I$5))*12+(MONTH(${LS}$A$${FDR}:$A$${LAST})-MONTH($I$5))+1`;
 
