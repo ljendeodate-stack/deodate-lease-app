@@ -181,6 +181,12 @@ function parseOtcDateSerial(dateStr) {
   return Math.round((d.getTime() - epoch.getTime()) / 86400000);
 }
 
+function toUint8Array(xlsxBytes) {
+  if (xlsxBytes instanceof Uint8Array) return xlsxBytes;
+  if (xlsxBytes instanceof ArrayBuffer) return new Uint8Array(xlsxBytes);
+  return new Uint8Array(xlsxBytes);
+}
+
 // ===========================================================================
 // Cell factories
 // ===========================================================================
@@ -918,8 +924,9 @@ function writeCurrentRemainingObligations(ws, cr, LS = '') {
     [8, 'Remaining Other Charges:',    OTC],
   ].forEach(([r, label, lookupCol]) => {
     sc(ws, 4, r, { t: 's', v: label, s: lblS });
-    sc(ws, 5, r, valS(
-      `IFERROR(INDEX(${LS}${lookupCol}$${FDR}:${lookupCol}$${LAST},MATCH($I$5,${LS}$A$${FDR}:$A$${LAST},1)),0)`,
+    sc(ws, 5, r, cFmla(
+      `IFERROR(_xlfn.XLOOKUP($I$5,${LS}$A$${FDR}:$A$${LAST},${LS}${lookupCol}$${FDR}:${lookupCol}$${LAST},"",-1),${LS}${lookupCol}$${FDR})`,
+      0, FMT.currency, C.white,
     ));
   });
 }
@@ -1160,10 +1167,10 @@ function writeRenegotiationPanel(ws, cr, LS = '') {
   // from the contractual rate, not from zero during abatement months.
   // FV/NPV computations still use BRENT (applied).
   sc(ws, 4, 16, pRowLbl('Monthly Base Rent'));
-  sc(ws, 5, 16, pFmla(`IFERROR(INDEX(${SR},MATCH($I$5,${AR},1)),0)`, 0, FMT.currency));
-  sc(ws, 6, 16, pFmla('$F$16*(1-G15)', 0, FMT.currency));
-  sc(ws, 7, 16, pFmla('$F$16*(1-H15)', 0, FMT.currency));
-  sc(ws, 8, 16, pFmla('$F$16*(1-I15)', 0, FMT.currency));
+  sc(ws, 5, 16, cFmla(`IFERROR(XLOOKUP($I$5,${AR},${ER},"",-1),INDEX(${ER},1))`, 0, FMT.currency, C.white));
+  sc(ws, 6, 16, cFmla('$F$16*(1-G15)', 0, FMT.currency, C.white));
+  sc(ws, 7, 16, cFmla('$F$16*(1-H15)', 0, FMT.currency, C.white));
+  sc(ws, 8, 16, cFmla('$F$16*(1-I15)', 0, FMT.currency, C.white));
 
   // Row 17: Base $/PSF
   sc(ws, 4, 17, pRowLbl('Base/$PSF'));
@@ -1172,12 +1179,12 @@ function writeRenegotiationPanel(ws, cr, LS = '') {
     sc(ws, c, 17, pFmla(`IF(${SF}=0,0,${col_}16/${SF})`, 0, FMT.sf));
   });
 
-  // Row 18: Additional Rent — INDEX/MATCH approximate lookup (legacy-compatible).
+  // Row 18: Additional Rent (Total NNN from analysis date row)
   sc(ws, 4, 18, pRowLbl('Additional Rent'));
-  sc(ws, 5, 18, pFmla(`IFERROR(INDEX(${NR},MATCH($I$5,${AR},1)),0)`, 0, FMT.currency));
-  sc(ws, 6, 18, pFmla('F18', 0, FMT.currency));
-  sc(ws, 7, 18, pFmla('F18', 0, FMT.currency));
-  sc(ws, 8, 18, pFmla('F18', 0, FMT.currency));
+  sc(ws, 5, 18, cFmla(`IFERROR(XLOOKUP($I$5,${AR},${LR},"",-1),INDEX(${LR},1))`, 0, FMT.currency, C.white));
+  sc(ws, 6, 18, cFmla('F18', 0, FMT.currency, C.white));
+  sc(ws, 7, 18, cFmla('G18', 0, FMT.currency, C.white));
+  sc(ws, 8, 18, cFmla('H18', 0, FMT.currency, C.white));
 
   // Row 19: Total Occupancy Cost
   sc(ws, 4, 19, pRowLbl('Total Occupancy Cost'));
@@ -1329,8 +1336,8 @@ function writeExitPanel(ws, cr, LS = '') {
 
   // Row 37: Additional Rent (references renegotiation F18)
   sc(ws, 4, 37, pRowLbl('Additional Rent'));
-  sc(ws, 5, 37, pFmla('F18', 0, FMT.currency));
-  [6, 7, 8, 9].forEach((c) => sc(ws, c, 37, pFmla('F37', 0, FMT.currency)));
+  sc(ws, 5, 37, cFmla('F18', 0, FMT.currency, C.white));
+  [6, 7, 8].forEach((c) => sc(ws, c, 37, cFmla('F37', 0, FMT.currency, C.white)));
 
   // Row 38: Total Occupancy Cost
   sc(ws, 4, 38, pRowLbl('Total Occupancy Cost'));
@@ -1496,8 +1503,13 @@ function buildScenarioSheet(rows, otLabels, columns, firstDataRow) {
       numFmt:    FMT.text,
     },
   });
-  const firstDateSerial = rows.length > 0 ? toSerial(rows[0].periodStart ?? rows[0].date) : 0;
-  sc(ws, 8, 5, cInput(firstDateSerial || 0, FMT.date, C.white));  // I5
+  const defaultAnalysisDate = rows[0]?.periodStart ?? rows[0]?.date ?? null;
+  sc(ws, 8, 5, cFmlaInput(
+    `${LS}A${FDR}`,
+    toSerial(defaultAnalysisDate),
+    FMT.date,
+    C.white,
+  ));  // I5 defaults to the first valid schedule date but remains user-overridable
 
   // Scenario params + panel blocks
   writeScenarioParams(ws);
@@ -1515,7 +1527,7 @@ function buildScenarioSheet(rows, otLabels, columns, firstDataRow) {
 }
 
 
-export function exportToXLSX(rows, params = {}, filename = 'lease-schedule') {
+export function buildXLSXWorkbook(rows, params = {}, filename = 'lease-schedule') {
   const wb = XLSX.utils.book_new();
   wb.Props = {
     Title:       'Lease Schedule',
@@ -1549,33 +1561,43 @@ export function exportToXLSX(rows, params = {}, filename = 'lease-schedule') {
     'Scenario Analysis',
   );
 
+  return {
+    workbook: wb,
+    firstDataRow,
+    lastDataRow: firstDataRow + rows.length - 1,
+  };
+}
+
+export function buildXLSXBytes(rows, params = {}, filename = 'lease-schedule') {
+  const { workbook: wb, firstDataRow, lastDataRow } = buildXLSXWorkbook(rows, params, filename);
+
   const xlsxBytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
 
   // Unzip the XLSX package to inject data validation
-  // The dropdown lives on the Scenario Analysis sheet (sheet4), not the Lease Schedule (sheet1).
-  // The formula1 must use a cross-sheet reference so Excel can resolve the date list.
-  const unzipped = unzipSync(new Uint8Array(xlsxBytes));
+  const unzipped = unzipSync(toUint8Array(xlsxBytes));
 
-  const scenarioSheetKey = 'xl/worksheets/sheet4.xml';
-  if (unzipped[scenarioSheetKey]) {
-    let xml = strFromU8(unzipped[scenarioSheetKey]);
-    const lastDataRow = leaseLayout.firstDataRow + rows.length - 1;
+  const sheetKey = 'xl/worksheets/sheet4.xml';
+  if (unzipped[sheetKey]) {
+    let xml = strFromU8(unzipped[sheetKey]);
     const dvXml =
       `<dataValidations count="1">` +
       `<dataValidation type="list" sqref="I5" showDropDown="0" ` +
       `showErrorMessage="0" showInputMessage="0">` +
-      `<formula1>&apos;Lease Schedule&apos;!$A$${leaseLayout.firstDataRow}:$A$${lastDataRow}</formula1>` +
+      `<formula1>'Lease Schedule'!$A$${firstDataRow}:$A$${lastDataRow}</formula1>` +
       `</dataValidation></dataValidations>`;
     if (xml.includes('<ignoredErrors')) {
       xml = xml.replace('<ignoredErrors', dvXml + '<ignoredErrors');
     } else {
       xml = xml.replace('</worksheet>', dvXml + '</worksheet>');
     }
-    unzipped[scenarioSheetKey] = strToU8(xml);
+    unzipped[sheetKey] = strToU8(xml);
   }
 
-  // Rezip and trigger download
-  const rezipped = zipSync(unzipped);
+  return zipSync(unzipped);
+}
+
+export function exportToXLSX(rows, params = {}, filename = 'lease-schedule') {
+  const rezipped = buildXLSXBytes(rows, params, filename);
   const blob = new Blob([rezipped], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });

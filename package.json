@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:semantic-export": "node scripts/semantic-export/runScenarioChecks.mjs",
     "test:watch": "vitest",
+    "semantic-export:check": "node scripts/semantic-export/runScenarioChecks.mjs",
     "eval": "node scripts/evalHarness.js",
     "eval:quiet": "node scripts/evalHarness.js --quiet",
     "eval:failures": "node scripts/evalHarness.js --failures"

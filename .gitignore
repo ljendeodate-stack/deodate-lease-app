@@ -14,3 +14,6 @@ vite.config.js.timestamp-*
 _dump_*.txt
 _dump_*.mjs
 _workbook_dump.txt
+
+# Semantic export harness output
+scripts/semantic-export/output/
