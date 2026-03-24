@@ -28,8 +28,10 @@ import XLSX from 'xlsx-js-style';
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import Papa from 'papaparse';
 import { renderLeaseScheduleWorksheet } from '../export/builders/renderLeaseScheduleWorksheet.js';
+import { renderSheet } from '../export/engine/sheetWriter.js';
 import { buildExportModel } from '../export/model/buildExportModel.js';
 import { resolveLeaseScheduleLayout } from '../export/resolvers/resolveLeaseScheduleLayout.js';
+import { buildAnnualSummarySpec } from '../export/specs/annualSummarySpec.js';
 import { buildLegacyLeaseScheduleSpec } from '../export/specs/legacyLeaseScheduleSpec.js';
 import {
   CHARGE_CATEGORIES,
@@ -1547,7 +1549,16 @@ export function buildXLSXWorkbook(rows, params = {}, filename = 'lease-schedule'
   );
   XLSX.utils.book_append_sheet(
     wb,
-    buildAnnualSummary(rows, exportModel.columns, leaseLayout.firstDataRow),
+    renderSheet(buildAnnualSummarySpec(
+      rows,
+      exportModel.activeCategories.length,
+      exportModel.otLabels.length,
+      {
+        FIRST_DATA_ROW: leaseLayout.firstDataRow,
+        TOTAL_NNN_COL: exportModel.columns.find((column) => column.key === 'totalNNN').index,
+        TOTAL_MONTHLY: exportModel.columns.find((column) => column.key === 'totalMonthly').index,
+      },
+    )),
     'Annual Summary',
   );
   XLSX.utils.book_append_sheet(
@@ -1563,8 +1574,8 @@ export function buildXLSXWorkbook(rows, params = {}, filename = 'lease-schedule'
 
   return {
     workbook: wb,
-    firstDataRow,
-    lastDataRow: firstDataRow + rows.length - 1,
+    firstDataRow: leaseLayout.firstDataRow,
+    lastDataRow: leaseLayout.lastDataRow,
   };
 }
 
