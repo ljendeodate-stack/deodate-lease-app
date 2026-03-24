@@ -11,7 +11,29 @@
  */
 
 import { parseMDYStrict, parseISODate } from './yearMonth.js';
-import { NNN_BUCKET_KEYS, EXPENSE_CATEGORY_DEFS } from './labelClassifier.js';
+import { EXPENSE_CATEGORY_DEFS } from './labelClassifier.js';
+
+const STANDARD_CHARGE_KEYS = ['cams', 'insurance', 'taxes', 'security', 'otherItems'];
+
+function getChargeValidationEntries(params) {
+  if (Array.isArray(params.charges) && params.charges.length > 0) {
+    return params.charges.map((charge, index) => ({
+      key: charge.key,
+      label: charge.displayLabel || EXPENSE_CATEGORY_DEFS[charge.key]?.displayLabel || charge.key,
+      fieldPrefix: `charges.${index}`,
+      value: charge,
+    }));
+  }
+
+  return STANDARD_CHARGE_KEYS
+    .filter((key) => params[key])
+    .map((key) => ({
+      key,
+      label: EXPENSE_CATEGORY_DEFS[key]?.displayLabel || key,
+      fieldPrefix: key,
+      value: params[key],
+    }));
+}
 
 /**
  * @typedef {Object} ValidationIssue
@@ -80,25 +102,36 @@ export function validateParams(params, rows) {
     }
   }
 
-  // --- NNN charge categories ---
-  const categories = NNN_BUCKET_KEYS;
-  const labels = Object.fromEntries(
-    NNN_BUCKET_KEYS.map((k) => [k, EXPENSE_CATEGORY_DEFS[k].displayLabel])
-  );
+  if ((params.nnnMode ?? 'individual') === 'aggregate') {
+    if (params.nnnAggregate?.year1 !== '' && params.nnnAggregate?.year1 !== undefined) {
+      const year1 = Number(params.nnnAggregate.year1);
+      if (isNaN(year1)) {
+        errors.push({ field: 'nnnAggregate.year1', message: 'Aggregate NNN Year 1 amount must be a number.', severity: 'error' });
+      }
+    }
 
+    if (params.nnnAggregate?.escPct !== '' && params.nnnAggregate?.escPct !== undefined) {
+      const escPct = Number(params.nnnAggregate.escPct);
+      if (isNaN(escPct)) {
+        errors.push({ field: 'nnnAggregate.escPct', message: 'Aggregate NNN escalation percentage must be a number.', severity: 'error' });
+      }
+    }
+  }
+
+  // --- NNN charge categories ---
   const leaseStart = rows.length > 0 ? parseISODate(rows[0].date) : null;
   const leaseEnd = rows.length > 0 ? parseISODate(rows[rows.length - 1].date) : null;
 
-  for (const cat of categories) {
-    const catParams = params[cat];
+  for (const entry of getChargeValidationEntries(params)) {
+    const catParams = entry.value;
     if (!catParams) continue;
-    const label = labels[cat];
+    const label = entry.label;
 
     // Year 1 amount
     if (catParams.year1 !== '' && catParams.year1 !== undefined) {
       const y1 = Number(catParams.year1);
       if (isNaN(y1)) {
-        errors.push({ field: `${cat}.year1`, message: `${label} Year 1 amount must be a number.`, severity: 'error' });
+        errors.push({ field: `${entry.fieldPrefix}.year1`, message: `${label} Year 1 amount must be a number.`, severity: 'error' });
       }
     }
 
@@ -106,7 +139,7 @@ export function validateParams(params, rows) {
     if (catParams.escPct !== '' && catParams.escPct !== undefined) {
       const esc = Number(catParams.escPct);
       if (isNaN(esc)) {
-        errors.push({ field: `${cat}.escPct`, message: `${label} escalation percentage must be a number.`, severity: 'error' });
+        errors.push({ field: `${entry.fieldPrefix}.escPct`, message: `${label} escalation percentage must be a number.`, severity: 'error' });
       }
     }
 
@@ -114,10 +147,10 @@ export function validateParams(params, rows) {
     if (catParams.chargeStart && catParams.chargeStart.trim()) {
       const chargeDate = parseMDYStrict(catParams.chargeStart);
       if (!chargeDate) {
-        errors.push({ field: `${cat}.chargeStart`, message: `${label} billing start date must be in MM/DD/YYYY format.`, severity: 'error' });
+        errors.push({ field: `${entry.fieldPrefix}.chargeStart`, message: `${label} billing start date must be in MM/DD/YYYY format.`, severity: 'error' });
       } else if (leaseStart && leaseEnd) {
         if (chargeDate < leaseStart || chargeDate > leaseEnd) {
-          warnings.push({ field: `${cat}.chargeStart`, message: `${label} billing start date falls outside the lease term.`, severity: 'warning' });
+          warnings.push({ field: `${entry.fieldPrefix}.chargeStart`, message: `${label} billing start date falls outside the lease term.`, severity: 'warning' });
         }
       }
     }
@@ -126,10 +159,10 @@ export function validateParams(params, rows) {
     if (catParams.escStart && catParams.escStart.trim()) {
       const escDate = parseMDYStrict(catParams.escStart);
       if (!escDate) {
-        errors.push({ field: `${cat}.escStart`, message: `${label} escalation start date must be in MM/DD/YYYY format.`, severity: 'error' });
+        errors.push({ field: `${entry.fieldPrefix}.escStart`, message: `${label} escalation start date must be in MM/DD/YYYY format.`, severity: 'error' });
       } else if (leaseStart && leaseEnd) {
         if (escDate < leaseStart || escDate > leaseEnd) {
-          warnings.push({ field: `${cat}.escStart`, message: `${label} escalation start date falls outside the lease term.`, severity: 'warning' });
+          warnings.push({ field: `${entry.fieldPrefix}.escStart`, message: `${label} escalation start date falls outside the lease term.`, severity: 'warning' });
         }
       }
     }

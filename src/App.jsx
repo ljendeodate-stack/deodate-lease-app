@@ -21,6 +21,7 @@ import SummaryPanel from './components/SummaryPanel.jsx';
 import ExportButton from './components/ExportButton.jsx';
 
 import { parseFile } from './engine/parser.js';
+import { defaultChargesForm } from './engine/chargeTypes.js';
 import { expandPeriods } from './engine/expander.js';
 import { calculateAllCharges } from './engine/calculator.js';
 import { validateParams, validateSchedule } from './engine/validator.js';
@@ -44,7 +45,35 @@ const STEP = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formToCalculatorParams(form) {
+function getChargeFormByKey(form, key) {
+  if (Array.isArray(form.charges) && form.charges.length > 0) {
+    return form.charges.find((charge) => charge.key === key) ?? {};
+  }
+  return form[key] ?? {};
+}
+
+function mapChargeFormToParams(form, key) {
+  const charge = getChargeFormByKey(form, key);
+  return {
+    year1: Number(charge.year1) || 0,
+    escPct: Number(charge.escPct) || 0,
+    escStart: parseMDYStrict(charge.escStart),
+    chargeStart: parseMDYStrict(charge.chargeStart),
+  };
+}
+
+function buildInitialCharges(result, nnnToForm) {
+  return defaultChargesForm().map((charge) => {
+    const initialValues = nnnToForm(result[charge.key]);
+    return {
+      ...charge,
+      ...initialValues,
+      displayLabel: initialValues.displayLabel || charge.displayLabel,
+    };
+  });
+}
+
+export function formToCalculatorParams(form) {
   return {
     leaseName: String(form.leaseName || '').trim(),
     nnnMode: form.nnnMode ?? 'individual',
@@ -62,36 +91,11 @@ function formToCalculatorParams(form) {
         amount: Number(item.amount) || 0,
       }))
       .filter((item) => item.amount !== 0),
-    cams: {
-      year1: Number(form.cams?.year1) || 0,
-      escPct: Number(form.cams?.escPct) || 0,
-      escStart: parseMDYStrict(form.cams?.escStart),
-      chargeStart: parseMDYStrict(form.cams?.chargeStart),
-    },
-    insurance: {
-      year1: Number(form.insurance?.year1) || 0,
-      escPct: Number(form.insurance?.escPct) || 0,
-      escStart: parseMDYStrict(form.insurance?.escStart),
-      chargeStart: parseMDYStrict(form.insurance?.chargeStart),
-    },
-    taxes: {
-      year1: Number(form.taxes?.year1) || 0,
-      escPct: Number(form.taxes?.escPct) || 0,
-      escStart: parseMDYStrict(form.taxes?.escStart),
-      chargeStart: parseMDYStrict(form.taxes?.chargeStart),
-    },
-    security: {
-      year1: Number(form.security?.year1) || 0,
-      escPct: Number(form.security?.escPct) || 0,
-      escStart: parseMDYStrict(form.security?.escStart),
-      chargeStart: parseMDYStrict(form.security?.chargeStart),
-    },
-    otherItems: {
-      year1: Number(form.otherItems?.year1) || 0,
-      escPct: Number(form.otherItems?.escPct) || 0,
-      escStart: parseMDYStrict(form.otherItems?.escStart),
-      chargeStart: parseMDYStrict(form.otherItems?.chargeStart),
-    },
+    cams: mapChargeFormToParams(form, 'cams'),
+    insurance: mapChargeFormToParams(form, 'insurance'),
+    taxes: mapChargeFormToParams(form, 'taxes'),
+    security: mapChargeFormToParams(form, 'security'),
+    otherItems: mapChargeFormToParams(form, 'otherItems'),
     oneTimeCharges: (form.oneTimeCharges ?? [])
       .map((c) => ({ name: String(c.name || '').trim(), amount: Number(c.amount) || 0, date: String(c.date || '').trim() }))
       .filter((c) => c.name),
@@ -278,14 +282,10 @@ export default function App() {
       abatementPct: result.abatementPct != null ? String(result.abatementPct) : '',
       nnnMode,
       nnnAggregate: nnnAggregateForm,
-      cams: nnnToForm(result.cams),
-      insurance: nnnToForm(result.insurance),
-      taxes: nnnToForm(result.taxes),
-      security: nnnToForm(result.security),
-      otherItems: nnnToForm(result.otherItems),
-      oneTimeItems: (result.oneTimeItems ?? []).map((item) => ({
-        label:  item.label ?? '',
-        date:   item.dueDate ?? '',
+      charges: buildInitialCharges(result, nnnToForm),
+      oneTimeItems: (result.oneTimeItems?.length ? result.oneTimeItems : depositOTC).map((item) => ({
+        label:  item.label ?? item.name ?? '',
+        date:   item.dueDate ?? item.date ?? '',
         amount: item.amount != null
           ? String(Math.abs(item.amount) * (item.sign === -1 ? -1 : 1))
           : '',

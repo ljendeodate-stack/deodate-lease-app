@@ -341,7 +341,7 @@ async function extractFromOpenAI(base64PDF) {
           {
             type: 'input_file',
             filename: 'lease.pdf',
-            file_data: base64PDF,
+            file_data: `data:application/pdf;base64,${base64PDF}`,
           },
           {
             type: 'input_text',

@@ -27,6 +27,10 @@
 import XLSX from 'xlsx-js-style';
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import Papa from 'papaparse';
+import { renderLeaseScheduleWorksheet } from '../export/builders/renderLeaseScheduleWorksheet.js';
+import { buildExportModel } from '../export/model/buildExportModel.js';
+import { resolveLeaseScheduleLayout } from '../export/resolvers/resolveLeaseScheduleLayout.js';
+import { buildLegacyLeaseScheduleSpec } from '../export/specs/legacyLeaseScheduleSpec.js';
 import {
   CHARGE_CATEGORIES,
   getActiveCategories,
@@ -71,6 +75,13 @@ const THIN_BORDER = {
   bottom: { style: 'thin', color: { rgb: 'C8C8C8' } },
   left:   { style: 'thin', color: { rgb: 'C8C8C8' } },
   right:  { style: 'thin', color: { rgb: 'C8C8C8' } },
+};
+
+const PANEL_BORDER = {
+  top:    { style: 'medium', color: { rgb: '1F3864' } },
+  bottom: { style: 'medium', color: { rgb: '1F3864' } },
+  left:   { style: 'medium', color: { rgb: '1F3864' } },
+  right:  { style: 'medium', color: { rgb: '1F3864' } },
 };
 
 function hdrStyle(bg = C.headerNavy) {
@@ -861,10 +872,13 @@ function writeScenarioParams(ws) {
     border:    THIN_BORDER,
     numFmt:    FMT.text,
   };
+  // Rows 9 and 10 are used for Free Rent / TI inputs so they do not collide
+  // with the Renegotiation panel (rows 13–30) whose Base-Case column (F) would
+  // otherwise overwrite $F$22 and $F$23 with dash text cells → #VALUE!
   [
+    [9,  'Free Rent (months)', 0,    FMT.int],
+    [10, 'TI ($ per SF)',      0,    FMT.currency],
     [12, 'NPV Discount Rate',  0.07, FMT.pct],
-    [22, 'Free Rent (months)', 0,    FMT.int],
-    [23, 'TI ($ per SF)',      0,    FMT.currency],
   ].forEach(([r, label, value, fmt]) => {
     sc(ws, 4, r, { t: 's', v: label, s: lStyle });
     sc(ws, 5, r, cInput(value, fmt, C.white));
@@ -881,16 +895,17 @@ function writeCurrentRemainingObligations(ws, cr, LS = '') {
     font:      { ...FONT_B, sz: 12, color: { rgb: C.white } },
     fill:      { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
     alignment: { horizontal: 'left', vertical: 'middle' },
-    border:    THIN_BORDER,
+    border:    PANEL_BORDER,
     numFmt:    FMT.text,
   };
   const lblS = {
     font:      { ...FONT_B, sz: 11, color: { rgb: '1F3864' } },
     fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
     alignment: { horizontal: 'left', vertical: 'middle' },
-    border:    THIN_BORDER,
+    border:    PANEL_BORDER,
     numFmt:    FMT.text,
   };
+  const valS = (f) => cFmla(f, 0, FMT.currency, C.white);
   // E4: section header (E4:F4 merged)
   sc(ws, 4, 4, { t: 's', v: 'Current Remaining Obligations:', s: hdrS });
   sc(ws, 5, 4, { t: 's', v: '',                              s: hdrS });
@@ -903,9 +918,8 @@ function writeCurrentRemainingObligations(ws, cr, LS = '') {
     [8, 'Remaining Other Charges:',    OTC],
   ].forEach(([r, label, lookupCol]) => {
     sc(ws, 4, r, { t: 's', v: label, s: lblS });
-    sc(ws, 5, r, cFmla(
-      `IFERROR(_xlfn.XLOOKUP($I$5,${LS}$A$${FDR}:$A$${LAST},${LS}${lookupCol}$${FDR}:${lookupCol}$${LAST},"",0),"")`,
-      0, FMT.currency, C.white,
+    sc(ws, 5, r, valS(
+      `IFERROR(INDEX(${LS}${lookupCol}$${FDR}:${lookupCol}$${LAST},MATCH($I$5,${LS}$A$${FDR}:$A$${LAST},1)),0)`,
     ));
   });
 }
@@ -918,11 +932,21 @@ function pSectionHdr(v) {
   return {
     t: 's', v,
     s: {
-      font:      { ...FONT_B, color: { rgb: C.white } },
+      font:      { ...FONT_B, sz: 12, color: { rgb: C.white } },
       fill:      { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
       alignment: { horizontal: 'left', vertical: 'middle', wrapText: true },
-      border:    THIN_BORDER,
+      border:    PANEL_BORDER,
       numFmt:    FMT.text,
+    },
+  };
+}
+
+function pSectionHdrEmpty() {
+  return {
+    t: 's', v: '',
+    s: {
+      fill:   { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
+      border: PANEL_BORDER,
     },
   };
 }
@@ -931,10 +955,10 @@ function pTierLbl(v) {
   return {
     t: 's', v,
     s: {
-      font:      { ...FONT_B, color: { rgb: '1F3864' } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
+      font:      { ...FONT_B, color: { rgb: C.white } },
+      fill:      { patternType: 'solid', fgColor: { rgb: C.headerBlue } },
       alignment: { horizontal: 'center', vertical: 'middle' },
-      border:    THIN_BORDER,
+      border:    PANEL_BORDER,
       numFmt:    FMT.text,
     },
   };
@@ -947,18 +971,123 @@ function pRowLbl(v) {
       font:      { ...FONT_B, color: { rgb: '1F3864' } },
       fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
       alignment: { horizontal: 'left', vertical: 'middle' },
-      border:    THIN_BORDER,
+      border:    PANEL_BORDER,
       numFmt:    FMT.text,
     },
   };
 }
 
 function pPct(v) {
-  return { t: 'n', v, s: ds(C.assumpLabel, FMT.pct, { fontColor: C.fcInput, align: 'center' }) };
+  return {
+    t: 'n', v,
+    s: {
+      font:      { ...FONT, color: { rgb: C.fcInput } },
+      fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
+      alignment: { horizontal: 'center', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    FMT.pct,
+    },
+  };
 }
 
 function pDash() {
-  return { t: 's', v: '-', s: ds(C.white, FMT.text, { align: 'center', fontColor: C.fcCalc }) };
+  return {
+    t: 's', v: '-',
+    s: {
+      font:      { ...FONT, color: { rgb: C.fcCalc } },
+      fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
+      alignment: { horizontal: 'center', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    FMT.text,
+    },
+  };
+}
+
+// Green-emphasis cells for savings rows
+const SAVINGS_GREEN_FILL = 'E2EFDA';
+const SAVINGS_GREEN_FONT = '375623';
+
+// Light-red emphasis for obligation severity (Exit panel — Remaining Obligation FV)
+const OBLIG_RED_FILL = 'FFD9D9';
+const OBLIG_RED_FONT = '7B1818';
+
+function pSavingsLabel(v) {
+  return {
+    t: 's', v,
+    s: {
+      font:      { ...FONT_B, color: { rgb: SAVINGS_GREEN_FONT } },
+      fill:      { patternType: 'solid', fgColor: { rgb: SAVINGS_GREEN_FILL } },
+      alignment: { horizontal: 'left', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    FMT.text,
+    },
+  };
+}
+
+function pSavingsDash() {
+  return {
+    t: 's', v: '-',
+    s: {
+      font:      { ...FONT_B, color: { rgb: SAVINGS_GREEN_FONT } },
+      fill:      { patternType: 'solid', fgColor: { rgb: SAVINGS_GREEN_FILL } },
+      alignment: { horizontal: 'center', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    FMT.text,
+    },
+  };
+}
+
+function pSavingsRow(formula, fallback, fmt) {
+  return {
+    t: 'n', v: fallback ?? 0, f: formula,
+    s: {
+      font:      { ...FONT_B, color: { rgb: SAVINGS_GREEN_FONT } },
+      fill:      { patternType: 'solid', fgColor: { rgb: SAVINGS_GREEN_FILL } },
+      alignment: { horizontal: 'right', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    fmt,
+    },
+  };
+}
+
+function pObligLabel(v) {
+  return {
+    t: 's', v,
+    s: {
+      font:      { ...FONT_B, color: { rgb: OBLIG_RED_FONT } },
+      fill:      { patternType: 'solid', fgColor: { rgb: OBLIG_RED_FILL } },
+      alignment: { horizontal: 'left', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    FMT.text,
+    },
+  };
+}
+
+function pObligRow(formula, fallback, fmt) {
+  return {
+    t: 'n', v: fallback ?? 0, f: formula,
+    s: {
+      font:      { ...FONT_B, color: { rgb: OBLIG_RED_FONT } },
+      fill:      { patternType: 'solid', fgColor: { rgb: OBLIG_RED_FILL } },
+      alignment: { horizontal: 'right', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    fmt,
+    },
+  };
+}
+
+/** Panel data cell with formula — uses PANEL_BORDER for visual grouping */
+function pFmla(formula, fallback, fmt, fill = C.white) {
+  return {
+    t: 'n', v: fallback ?? 0, f: formula,
+    s: {
+      font:      { ...FONT, color: { rgb: C.fcCalc } },
+      fill:      { patternType: 'solid', fgColor: { rgb: fill } },
+      alignment: { horizontal: 'right', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    fmt,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -966,29 +1095,55 @@ function pDash() {
 // ---------------------------------------------------------------------------
 
 function writeRenegotiationPanel(ws, cr, LS = '') {
-  const { TMO, SC, LAST, FDR } = cr;
+  const { TMO, BRENT, SBRENT, TNNN, LAST, FDR } = cr;
   const AR  = `${LS}$A$${FDR}:$A$${LAST}`;
-  const ER  = `${LS}$E$${FDR}:$E$${LAST}`;
-  const LR  = `${LS}$L$${FDR}:$L$${LAST}`;
+  // Dynamic column references — resolved from the actual Lease Schedule layout
+  const BR  = `${LS}$${BRENT}$${FDR}:$${BRENT}$${LAST}`;   // Base Rent Applied (FV/NPV discount)
+  const SR  = `${LS}$${SBRENT}$${FDR}:$${SBRENT}$${LAST}`; // Scheduled Base Rent (snapshot lookup)
+  const NR  = `${LS}$${TNNN}$${FDR}:$${TNNN}$${LAST}`;
+  const TR  = `${LS}$${TMO}$${FDR}:$${TMO}$${LAST}`;
   const npvPeriod =
     `(YEAR(${LS}$A$${FDR}:$A$${LAST})-YEAR($I$5))*12+(MONTH(${LS}$A$${FDR}:$A$${LAST})-MONTH($I$5))+1`;
 
-  const fv  = (c) => `SUMPRODUCT((${AR}>=$I$5)*${LS}${c}$${FDR}:${c}$${LAST})`;
-  const npv = (c) =>
-    `SUMPRODUCT((${AR}>=$I$5)*${LS}${c}$${FDR}:${c}$${LAST}/(1+$F$12/12)^(${npvPeriod}))`;
+  // Base-case FV/NPV of total monthly obligation from analysis date forward
+  const fvBase  = `SUMPRODUCT((${AR}>=$I$5)*${TR})`;
+  const npvBase = `SUMPRODUCT((${AR}>=$I$5)*${TR}/(1+$F$12/12)^(${npvPeriod}))`;
+  // FV/NPV of base rent only (used to compute tier discounts)
+  const fvBrent  = `SUMPRODUCT((${AR}>=$I$5)*${BR})`;
+  const npvBrent = `SUMPRODUCT((${AR}>=$I$5)*${BR}/(1+$F$12/12)^(${npvPeriod}))`;
+  // Tier FV = base FV - discount% * base-rent FV
+  const fvTier  = (discountCell) => `(${fvBase})-${discountCell}*(${fvBrent})`;
+  const npvTier = (discountCell) => `(${npvBase})-${discountCell}*(${npvBrent})`;
+
+  const SF = `${LS}$C$5`;
+
   const dateCell = (f) => ({
     t: 'n', v: 0, f,
-    s: ds(C.white, FMT.date, { fontColor: C.fcCalc, align: 'center' }),
+    s: {
+      font:      { ...FONT, color: { rgb: C.fcCalc } },
+      fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
+      alignment: { horizontal: 'center', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    FMT.date,
+    },
   });
   const infoCell = (v) => ({
     t: 's', v,
-    s: ds(C.white, FMT.text, { align: 'left', fontColor: C.fcCalc }),
+    s: {
+      font:      { ...FONT, color: { rgb: C.fcCalc } },
+      fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
+      alignment: { horizontal: 'left', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    FMT.text,
+    },
   });
 
-  // Row 13: section header + date echo
-  sc(ws, 4, 13, pSectionHdr('SCENARIO COMPARISON - Renegotiation'));
-  sc(ws, 5, 13, infoCell('Effective Date of Analysis:'));
-  sc(ws, 6, 13, dateCell('$I$5'));
+  // Row 13: section header (E13:I13 merged) + date echo
+  sc(ws, 4, 13, pSectionHdr('SCENARIO COMPARISON — Renegotiation'));
+  for (let c = 5; c <= 6; c++) sc(ws, c, 13, pSectionHdrEmpty());
+  ws['!merges'].push({ s: { r: 12, c: 4 }, e: { r: 12, c: 6 } });
+  sc(ws, 7, 13, infoCell('Effective Date of Analysis:'));
+  sc(ws, 8, 13, dateCell('$I$5'));
 
   // Row 14: tier labels
   sc(ws, 5, 14, pTierLbl('Base Case'));
@@ -1000,109 +1155,117 @@ function writeRenegotiationPanel(ws, cr, LS = '') {
   sc(ws, 4, 15, pRowLbl('% Discount'));
   [5, 6, 7, 8].forEach((c, i) => sc(ws, c, 15, pPct([0, 0.1, 0.2, 0.3][i])));
 
-  // Row 16: Monthly Base Rent
+  // Row 16: Monthly Base Rent — INDEX/MATCH approximate lookup (legacy-compatible).
+  // Using Scheduled Base Rent (pre-abatement) ensures the scenario discount math starts
+  // from the contractual rate, not from zero during abatement months.
+  // FV/NPV computations still use BRENT (applied).
   sc(ws, 4, 16, pRowLbl('Monthly Base Rent'));
-  sc(ws, 5, 16, cFmla(`IFERROR(XLOOKUP($I$5,${AR},${ER},"",0),"")`, 0, FMT.currency, C.white));
-  sc(ws, 6, 16, cFmla('$F$16*(1-G15)', 0, FMT.currency, C.white));
-  sc(ws, 7, 16, cFmla('$F$16*(1-H15)', 0, FMT.currency, C.white));
-  sc(ws, 8, 16, cFmla('$F$16*(1-I15)', 0, FMT.currency, C.white));
+  sc(ws, 5, 16, pFmla(`IFERROR(INDEX(${SR},MATCH($I$5,${AR},1)),0)`, 0, FMT.currency));
+  sc(ws, 6, 16, pFmla('$F$16*(1-G15)', 0, FMT.currency));
+  sc(ws, 7, 16, pFmla('$F$16*(1-H15)', 0, FMT.currency));
+  sc(ws, 8, 16, pFmla('$F$16*(1-I15)', 0, FMT.currency));
 
   // Row 17: Base $/PSF
   sc(ws, 4, 17, pRowLbl('Base/$PSF'));
   [5, 6, 7, 8].forEach((c, i) => {
     const col_ = ['F', 'G', 'H', 'I'][i];
-    sc(ws, c, 17, cFmla(`IF(${LS}$C$5=0,0,${col_}16/${LS}$C$5)`, 0, FMT.sf, C.white));
+    sc(ws, c, 17, pFmla(`IF(${SF}=0,0,${col_}16/${SF})`, 0, FMT.sf));
   });
 
-  // Row 18: Additional Rent (Total NNN from analysis date row)
-  sc(ws, 4, 18, pRowLbl('Additional Rent (CAMs + Nets)'));
-  sc(ws, 5, 18, cFmla(`IFERROR(XLOOKUP($I$5,${AR},${LR},"",0),"")`, 0, FMT.currency, C.white));
-  sc(ws, 6, 18, cFmla('F18', 0, FMT.currency, C.white));
-  sc(ws, 7, 18, cFmla('G18', 0, FMT.currency, C.white));
-  sc(ws, 8, 18, cFmla('H18', 0, FMT.currency, C.white));
+  // Row 18: Additional Rent — INDEX/MATCH approximate lookup (legacy-compatible).
+  sc(ws, 4, 18, pRowLbl('Additional Rent'));
+  sc(ws, 5, 18, pFmla(`IFERROR(INDEX(${NR},MATCH($I$5,${AR},1)),0)`, 0, FMT.currency));
+  sc(ws, 6, 18, pFmla('F18', 0, FMT.currency));
+  sc(ws, 7, 18, pFmla('F18', 0, FMT.currency));
+  sc(ws, 8, 18, pFmla('F18', 0, FMT.currency));
 
   // Row 19: Total Occupancy Cost
   sc(ws, 4, 19, pRowLbl('Total Occupancy Cost'));
   [5, 6, 7, 8].forEach((c, i) => {
-    const [a_, b_] = [['F', 'F'], ['G', 'G'], ['H', 'H'], ['I', 'I']][i];
-    sc(ws, c, 19, cFmla(`${a_}16+${b_}18`, 0, FMT.currency, C.white));
+    const col_ = ['F', 'G', 'H', 'I'][i];
+    sc(ws, c, 19, pFmla(`${col_}16+${col_}18`, 0, FMT.currency));
   });
 
   // Row 20: Effective $/PSF
   sc(ws, 4, 20, pRowLbl('Effective $/PSF'));
   [5, 6, 7, 8].forEach((c, i) => {
     const col_ = ['F', 'G', 'H', 'I'][i];
-    sc(ws, c, 20, cFmla(`IF(${LS}$C$5=0,0,${col_}19/${LS}$C$5)`, 0, FMT.sf, C.white));
+    sc(ws, c, 20, pFmla(`IF(${SF}=0,0,${col_}19/${SF})`, 0, FMT.sf));
   });
 
-  // Row 21: Lease Obligation FV
-  sc(ws, 4, 21, pRowLbl('Lease Obligation (FV)'));
-  sc(ws, 5, 21, cFmla(fv(TMO),   0, FMT.currency, C.white));
-  sc(ws, 6, 21, cFmla(fv(SC[0]), 0, FMT.currency, C.white));
-  sc(ws, 7, 21, cFmla(fv(SC[1]), 0, FMT.currency, C.white));
-  sc(ws, 8, 21, cFmla(fv(SC[2]), 0, FMT.currency, C.white));
+  // Row 21: Lease Obligation FV (from analysis date forward) — light-red emphasis (obligation severity)
+  // Base case = sum of TMO; tiers = TMO sum minus discount% applied to base rent sum
+  sc(ws, 4, 21, pObligLabel('Lease Obligation (FV)'));
+  sc(ws, 5, 21, pObligRow(fvBase, 0, FMT.currency));
+  sc(ws, 6, 21, pObligRow(fvTier('G15'), 0, FMT.currency));
+  sc(ws, 7, 21, pObligRow(fvTier('H15'), 0, FMT.currency));
+  sc(ws, 8, 21, pObligRow(fvTier('I15'), 0, FMT.currency));
 
-  // Row 22: Gross Savings vs Base
-  sc(ws, 4, 22, pRowLbl('Gross Savings vs Base ($)'));
-  sc(ws, 5, 22, cCalc(0, FMT.currency, C.white));
-  sc(ws, 6, 22, cFmla('F21-G21', 0, FMT.currency, C.white));
-  sc(ws, 7, 22, cFmla('F21-H21', 0, FMT.currency, C.white));
-  sc(ws, 8, 22, cFmla('F21-I21', 0, FMT.currency, C.white));
+  // Row 22: Gross Savings vs Base (green emphasis — savings row)
+  sc(ws, 4, 22, pSavingsLabel('Gross Savings vs Base ($)'));
+  sc(ws, 5, 22, pSavingsDash());
+  sc(ws, 6, 22, pSavingsRow('F21-G21', 0, FMT.currency));
+  sc(ws, 7, 22, pSavingsRow('F21-H21', 0, FMT.currency));
+  sc(ws, 8, 22, pSavingsRow('F21-I21', 0, FMT.currency));
 
-  // Row 23: (+)Free Rent — references $F$22 (our app's Free Rent months cell)
+  // Row 23: (+)Free Rent — references $F$9 (Free Rent months input, moved out of panel area)
   sc(ws, 4, 23, pRowLbl('(+)Free Rent'));
-  sc(ws, 6, 23, cFmla('G16*$F$22', 0, FMT.currency, C.white));
-  sc(ws, 7, 23, cFmla('H16*$F$22', 0, FMT.currency, C.white));
-  sc(ws, 8, 23, cFmla('I16*$F$22', 0, FMT.currency, C.white));
+  sc(ws, 5, 23, pDash());
+  sc(ws, 6, 23, pFmla('G16*$F$9', 0, FMT.currency));
+  sc(ws, 7, 23, pFmla('H16*$F$9', 0, FMT.currency));
+  sc(ws, 8, 23, pFmla('I16*$F$9', 0, FMT.currency));
 
-  // Row 24: (+)TI — references $F$23 (our app's TI per SF cell)
-  // Note: row 24 is the main header row; cols E–I here hold panel data only
+  // Row 24: (+)TI — references $F$10 (TI per SF input, moved out of panel area) × Lease Schedule SF
   sc(ws, 4, 24, pRowLbl('(+)TI'));
-  sc(ws, 6, 24, cFmla('$F$23*$C$5', 0, FMT.currency, C.white));
-  sc(ws, 7, 24, cFmla('$F$23*$C$5', 0, FMT.currency, C.white));
-  sc(ws, 8, 24, cFmla('$F$23*$C$5', 0, FMT.currency, C.white));
+  sc(ws, 5, 24, pDash());
+  sc(ws, 6, 24, pFmla(`$F$10*${SF}`, 0, FMT.currency));
+  sc(ws, 7, 24, pFmla(`$F$10*${SF}`, 0, FMT.currency));
+  sc(ws, 8, 24, pFmla(`$F$10*${SF}`, 0, FMT.currency));
 
-  // Row 25: Total Savings From Base
-  sc(ws, 4, 25, pRowLbl('Total Savings From Base'));
-  sc(ws, 5, 25, pDash());
-  sc(ws, 6, 25, cFmla('SUM(G22:G24)', 0, FMT.currency, C.white));
-  sc(ws, 7, 25, cFmla('SUM(H22:H24)', 0, FMT.currency, C.white));
-  sc(ws, 8, 25, cFmla('SUM(I22:I24)', 0, FMT.currency, C.white));
+  // Row 25: Total Savings From Base (green emphasis — savings row)
+  sc(ws, 4, 25, pSavingsLabel('Total Savings From Base'));
+  sc(ws, 5, 25, pSavingsDash());
+  sc(ws, 6, 25, pSavingsRow('SUM(G22:G24)', 0, FMT.currency));
+  sc(ws, 7, 25, pSavingsRow('SUM(H22:H24)', 0, FMT.currency));
+  sc(ws, 8, 25, pSavingsRow('SUM(I22:I24)', 0, FMT.currency));
 
   // Row 26: NPV
   sc(ws, 4, 26, pRowLbl('NPV'));
-  sc(ws, 5, 26, cFmla(npv(TMO),   0, FMT.currency, C.white));
-  sc(ws, 6, 26, cFmla(npv(SC[0]), 0, FMT.currency, C.white));
-  sc(ws, 7, 26, cFmla(npv(SC[1]), 0, FMT.currency, C.white));
-  sc(ws, 8, 26, cFmla(npv(SC[2]), 0, FMT.currency, C.white));
+  sc(ws, 5, 26, pFmla(npvBase, 0, FMT.currency));
+  sc(ws, 6, 26, pFmla(npvTier('G15'), 0, FMT.currency));
+  sc(ws, 7, 26, pFmla(npvTier('H15'), 0, FMT.currency));
+  sc(ws, 8, 26, pFmla(npvTier('I15'), 0, FMT.currency));
 
   // Row 27: NPV Savings vs Base
   sc(ws, 4, 27, pRowLbl('NPV Savings vs Base'));
   sc(ws, 5, 27, pDash());
-  sc(ws, 6, 27, cFmla('F26-G26', 0, FMT.currency, C.white));
-  sc(ws, 7, 27, cFmla('F26-H26', 0, FMT.currency, C.white));
-  sc(ws, 8, 27, cFmla('F26-I26', 0, FMT.currency, C.white));
+  sc(ws, 6, 27, pFmla('F26-G26', 0, FMT.currency));
+  sc(ws, 7, 27, pFmla('F26-H26', 0, FMT.currency));
+  sc(ws, 8, 27, pFmla('F26-I26', 0, FMT.currency));
 
   // Row 28: % Savings vs Base
   sc(ws, 4, 28, pRowLbl('% Savings vs Base'));
   sc(ws, 5, 28, pDash());
-  sc(ws, 6, 28, cFmla('IFERROR((F26-G26)/F26,0)', 0, FMT.pct, C.white));
-  sc(ws, 7, 28, cFmla('IFERROR((F26-H26)/F26,0)', 0, FMT.pct, C.white));
-  sc(ws, 8, 28, cFmla('IFERROR((F26-I26)/F26,0)', 0, FMT.pct, C.white));
+  sc(ws, 6, 28, pFmla('IFERROR((F26-G26)/F26,0)', 0, FMT.pct));
+  sc(ws, 7, 28, pFmla('IFERROR((F26-H26)/F26,0)', 0, FMT.pct));
+  sc(ws, 8, 28, pFmla('IFERROR((F26-I26)/F26,0)', 0, FMT.pct));
 
   // Row 29: Full-Lease FV (no date filter — all months)
+  // Base = SUM(TMO); tiers = SUM(TMO) - discount% * SUM(baseRent)
+  const fullTMO   = `SUM(${LS}${TMO}${FDR}:${TMO}${LAST})`;
+  const fullBRENT = `SUM(${LS}${BRENT}${FDR}:${BRENT}${LAST})`;
   sc(ws, 4, 29, pRowLbl('Full-Lease FV (all months)'));
-  sc(ws, 5, 29, cFmla(`SUM(${LS}${TMO}${FDR}:${TMO}${LAST})`,     0, FMT.currency, C.white));
-  sc(ws, 6, 29, cFmla(`SUM(${LS}${SC[0]}${FDR}:${SC[0]}${LAST})`, 0, FMT.currency, C.white));
-  sc(ws, 7, 29, cFmla(`SUM(${LS}${SC[1]}${FDR}:${SC[1]}${LAST})`, 0, FMT.currency, C.white));
-  sc(ws, 8, 29, cFmla(`SUM(${LS}${SC[2]}${FDR}:${SC[2]}${LAST})`, 0, FMT.currency, C.white));
+  sc(ws, 5, 29, pFmla(fullTMO, 0, FMT.currency));
+  sc(ws, 6, 29, pFmla(`(${fullTMO})-G15*(${fullBRENT})`, 0, FMT.currency));
+  sc(ws, 7, 29, pFmla(`(${fullTMO})-H15*(${fullBRENT})`, 0, FMT.currency));
+  sc(ws, 8, 29, pFmla(`(${fullTMO})-I15*(${fullBRENT})`, 0, FMT.currency));
 
   // Row 30: Cross-check NNN after discount
   sc(ws, 4, 30, pRowLbl('Cross-check: NNN after discount'));
-  sc(ws, 5, 30, cFmla('F18*(1-F15)', 0, FMT.currency, C.white));
-  sc(ws, 6, 30, cFmla('F18*(1-G15)', 0, FMT.currency, C.white));
-  sc(ws, 7, 30, cFmla('F18*(1-H15)', 0, FMT.currency, C.white));
-  sc(ws, 8, 30, cFmla('F18*(1-I15)', 0, FMT.currency, C.white));
+  sc(ws, 5, 30, pFmla('F18*(1-F15)', 0, FMT.currency));
+  sc(ws, 6, 30, pFmla('F18*(1-G15)', 0, FMT.currency));
+  sc(ws, 7, 30, pFmla('F18*(1-H15)', 0, FMT.currency));
+  sc(ws, 8, 30, pFmla('F18*(1-I15)', 0, FMT.currency));
 }
 
 // ---------------------------------------------------------------------------
@@ -1110,20 +1273,36 @@ function writeRenegotiationPanel(ws, cr, LS = '') {
 // ---------------------------------------------------------------------------
 
 function writeExitPanel(ws, cr, LS = '') {
-  const { TMO, SC, LAST, FDR } = cr;
+  const { TMO, BRENT, LAST, FDR } = cr;
+  const SF = `${LS}$C$5`;
+
   const dateCell = (f) => ({
     t: 'n', v: 0, f,
-    s: ds(C.white, FMT.date, { fontColor: C.fcCalc, align: 'center' }),
+    s: {
+      font:      { ...FONT, color: { rgb: C.fcCalc } },
+      fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
+      alignment: { horizontal: 'center', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    FMT.date,
+    },
   });
   const infoCell = (v) => ({
     t: 's', v,
-    s: ds(C.white, FMT.text, { align: 'left', fontColor: C.fcCalc }),
+    s: {
+      font:      { ...FONT, color: { rgb: C.fcCalc } },
+      fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
+      alignment: { horizontal: 'left', vertical: 'middle' },
+      border:    PANEL_BORDER,
+      numFmt:    FMT.text,
+    },
   });
 
-  // Row 32: section header + date echo
-  sc(ws, 4, 32, pSectionHdr('SCENARIO COMPARISON - Exit'));
-  sc(ws, 5, 32, infoCell('Effective Date of Analysis:'));
-  sc(ws, 6, 32, dateCell('$I$5'));
+  // Row 32: section header (E32:G32 merged) + date echo
+  sc(ws, 4, 32, pSectionHdr('SCENARIO COMPARISON — Exit'));
+  for (let c = 5; c <= 6; c++) sc(ws, c, 32, pSectionHdrEmpty());
+  ws['!merges'].push({ s: { r: 31, c: 4 }, e: { r: 31, c: 6 } });
+  sc(ws, 7, 32, infoCell('Effective Date of Analysis:'));
+  sc(ws, 8, 32, dateCell('$I$5'));
 
   // Row 33: tier labels
   sc(ws, 5, 33, pTierLbl('Full Obligation'));
@@ -1138,81 +1317,83 @@ function writeExitPanel(ws, cr, LS = '') {
 
   // Row 35: Monthly Base Rent (references renegotiation F16)
   sc(ws, 4, 35, pRowLbl('Monthly Base Rent'));
-  sc(ws, 5, 35, cFmla('F16', 0, FMT.currency, C.white));
-  [6, 7, 8, 9].forEach((c) => sc(ws, c, 35, cFmla('F35', 0, FMT.currency, C.white)));
+  sc(ws, 5, 35, pFmla('F16', 0, FMT.currency));
+  [6, 7, 8, 9].forEach((c) => sc(ws, c, 35, pFmla('F35', 0, FMT.currency)));
 
   // Row 36: Base $/PSF
   sc(ws, 4, 36, pRowLbl('Base/$PSF'));
   [5, 6, 7, 8, 9].forEach((c, i) => {
     const col_ = ['F', 'G', 'H', 'I', 'J'][i];
-    sc(ws, c, 36, cFmla(`IF(${LS}$C$5=0,0,${col_}35/${LS}$C$5)`, 0, FMT.sf, C.white));
+    sc(ws, c, 36, pFmla(`IF(${SF}=0,0,${col_}35/${SF})`, 0, FMT.sf));
   });
 
   // Row 37: Additional Rent (references renegotiation F18)
-  sc(ws, 4, 37, pRowLbl('Additional Rent (NNN)'));
-  sc(ws, 5, 37, cFmla('F18', 0, FMT.currency, C.white));
-  [6, 7, 8].forEach((c) => sc(ws, c, 37, cFmla('F37', 0, FMT.currency, C.white)));
+  sc(ws, 4, 37, pRowLbl('Additional Rent'));
+  sc(ws, 5, 37, pFmla('F18', 0, FMT.currency));
+  [6, 7, 8, 9].forEach((c) => sc(ws, c, 37, pFmla('F37', 0, FMT.currency)));
 
   // Row 38: Total Occupancy Cost
   sc(ws, 4, 38, pRowLbl('Total Occupancy Cost'));
-  [5, 6, 7, 8].forEach((c, i) => {
-    const col_ = ['F', 'G', 'H', 'I'][i];
-    sc(ws, c, 38, cFmla(`${col_}35+${col_}37`, 0, FMT.currency, C.white));
+  [5, 6, 7, 8, 9].forEach((c, i) => {
+    const col_ = ['F', 'G', 'H', 'I', 'J'][i];
+    sc(ws, c, 38, pFmla(`${col_}35+${col_}37`, 0, FMT.currency));
   });
 
   // Row 39: Effective $/PSF
   sc(ws, 4, 39, pRowLbl('Effective $/PSF'));
-  [5, 6, 7, 8].forEach((c, i) => {
-    const col_ = ['F', 'G', 'H', 'I'][i];
-    sc(ws, c, 39, cFmla(`IF(${LS}$C$5=0,0,${col_}38/${LS}$C$5)`, 0, FMT.sf, C.white));
+  [5, 6, 7, 8, 9].forEach((c, i) => {
+    const col_ = ['F', 'G', 'H', 'I', 'J'][i];
+    sc(ws, c, 39, pFmla(`IF(${SF}=0,0,${col_}38/${SF})`, 0, FMT.sf));
   });
 
-  // Row 40: Remaining Obligation FV (= F21 * (1-buyout%))
-  sc(ws, 4, 40, pRowLbl('Remaining Obligation (FV)'));
-  sc(ws, 5, 40, cFmla('F21', 0, FMT.currency, C.white));
-  sc(ws, 6, 40, cFmla('F40*(1-G34)', 0, FMT.currency, C.white));
-  sc(ws, 7, 40, cFmla('F40*(1-H34)', 0, FMT.currency, C.white));
-  sc(ws, 8, 40, cFmla('F40*(1-I34)', 0, FMT.currency, C.white));
-  sc(ws, 9, 40, cFmla('F40*(1-J34)', 0, FMT.currency, C.white));
+  // Row 40: Remaining Obligation FV (= F21 * (1-buyout%)) — light-red emphasis (obligation severity)
+  sc(ws, 4, 40, pObligLabel('Remaining Obligation (FV)'));
+  sc(ws, 5, 40, pObligRow('F21', 0, FMT.currency));
+  sc(ws, 6, 40, pObligRow('F40*(1-G34)', 0, FMT.currency));
+  sc(ws, 7, 40, pObligRow('F40*(1-H34)', 0, FMT.currency));
+  sc(ws, 8, 40, pObligRow('F40*(1-I34)', 0, FMT.currency));
+  sc(ws, 9, 40, pObligRow('F40*(1-J34)', 0, FMT.currency));
 
-  // Row 41: Gross Savings vs Base
-  sc(ws, 4, 41, pRowLbl('Gross Savings vs Base ($)'));
-  sc(ws, 5, 41, cCalc(0, FMT.currency, C.white));
-  sc(ws, 6, 41, cFmla('F40-G40', 0, FMT.currency, C.white));
-  sc(ws, 7, 41, cFmla('F40-H40', 0, FMT.currency, C.white));
-  sc(ws, 8, 41, cFmla('F40-I40', 0, FMT.currency, C.white));
-  sc(ws, 9, 41, cFmla('F40-J40', 0, FMT.currency, C.white));
+  // Row 41: Gross Savings vs Base (green emphasis — savings row)
+  sc(ws, 4, 41, pSavingsLabel('Gross Savings vs Base ($)'));
+  sc(ws, 5, 41, pSavingsDash());
+  sc(ws, 6, 41, pSavingsRow('F40-G40', 0, FMT.currency));
+  sc(ws, 7, 41, pSavingsRow('F40-H40', 0, FMT.currency));
+  sc(ws, 8, 41, pSavingsRow('F40-I40', 0, FMT.currency));
+  sc(ws, 9, 41, pSavingsRow('F40-J40', 0, FMT.currency));
 
-  // Row 42: (+)Free Rent
+  // Row 42: (+)Free Rent — references $F$9 (Free Rent months input, moved out of panel area)
   sc(ws, 4, 42, pRowLbl('(+)Free Rent'));
-  [6, 7, 8].forEach((c) => sc(ws, c, 42, cFmla('F35*$F$22', 0, FMT.currency, C.white)));
+  sc(ws, 5, 42, pDash());
+  [6, 7, 8, 9].forEach((c) => sc(ws, c, 42, pFmla('F35*$F$9', 0, FMT.currency)));
 
-  // Row 43: (+)TI
+  // Row 43: (+)TI — references $F$10 (TI per SF input, moved out of panel area) × Lease Schedule SF
   sc(ws, 4, 43, pRowLbl('(+)TI'));
-  [6, 7, 8].forEach((c) => sc(ws, c, 43, cFmla('$F$23*$C$5', 0, FMT.currency, C.white)));
+  sc(ws, 5, 43, pDash());
+  [6, 7, 8, 9].forEach((c) => sc(ws, c, 43, pFmla(`$F$10*${SF}`, 0, FMT.currency)));
 
-  // Row 44: Total Savings From Base
-  sc(ws, 4, 44, pRowLbl('Total Savings From Base'));
-  sc(ws, 5, 44, pDash());
+  // Row 44: Total Savings From Base (green emphasis — savings row)
+  sc(ws, 4, 44, pSavingsLabel('Total Savings From Base'));
+  sc(ws, 5, 44, pSavingsDash());
   [6, 7, 8, 9].forEach((c, i) => {
     const col_ = ['G', 'H', 'I', 'J'][i];
-    sc(ws, c, 44, cFmla(`SUM(${col_}41:${col_}43)`, 0, FMT.currency, C.white));
+    sc(ws, c, 44, pSavingsRow(`SUM(${col_}41:${col_}43)`, 0, FMT.currency));
   });
 
   // Row 45: NPV (= F26 * (1-buyout%))
   sc(ws, 4, 45, pRowLbl('NPV'));
-  sc(ws, 5, 45, cFmla('F26', 0, FMT.currency, C.white));
-  sc(ws, 6, 45, cFmla('F26*(1-G34)', 0, FMT.currency, C.white));
-  sc(ws, 7, 45, cFmla('F26*(1-H34)', 0, FMT.currency, C.white));
-  sc(ws, 8, 45, cFmla('F26*(1-I34)', 0, FMT.currency, C.white));
-  sc(ws, 9, 45, cFmla('F26*(1-J34)', 0, FMT.currency, C.white));
+  sc(ws, 5, 45, pFmla('F26', 0, FMT.currency));
+  sc(ws, 6, 45, pFmla('F26*(1-G34)', 0, FMT.currency));
+  sc(ws, 7, 45, pFmla('F26*(1-H34)', 0, FMT.currency));
+  sc(ws, 8, 45, pFmla('F26*(1-I34)', 0, FMT.currency));
+  sc(ws, 9, 45, pFmla('F26*(1-J34)', 0, FMT.currency));
 
   // Row 46: NPV Savings vs Base
   sc(ws, 4, 46, pRowLbl('NPV Savings vs Base'));
   sc(ws, 5, 46, pDash());
   [6, 7, 8, 9].forEach((c, i) => {
     const col_ = ['G', 'H', 'I', 'J'][i];
-    sc(ws, c, 46, cFmla(`F45-${col_}45`, 0, FMT.currency, C.white));
+    sc(ws, c, 46, pFmla(`F45-${col_}45`, 0, FMT.currency));
   });
 
   // Row 47: % Savings vs Base
@@ -1220,22 +1401,23 @@ function writeExitPanel(ws, cr, LS = '') {
   sc(ws, 5, 47, pDash());
   [6, 7, 8, 9].forEach((c, i) => {
     const col_ = ['G', 'H', 'I', 'J'][i];
-    sc(ws, c, 47, cFmla(`IFERROR((F45-${col_}45)/F45,0)`, 0, FMT.pct, C.white));
+    sc(ws, c, 47, pFmla(`IFERROR((F45-${col_}45)/F45,0)`, 0, FMT.pct));
   });
 
-  // Row 48: Full-Lease FV
+  // Row 48: Full-Lease FV (all months) — base = SUM(TMO); tiers = base*(1-buyout%)
+  const fullTMO = `SUM(${LS}${TMO}${FDR}:${TMO}${LAST})`;
   sc(ws, 4, 48, pRowLbl('Full-Lease FV (all months)'));
-  sc(ws, 5, 48, cFmla(`SUM(${LS}${TMO}${FDR}:${TMO}${LAST})`,     0, FMT.currency, C.white));
-  sc(ws, 6, 48, cFmla(`SUM(${LS}${SC[0]}${FDR}:${SC[0]}${LAST})`, 0, FMT.currency, C.white));
-  sc(ws, 7, 48, cFmla(`SUM(${LS}${SC[1]}${FDR}:${SC[1]}${LAST})`, 0, FMT.currency, C.white));
-  sc(ws, 8, 48, cFmla(`SUM(${LS}${SC[2]}${FDR}:${SC[2]}${LAST})`, 0, FMT.currency, C.white));
-  sc(ws, 9, 48, cFmla(`SUM(${LS}${SC[7]}${FDR}:${SC[7]}${LAST})`, 0, FMT.currency, C.white));
+  sc(ws, 5, 48, pFmla(fullTMO, 0, FMT.currency));
+  sc(ws, 6, 48, pFmla('F48*(1-G34)', 0, FMT.currency));
+  sc(ws, 7, 48, pFmla('F48*(1-H34)', 0, FMT.currency));
+  sc(ws, 8, 48, pFmla('F48*(1-I34)', 0, FMT.currency));
+  sc(ws, 9, 48, pFmla('F48*(1-J34)', 0, FMT.currency));
 
-  // Row 49: Simplified cross-check
-  sc(ws, 4, 49, pRowLbl('Simplified cross-check: Full FV × (1-buyout%)'));
+  // Row 49: Simplified cross-check: Full Renegotiation FV × (1-buyout%)
+  sc(ws, 4, 49, pRowLbl('Cross-check: Reneg FV × (1-buyout%)'));
   [5, 6, 7, 8, 9].forEach((c, i) => {
     const col_ = ['F', 'G', 'H', 'I', 'J'][i];
-    sc(ws, c, 49, cFmla(`F29*(1-${col_}34)`, 0, FMT.currency, C.white));
+    sc(ws, c, 49, pFmla(`F29*(1-${col_}34)`, 0, FMT.currency));
   });
 }
 
@@ -1256,52 +1438,66 @@ function buildScenarioSheet(rows, otLabels, columns, firstDataRow) {
   const colByKey = {};
   for (const c of columns) colByKey[c.key] = c;
   const TOTAL_MONTHLY     = colByKey.totalMonthly.index;
-  const EFF_SF            = colByKey.effSF.index;
   const OBLIG_REM         = colByKey.obligRem.index;
   const BASE_REM          = colByKey.baseRem.index;
   const NNN_REM           = colByKey.nnnRem.index;
   const OTHER_CHARGES_REM = colByKey.otherRem.index;
-  const SCENARIO_START    = OTHER_CHARGES_REM + 1;
-  const SCENARIO_COUNT    = 8;
+  const BASE_RENT_APPLIED  = colByKey.baseRentApplied.index;
+  const SCHED_BASE_RENT    = colByKey.scheduledBaseRent.index;
+  const TOTAL_NNN_COL      = colByKey.totalNNN.index;
   const FDR      = firstDataRow;
   const lastData = FDR + rows.length - 1;
 
   const colRefs = {
-    TMO:   col(TOTAL_MONTHLY),
-    OBLIG: col(OBLIG_REM),
-    BASE:  col(BASE_REM),
-    NNN:   col(NNN_REM),
-    OTC:   col(OTHER_CHARGES_REM),
-    SC:    Array.from({ length: SCENARIO_COUNT }, (_, i) => col(SCENARIO_START + i)),
-    LAST:  lastData,
+    TMO:    col(TOTAL_MONTHLY),
+    OBLIG:  col(OBLIG_REM),
+    BASE:   col(BASE_REM),
+    NNN:    col(NNN_REM),
+    OTC:    col(OTHER_CHARGES_REM),
+    BRENT:  col(BASE_RENT_APPLIED),   // Base Rent Applied — used for FV/NPV discount math
+    SBRENT: col(SCHED_BASE_RENT),     // Scheduled Base Rent — used for current-month snapshot
+    TNNN:   col(TOTAL_NNN_COL),
+    LAST:   lastData,
     FDR,
   };
 
   const LS = "'Lease Schedule'!";
 
-  // Title (row 1, col E)
+  // Title (row 1, col E — merged E1:J1)
   sc(ws, 4, 1, {
     t: 's', v: 'DEODATE — Scenario Analysis',
     s: {
       font:      { ...FONT_B, sz: 14, color: { rgb: C.white } },
       fill:      { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
       alignment: { horizontal: 'left', vertical: 'middle' },
+      border:    PANEL_BORDER,
       numFmt:    FMT.text,
     },
   });
+  for (let c = 5; c <= 9; c++) {
+    sc(ws, c, 1, {
+      t: 's', v: '',
+      s: {
+        fill:   { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
+        border: PANEL_BORDER,
+      },
+    });
+  }
+  ws['!merges'].push({ s: { r: 0, c: 4 }, e: { r: 0, c: 9 } });
 
-  // Analysis date input — H5 label, I5 value (user types a date)
+  // Analysis date input — H5 label, I5 value (defaults to first schedule date)
   sc(ws, 7, 5, {
     t: 's', v: 'Effective Date of Analysis:',
     s: {
       font:      { ...FONT_B, color: { rgb: '1F3864' } },
       fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
       alignment: { horizontal: 'right', vertical: 'middle' },
-      border:    THIN_BORDER,
+      border:    PANEL_BORDER,
       numFmt:    FMT.text,
     },
   });
-  sc(ws, 8, 5, cInput(0, FMT.date, C.white));  // I5
+  const firstDateSerial = rows.length > 0 ? toSerial(rows[0].periodStart ?? rows[0].date) : 0;
+  sc(ws, 8, 5, cInput(firstDateSerial || 0, FMT.date, C.white));  // I5
 
   // Scenario params + panel blocks
   writeScenarioParams(ws);
@@ -1327,78 +1523,55 @@ export function exportToXLSX(rows, params = {}, filename = 'lease-schedule') {
     CreatedDate: new Date(),
   };
 
-  const nnnMode = params.nnnMode ?? 'individual';
-
-  // Determine which charge categories are active based on data and params
-  const activeCategories = getActiveCategories(rows, params, nnnMode);
-
-  // Compute assumption values
-  const assump = computeAssumptions(rows, params, activeCategories);
-
-  // Derive OT labels from processed rows (authoritative source)
-  const seenLabels = new Set();
-  const otLabels = [];
-  for (const row of rows) {
-    for (const [lbl, amt] of Object.entries(row.oneTimeItemAmounts ?? {})) {
-      if (amt > 0 && !seenLabels.has(lbl)) {
-        seenLabels.add(lbl);
-        otLabels.push(lbl);
-      }
-    }
-  }
-
-  // Build dynamic column layout
-  const columns = buildColumnLayout(activeCategories, otLabels, nnnMode);
-
-  // Compute dynamic row positions based on assumptions block size
-  const dummyWs = {};
-  const { lastRow: assumpLastRow, cellMap } = buildAssumptionsBlock(dummyWs, assump, activeCategories);
-  const headerRow    = assumpLastRow + 2;  // 1 blank separator row
-  const firstDataRow = headerRow + 1;
+  const exportModel = buildExportModel(rows, params, filename);
+  const leaseLayout = resolveLeaseScheduleLayout(exportModel);
+  const leaseSpec = buildLegacyLeaseScheduleSpec(exportModel, leaseLayout);
 
   // Build sheets
   XLSX.utils.book_append_sheet(
     wb,
-    buildLedger(rows, assump, otLabels, columns, activeCategories, cellMap, headerRow, firstDataRow, filename),
+    renderLeaseScheduleWorksheet(leaseSpec),
     'Lease Schedule',
   );
   XLSX.utils.book_append_sheet(
     wb,
-    buildAnnualSummary(rows, columns, firstDataRow),
+    buildAnnualSummary(rows, exportModel.columns, leaseLayout.firstDataRow),
     'Annual Summary',
   );
   XLSX.utils.book_append_sheet(
     wb,
-    buildAuditTrail(rows, activeCategories),
+    buildAuditTrail(rows, exportModel.activeCategories),
     'Audit Trail',
   );
   XLSX.utils.book_append_sheet(
     wb,
-    buildScenarioSheet(rows, otLabels, columns, firstDataRow),
+    buildScenarioSheet(rows, exportModel.otLabels, exportModel.columns, leaseLayout.firstDataRow),
     'Scenario Analysis',
   );
 
   const xlsxBytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
 
   // Unzip the XLSX package to inject data validation
+  // The dropdown lives on the Scenario Analysis sheet (sheet4), not the Lease Schedule (sheet1).
+  // The formula1 must use a cross-sheet reference so Excel can resolve the date list.
   const unzipped = unzipSync(new Uint8Array(xlsxBytes));
 
-  const sheetKey = 'xl/worksheets/sheet1.xml';
-  if (unzipped[sheetKey]) {
-    let xml = strFromU8(unzipped[sheetKey]);
-    const lastDataRow = firstDataRow + rows.length - 1;
+  const scenarioSheetKey = 'xl/worksheets/sheet4.xml';
+  if (unzipped[scenarioSheetKey]) {
+    let xml = strFromU8(unzipped[scenarioSheetKey]);
+    const lastDataRow = leaseLayout.firstDataRow + rows.length - 1;
     const dvXml =
       `<dataValidations count="1">` +
       `<dataValidation type="list" sqref="I5" showDropDown="0" ` +
       `showErrorMessage="0" showInputMessage="0">` +
-      `<formula1>$A${firstDataRow}:$A${lastDataRow}</formula1>` +
+      `<formula1>&apos;Lease Schedule&apos;!$A$${leaseLayout.firstDataRow}:$A$${lastDataRow}</formula1>` +
       `</dataValidation></dataValidations>`;
     if (xml.includes('<ignoredErrors')) {
       xml = xml.replace('<ignoredErrors', dvXml + '<ignoredErrors');
     } else {
       xml = xml.replace('</worksheet>', dvXml + '</worksheet>');
     }
-    unzipped[sheetKey] = strToU8(xml);
+    unzipped[scenarioSheetKey] = strToU8(xml);
   }
 
   // Rezip and trigger download
