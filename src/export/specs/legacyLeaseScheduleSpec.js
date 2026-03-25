@@ -239,7 +239,7 @@ function buildDataSection(exportModel, layout) {
       cell: {
         t: 'n',
         v: toSerial(row.periodEnd) ?? 0,
-        f: `IFERROR(EDATE(${cellMap.commencementDate},${index + 1})-1,0)`,
+        f: `IFERROR(MIN(EDATE(${cellMap.commencementDate},${index + 1})-1,${cellMap.expirationDate}),0)`,
         s: ds(rowFill, FMT.date, { align: 'center', fontColor: C.fcCalc }),
       },
     });
@@ -298,6 +298,10 @@ function buildDataSection(exportModel, layout) {
     const pe = `${periodEndCol}${worksheetRow}`;
     const sbr = `${scheduledBaseRentCol}${worksheetRow}`;
 
+    // Period factor: proration for partial first/last months.
+    // Evaluates to 1 for full calendar months; fractional for boundary months.
+    const pfExpr = `IF(${pe}>=EDATE(${ps},1)-1,1,MAX(0,(${pe}-${ps}+1)/DAY(EOMONTH(${pe},0))))`;
+
     const freeRentActive = `AND(${cellMap.freeRentStart}<>"",${cellMap.freeRentEnd}<>"",${CD(ps)}>=${CD(cellMap.freeRentStart)},${CD(ps)}<=${CD(cellMap.freeRentEnd)})`;
     const fullAbatement = `AND(${cellMap.abatementStart}<>"",${cellMap.abatementEnd}<>"",${CD(ps)}>=${CD(cellMap.abatementStart)},${CD(pe)}<=${CD(cellMap.abatementEnd)})`;
     const boundaryAbatement = `AND(${cellMap.abatementStart}<>"",${cellMap.abatementEnd}<>"",${CD(ps)}>=${CD(cellMap.abatementStart)},${CD(ps)}<=${CD(cellMap.abatementEnd)},${CD(pe)}>${CD(cellMap.abatementEnd)})`;
@@ -306,7 +310,7 @@ function buildDataSection(exportModel, layout) {
       col: colByKey.baseRentApplied.index,
       row: worksheetRow,
       cell: formulaCell(
-        `IF(${freeRentActive},0,IF(${fullAbatement},MAX(0,${sbr}-${cellMap.abatementAmount}),IF(${boundaryAbatement},${sbr}*${cellMap.abatementPartialFactor},${sbr})))`,
+        `(IF(${freeRentActive},0,IF(${fullAbatement},MAX(0,${sbr}-${cellMap.abatementAmount}),IF(${boundaryAbatement},${sbr}*${cellMap.abatementPartialFactor},${sbr}))))*${pfExpr}`,
         row.baseRentApplied ?? 0,
         FMT.currency,
         nnnFill,
@@ -319,7 +323,7 @@ function buildDataSection(exportModel, layout) {
         col: colByKey.nnnAggregate.index,
         row: worksheetRow,
         cell: formulaCell(
-          `IF(${termGate},0,${cellMap.nnnAgg_year1}*(1+${cellMap.nnnAgg_escRate})^(${yearCol}${worksheetRow}-1))`,
+          `(IF(${termGate},0,${cellMap.nnnAgg_year1}*(1+${cellMap.nnnAgg_escRate})^(${yearCol}${worksheetRow}-1)))*${pfExpr}`,
           row.nnnAggregateAmount ?? 0,
           FMT.currency,
           nnnFill,
@@ -333,7 +337,7 @@ function buildDataSection(exportModel, layout) {
           col: column.index,
           row: worksheetRow,
           cell: formulaCell(
-            `IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1))`,
+            `(IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1)))*${pfExpr}`,
             row[category.amountField] ?? 0,
             FMT.currency,
             nnnFill,
@@ -350,7 +354,7 @@ function buildDataSection(exportModel, layout) {
         col: column.index,
         row: worksheetRow,
         cell: formulaCell(
-          `IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1))`,
+          `(IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1)))*${pfExpr}`,
           row[category.amountField] ?? 0,
           FMT.currency,
           nnnFill,

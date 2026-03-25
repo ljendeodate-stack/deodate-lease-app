@@ -517,6 +517,12 @@ function buildLedger(rows, assump, otLabels, columns, activeCategories, cellMap,
 
     const yearCol = colByKey.yearNum.letter;
 
+    // Period factor: proration for partial first/last months.
+    // Evaluates to 1 for full calendar months; fractional for boundary months.
+    const psCol  = colByKey.periodStart.letter;
+    const peCol  = colByKey.periodEnd.letter;
+    const pfExpr = `IF(${peCol}${r}>=EDATE(${psCol}${r},1)-1,1,MAX(0,(${peCol}${r}-${psCol}${r}+1)/DAY(EOMONTH(${peCol}${r},0))))`;
+
     // Scheduled Base Rent: formula referencing assumption cells
     sc(ws, colByKey.scheduledBaseRent.index, r, cFmla(
       `${cellMap.year1BaseRent}*(1+${cellMap.annualEscRate})^(${yearCol}${r}-1)`,
@@ -525,11 +531,11 @@ function buildLedger(rows, assump, otLabels, columns, activeCategories, cellMap,
       rowFill,
     ));
 
-    // Base Rent Applied: abatement formula
+    // Base Rent Applied: abatement formula * period factor
     const monthCol = colByKey.monthNum.letter;
     const sbrCol   = colByKey.scheduledBaseRent.letter;
     sc(ws, colByKey.baseRentApplied.index, r, cFmla(
-      `IF(${monthCol}${r}<=${cellMap.abatementMonths},0,IF(${monthCol}${r}=${cellMap.abatementMonths}+1,${sbrCol}${r}*${cellMap.abatementPartialFactor},${sbrCol}${r}))`,
+      `(IF(${monthCol}${r}<=${cellMap.abatementMonths},0,IF(${monthCol}${r}=${cellMap.abatementMonths}+1,${sbrCol}${r}*${cellMap.abatementPartialFactor},${sbrCol}${r})))*${pfExpr}`,
       row.baseRentApplied ?? 0,
       FMT.currency,
       nnnFill,
@@ -539,7 +545,7 @@ function buildLedger(rows, assump, otLabels, columns, activeCategories, cellMap,
     if (assump.nnnMode === 'aggregate' && colByKey.nnnAggregate) {
       // Single aggregate NNN column
       sc(ws, colByKey.nnnAggregate.index, r, cFmla(
-        `${cellMap.nnnAgg_year1}*(1+${cellMap.nnnAgg_escRate})^(${yearCol}${r}-1)`,
+        `(${cellMap.nnnAgg_year1}*(1+${cellMap.nnnAgg_escRate})^(${yearCol}${r}-1))*${pfExpr}`,
         row.nnnAggregateAmount ?? 0,
         FMT.currency,
         nnnFill,
@@ -552,7 +558,7 @@ function buildLedger(rows, assump, otLabels, columns, activeCategories, cellMap,
         const y1Cell  = cellMap[`${cat.key}_year1`];
         const escCell = cellMap[`${cat.key}_escRate`];
         sc(ws, nnnCol.index, r, cFmla(
-          `${y1Cell}*(1+${escCell})^(${yearCol}${r}-1)`,
+          `(${y1Cell}*(1+${escCell})^(${yearCol}${r}-1))*${pfExpr}`,
           row[cat.amountField] ?? 0,
           FMT.currency,
           nnnFill,
@@ -567,7 +573,7 @@ function buildLedger(rows, assump, otLabels, columns, activeCategories, cellMap,
       const y1Cell  = cellMap[`${cat.key}_year1`];
       const escCell = cellMap[`${cat.key}_escRate`];
       sc(ws, ocCol.index, r, cFmla(
-        `${y1Cell}*(1+${escCell})^(${yearCol}${r}-1)`,
+        `(${y1Cell}*(1+${escCell})^(${yearCol}${r}-1))*${pfExpr}`,
         row[cat.amountField] ?? 0,
         FMT.currency,
         nnnFill,

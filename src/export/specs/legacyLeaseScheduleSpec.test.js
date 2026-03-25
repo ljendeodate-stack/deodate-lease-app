@@ -4,6 +4,9 @@ import { renderLeaseScheduleWorksheet } from '../builders/renderLeaseScheduleWor
 import { buildExportModel } from '../model/buildExportModel.js';
 import { resolveLeaseScheduleLayout } from '../resolvers/resolveLeaseScheduleLayout.js';
 import { buildLegacyLeaseScheduleSpec } from './legacyLeaseScheduleSpec.js';
+import { calculateAllCharges } from '../../engine/calculator.js';
+import { expandPeriods } from '../../engine/expander.js';
+import { parseMDYStrict } from '../../engine/yearMonth.js';
 
 describe('buildLegacyLeaseScheduleSpec', () => {
   function buildWorksheet(rows, params, filename) {
@@ -50,8 +53,8 @@ describe('buildLegacyLeaseScheduleSpec', () => {
 
     // Period Start: EDATE formula from commencementDate
     expect(worksheet[`A${fdr}`].f).toBe(`IFERROR(EDATE(${layout.cellMap.commencementDate},0),0)`);
-    // Period End: EDATE+1 month - 1 day
-    expect(worksheet[`B${fdr}`].f).toBe(`IFERROR(EDATE(${layout.cellMap.commencementDate},1)-1,0)`);
+    // Period End: EDATE+1 month - 1 day, capped by expirationDate
+    expect(worksheet[`B${fdr}`].f).toBe(`IFERROR(MIN(EDATE(${layout.cellMap.commencementDate},1)-1,${layout.cellMap.expirationDate}),0)`);
     // Month #: ROW-based
     expect(worksheet[`C${fdr}`].f).toBe(`ROW()-${fdr - 1}`);
     // Year #: derived from Month #
@@ -409,5 +412,98 @@ describe('buildLegacyLeaseScheduleSpec', () => {
     expect(sfCell).toBeDefined();
     expect(sfCell.s.fill.fgColor.rgb).toBe('FFFACD'); // gentle yellow
     expect(sfCell.s.font.color.rgb).toBe('0000FF');   // blue input font
+  });
+
+  // ── Proration regression: 01/01/2023 → 01/15/2033 ───────────────────────────
+
+  describe('partial final-month proration — active worksheet', () => {
+    const COMMENCE = '01/01/2023';
+    const EXPIRE   = '01/15/2033';
+    const RENT     = 1000;
+
+    function buildProratedWorksheet() {
+      const periods = [{ periodStart: parseMDYStrict(COMMENCE), periodEnd: parseMDYStrict(EXPIRE), monthlyRent: RENT }];
+      const { rows: expanded } = expandPeriods(periods);
+      const engineParams = {
+        leaseName: 'Proration Regression',
+        nnnMode: 'individual',
+        squareFootage: 0,
+        abatementEndDate: null,
+        abatementPct: 0,
+        nnnAggregate: { year1: 0, escPct: 0 },
+        oneTimeItems: [],
+        charges: [],
+        cams: { year1: 200, escPct: 3 },
+      };
+      const processedRows = calculateAllCharges(expanded, engineParams);
+      const exportParams = {
+        leaseName: 'Proration Regression',
+        squareFootage: 0,
+        nnnMode: 'individual',
+        cams: { year1: 200, escPct: 3 },
+        oneTimeItems: [],
+      };
+      const model     = buildExportModel(processedRows, exportParams, 'proration-regression');
+      const layout    = resolveLeaseScheduleLayout(model);
+      const spec      = buildLegacyLeaseScheduleSpec(model, layout);
+      const worksheet = renderLeaseScheduleWorksheet(spec);
+      return { worksheet, layout, processedRows };
+    }
+
+    it('last row Period End formula is capped by expirationDate', () => {
+      const { worksheet, layout, processedRows } = buildProratedWorksheet();
+      const lastRow = processedRows.length;
+      const lastDataRow = layout.firstDataRow + lastRow - 1;
+      const formula = worksheet[`B${lastDataRow}`]?.f ?? '';
+      expect(formula).toContain(layout.cellMap.expirationDate);
+      expect(formula).toContain('MIN(');
+    });
+
+    it('last row Period End cached value is 01/15/2033 serial', () => {
+      const { worksheet, layout, processedRows } = buildProratedWorksheet();
+      const lastDataRow = layout.firstDataRow + processedRows.length - 1;
+      // Excel serial for 2033-01-15: days since 1900-01-01 (Excel epoch)
+      const cell = worksheet[`B${lastDataRow}`];
+      expect(cell).toBeDefined();
+      // Cached value must be the serial for Jan 15 2033, not Jan 31 2033
+      // Jan 31 2033 serial = 48700 (approx); Jan 15 2033 serial = 48684
+      // Verify it is NOT the natural month-end serial (last day of Jan 2033)
+      const naturalMonthEndSerial = worksheet[`B${lastDataRow - 1}`]?.v; // prev row ends on Dec 31 2032
+      // The last row's cached periodEnd must equal 2033-01-15 (not 2033-01-31)
+      // 2033-01-31 would be 16 days larger than 2033-01-15
+      expect(cell.v).toBeLessThan((naturalMonthEndSerial ?? 0) + 32);
+      // Specifically, it must resolve to the engine's periodEnd
+      const engineLastRow = processedRows[processedRows.length - 1];
+      // Convert YYYY-MM-DD to Date serial
+      const [y, m, d] = engineLastRow.periodEnd.split('-').map(Number);
+      const jsDate = new Date(y, m - 1, d);
+      const excelSerial = Math.round((jsDate - new Date(1899, 11, 30)) / 86400000);
+      expect(cell.v).toBe(excelSerial);
+    });
+
+    it('last row Base Rent Applied formula includes EOMONTH proration term', () => {
+      const { worksheet, layout, processedRows } = buildProratedWorksheet();
+      const lastDataRow = layout.firstDataRow + processedRows.length - 1;
+      const formula = worksheet[`F${lastDataRow}`]?.f ?? '';
+      expect(formula).toContain('EOMONTH');
+    });
+
+    it('last row CAMs formula includes EOMONTH proration term', () => {
+      const { worksheet, layout, processedRows } = buildProratedWorksheet();
+      const lastDataRow = layout.firstDataRow + processedRows.length - 1;
+      // CAMs is the first NNN column after F (Base Rent Applied)
+      const camsCol = layout.colByKey.cams?.letter ?? layout.nnnColumns?.[0]?.letter;
+      if (!camsCol) return; // skip if no cams column
+      const formula = worksheet[`${camsCol}${lastDataRow}`]?.f ?? '';
+      expect(formula).toContain('EOMONTH');
+    });
+
+    it('last row Base Rent Applied cached value ties to engine (483.87)', () => {
+      const { worksheet, layout, processedRows } = buildProratedWorksheet();
+      const lastDataRow = layout.firstDataRow + processedRows.length - 1;
+      const cell = worksheet[`F${lastDataRow}`];
+      const engineLastRow = processedRows[processedRows.length - 1];
+      expect(cell.v).toBeCloseTo(engineLastRow.baseRentApplied, 2);
+    });
   });
 });

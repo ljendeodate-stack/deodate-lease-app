@@ -23,12 +23,24 @@ export function scheduledBaseRent(reg, r) {
 }
 
 /**
- * F — Base Rent Applied: IF(C{r}<=$C$11,0,IF(C{r}=$C$11+1,E{r}*$C$12,E{r}))
+ * Period factor: proration for partial first/last months.
+ * @param {string} psLetter  Column letter for Period Start
+ * @param {string} peLetter  Column letter for Period End
+ * @param {number} r         1-based row number
  */
-export function baseRentApplied(reg, r) {
+export function periodFactor(psLetter, peLetter, r) {
+  return `IF(${peLetter}${r}>=EDATE(${psLetter}${r},1)-1,1,MAX(0,(${peLetter}${r}-${psLetter}${r}+1)/DAY(EOMONTH(${peLetter}${r},0))))`;
+}
+
+/**
+ * F — Base Rent Applied: (IF(C{r}<=$C$11,0,IF(C{r}=$C$11+1,E{r}*$C$12,E{r})))*pf
+ * @param {string} [pf]  Optional period-factor formula string to multiply in
+ */
+export function baseRentApplied(reg, r, pf) {
   const abatMonths = reg.abs('ASSUMP.fullAbatementMonths');
   const partFactor = reg.abs('ASSUMP.abatementPartialFactor');
-  return `IF(C${r}<=${abatMonths},0,IF(C${r}=${abatMonths}+1,E${r}*${partFactor},E${r}))`;
+  const core = `IF(C${r}<=${abatMonths},0,IF(C${r}=${abatMonths}+1,E${r}*${partFactor},E${r}))`;
+  return pf ? `(${core})*${pf}` : core;
 }
 
 /**
@@ -40,11 +52,13 @@ export function abatementAmount(_reg, r) {
 
 /**
  * Dynamic charge column: =$C${y1Row}*(1+$C${escRow})^(D{r}-1)
+ * @param {string} [pf]  Optional period-factor formula string to multiply in
  */
-export function chargeAmount(reg, r, chargeKey) {
+export function chargeAmount(reg, r, chargeKey, pf) {
   const y1  = reg.abs(`ASSUMP.charge.${chargeKey}.year1`);
   const esc = reg.abs(`ASSUMP.charge.${chargeKey}.escRate`);
-  return `${y1}*(1+${esc})^(D${r}-1)`;
+  const core = `${y1}*(1+${esc})^(D${r}-1)`;
+  return pf ? `(${core})*${pf}` : core;
 }
 
 /**

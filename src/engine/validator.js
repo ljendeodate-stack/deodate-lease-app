@@ -83,7 +83,7 @@ export function validateParams(params, rows) {
       errors.push({ field: 'abatementEndDate', message: 'Abatement end date must be in MM/DD/YYYY format.', severity: 'error' });
     } else if (rows.length > 0) {
       const leaseStart = parseISODate(rows[0].date);
-      const leaseEnd = parseISODate(rows[rows.length - 1].date);
+      const leaseEnd = parseISODate(rows[rows.length - 1].periodEnd ?? rows[rows.length - 1].date);
       if (leaseStart && abDate < leaseStart) {
         warnings.push({ field: 'abatementEndDate', message: 'Abatement end date falls before the lease start date.', severity: 'warning' });
       }
@@ -120,7 +120,7 @@ export function validateParams(params, rows) {
 
   // --- NNN charge categories ---
   const leaseStart = rows.length > 0 ? parseISODate(rows[0].date) : null;
-  const leaseEnd = rows.length > 0 ? parseISODate(rows[rows.length - 1].date) : null;
+  const leaseEnd = rows.length > 0 ? parseISODate(rows[rows.length - 1].periodEnd ?? rows[rows.length - 1].date) : null;
 
   for (const entry of getChargeValidationEntries(params)) {
     const catParams = entry.value;
