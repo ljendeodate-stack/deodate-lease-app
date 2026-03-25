@@ -120,7 +120,11 @@ export function readScenarioAnalysisWorkbook(workbookBytes, processedRows) {
       snapshotBaseUsesApproximateLookup: /XLOOKUP\(.+,-1\)/i.test(readCell(scenarioSheet, 'F16').formula ?? ''),
       snapshotAdditionalRentUsesApproximateLookup: /XLOOKUP\(.+,-1\)/i.test(readCell(scenarioSheet, 'F18').formula ?? ''),
       additionalRentTargetsTotalNnn: /'Lease Schedule'!\$[A-Z]+\$\d+:\$[A-Z]+\$\d+/i.test(readCell(scenarioSheet, 'F18').formula ?? ''),
-      analysisDateDefaultsToSchedule: /^'Lease Schedule'!A\d+$/i.test(effectiveDateCell.formula ?? ''),
+      analysisDateDefaultsToSchedule: /^'Lease Schedule'!\$C\$\d+$/i.test(effectiveDateCell.formula ?? ''),
+      // Exit row 35: each column must apply its buyout % — =$F$16*(1-X34), not a flat copy of F35
+      exitBaseRentFormulasApplyDiscount: ['F35', 'G35', 'H35', 'I35', 'J35'].every((addr) =>
+        /\$F\$16\*\(1-[A-Z]\d+\)/i.test(readCell(scenarioSheet, addr).formula ?? '')
+      ),
     },
     styleSignals: {
       analysisDateUsesBlueInputFont:

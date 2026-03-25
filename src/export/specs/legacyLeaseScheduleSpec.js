@@ -27,7 +27,7 @@ export function buildLegacyLeaseScheduleSpec(exportModel, layout) {
     ],
     sections: {
       title: buildTitleSection(exportModel.filename, layout.lastCol),
-      assumptions: buildAssumptionsSection(layout.assumptionEntries),
+      assumptions: buildAssumptionsSection(layout.assumptionEntries, layout.cellMap, layout),
       header: buildHeaderSection(exportModel.columns, layout.headerRow),
       data: buildDataSection(exportModel, layout),
       totals: buildTotalsSection(exportModel.columns, layout),
@@ -98,7 +98,7 @@ function buildTitleSection(filename, lastCol) {
   };
 }
 
-function buildAssumptionsSection(assumptionEntries) {
+function buildAssumptionsSection(assumptionEntries, cellMap, layout = null) {
   const labelStyle = {
     font:      { ...FONT_B, color: { rgb: '1F3864' } },
     fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
@@ -117,7 +117,7 @@ function buildAssumptionsSection(assumptionEntries) {
 
   const textValueStyle = {
     font:      { name: 'Calibri', sz: 11, color: { rgb: C.fcInput } },
-    fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
+    fill:      { patternType: 'solid', fgColor: { rgb: C.inputFill } },
     alignment: { horizontal: 'left', vertical: 'middle' },
     border:    ASSUMPTION_BORDER,
     numFmt:    FMT.text,
@@ -135,12 +135,26 @@ function buildAssumptionsSection(assumptionEntries) {
       continue;
     }
 
+    if (entry.kind === 'computed') {
+      const formula = entry.formulaFn ? entry.formulaFn(cellMap, layout) : '0';
+      const computedStyle = {
+        font:      { name: 'Calibri', sz: 11, color: { rgb: C.fcCalc } },
+        fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
+        alignment: { horizontal: 'right', vertical: 'middle' },
+        border:    ASSUMPTION_BORDER,
+        numFmt:    FMT[entry.format] ?? FMT.int,
+      };
+      cells.push({ col: 1, row: r, cell: { t: 's', v: entry.label, s: labelStyle } });
+      cells.push({ col: 2, row: r, cell: { t: 'n', v: entry.value ?? 0, f: formula, s: computedStyle } });
+      continue;
+    }
+
     if (entry.kind === 'ot_item') {
       // Non-recurring charge row: col B = label, col C = date, col D = amount
       cells.push({ col: 1, row: r, cell: { t: 's', v: entry.label || '', s: labelStyle } });
-      const dc = dateCell(entry.otDate, C.white);
+      const dc = dateCell(entry.otDate, C.inputFill, C.fcInput);
       cells.push({ col: 2, row: r, cell: { ...dc, s: { ...dc.s, border: ASSUMPTION_BORDER } } });
-      const ac = inputCell(entry.value ?? 0, FMT.currency, C.white);
+      const ac = inputCell(entry.value ?? 0, FMT.currency, C.inputFill);
       cells.push({ col: 3, row: r, cell: { ...ac, s: { ...ac.s, border: ASSUMPTION_BORDER } } });
       continue;
     }
@@ -151,11 +165,11 @@ function buildAssumptionsSection(assumptionEntries) {
     // Value cell (col C)
     let valueCell;
     if (entry.kind === 'date') {
-      valueCell = dateCell(entry.value, C.white);
+      valueCell = dateCell(entry.value, C.inputFill, C.fcInput);
     } else if (entry.kind === 'text') {
       valueCell = { t: 's', v: String(entry.value ?? ''), s: textValueStyle };
     } else {
-      valueCell = inputCell(entry.value, FMT[entry.format], C.white);
+      valueCell = inputCell(entry.value, FMT[entry.format], C.inputFill);
     }
     cells.push({ col: 2, row: r, cell: { ...valueCell, s: { ...valueCell.s, border: ASSUMPTION_BORDER } } });
   }
@@ -173,6 +187,14 @@ function buildHeaderSection(columns, headerRow) {
   };
 }
 
+/**
+ * COERCE_DATE(ref) — defensive date coercion for formula comparisons.
+ * Returns IFERROR(DATEVALUE(ref),ref) so formulas survive text-form dates.
+ */
+function CD(ref) {
+  return `IFERROR(DATEVALUE(${ref}),${ref})`;
+}
+
 function buildDataSection(exportModel, layout) {
   const cells = [];
   const { assumptions, rows } = exportModel;
@@ -181,7 +203,9 @@ function buildDataSection(exportModel, layout) {
     colByKey,
     nnnColumns,
     otherChargeColumns,
-    otColumns,
+    nrcColumn,
+    nrcDateRange,
+    nrcAmountRange,
     firstDataRow,
     lastDataRow,
   } = layout;
@@ -196,43 +220,106 @@ function buildDataSection(exportModel, layout) {
     const leaseMonth = row.leaseMonth ?? row['Month #'] ?? 0;
     const leaseYear = row.leaseYear ?? row['Year #'] ?? 0;
 
-    cells.push({ col: colByKey.periodStart.index, row: worksheetRow, cell: dateCell(row.periodStart, rowFill) });
-    cells.push({ col: colByKey.periodEnd.index, row: worksheetRow, cell: dateCell(row.periodEnd, rowFill) });
-    cells.push({ col: colByKey.monthNum.index, row: worksheetRow, cell: intCell(leaseMonth, rowFill) });
-    cells.push({ col: colByKey.yearNum.index, row: worksheetRow, cell: intCell(leaseYear, rowFill) });
+    // Period Start: dynamic from Lease Commencement Date via EDATE
+    cells.push({
+      col: colByKey.periodStart.index,
+      row: worksheetRow,
+      cell: {
+        t: 'n',
+        v: toSerial(row.periodStart) ?? 0,
+        f: `IFERROR(EDATE(${cellMap.commencementDate},${index}),0)`,
+        s: ds(rowFill, FMT.date, { align: 'center', fontColor: C.fcCalc }),
+      },
+    });
+
+    // Period End: dynamic — last day of the nth month from commencement
+    cells.push({
+      col: colByKey.periodEnd.index,
+      row: worksheetRow,
+      cell: {
+        t: 'n',
+        v: toSerial(row.periodEnd) ?? 0,
+        f: `IFERROR(EDATE(${cellMap.commencementDate},${index + 1})-1,0)`,
+        s: ds(rowFill, FMT.date, { align: 'center', fontColor: C.fcCalc }),
+      },
+    });
+
+    // Month #: dynamic from row position
+    cells.push({
+      col: colByKey.monthNum.index,
+      row: worksheetRow,
+      cell: {
+        t: 'n',
+        v: leaseMonth ?? 0,
+        f: `ROW()-${firstDataRow - 1}`,
+        s: ds(rowFill, FMT.int, { align: 'center', fontColor: C.fcCalc }),
+      },
+    });
 
     const yearCol = colByKey.yearNum.letter;
     const monthCol = colByKey.monthNum.letter;
     const scheduledBaseRentCol = colByKey.scheduledBaseRent.letter;
+    const periodStartCol = colByKey.periodStart.letter;
+    const periodEndCol = colByKey.periodEnd.letter;
 
+    // Year #: dynamic from Month #
+    cells.push({
+      col: colByKey.yearNum.index,
+      row: worksheetRow,
+      cell: {
+        t: 'n',
+        v: leaseYear ?? 0,
+        f: `INT((${monthCol}${worksheetRow}-1)/12)+1`,
+        s: ds(rowFill, FMT.int, { align: 'center', fontColor: C.fcCalc }),
+      },
+    });
+
+    // Schedule termination gate: zero out rows beyond total lease term
+    const termGate = `AND(${cellMap.totalLeaseTerm}>0,${monthCol}${worksheetRow}>${cellMap.totalLeaseTerm})`;
+
+    // Rent commencement gate (§6.3): suppress base rent before rentCommencementDate
+    const rentCommGate = `AND(${cellMap.rentCommencementDate}<>"",${CD(`${periodEndCol}${worksheetRow}`)}<${CD(cellMap.rentCommencementDate)})`;
+
+    // Scheduled Base Rent: with termination gate + rent commencement gate
     cells.push({
       col: colByKey.scheduledBaseRent.index,
       row: worksheetRow,
       cell: formulaCell(
-        `${cellMap.year1BaseRent}*(1+${cellMap.annualEscRate})^(${yearCol}${worksheetRow}-1)`,
+        `IF(${termGate},0,IF(${rentCommGate},0,${cellMap.year1BaseRent}*(1+${cellMap.annualEscRate})^(${yearCol}${worksheetRow}-1)))`,
         row.scheduledBaseRent ?? 0,
         FMT.currency,
         rowFill,
       ),
     });
 
+    // Base Rent Applied (§6.2): Free Rent > Full Abatement > Boundary Abatement > Full Rent
+    // All date comparisons use defensive COERCE_DATE
+    const ps = `${periodStartCol}${worksheetRow}`;
+    const pe = `${periodEndCol}${worksheetRow}`;
+    const sbr = `${scheduledBaseRentCol}${worksheetRow}`;
+
+    const freeRentActive = `AND(${cellMap.freeRentStart}<>"",${cellMap.freeRentEnd}<>"",${CD(ps)}>=${CD(cellMap.freeRentStart)},${CD(ps)}<=${CD(cellMap.freeRentEnd)})`;
+    const fullAbatement = `AND(${cellMap.abatementStart}<>"",${cellMap.abatementEnd}<>"",${CD(ps)}>=${CD(cellMap.abatementStart)},${CD(pe)}<=${CD(cellMap.abatementEnd)})`;
+    const boundaryAbatement = `AND(${cellMap.abatementStart}<>"",${cellMap.abatementEnd}<>"",${CD(ps)}>=${CD(cellMap.abatementStart)},${CD(ps)}<=${CD(cellMap.abatementEnd)},${CD(pe)}>${CD(cellMap.abatementEnd)})`;
+
     cells.push({
       col: colByKey.baseRentApplied.index,
       row: worksheetRow,
       cell: formulaCell(
-        `IF(${monthCol}${worksheetRow}<=${cellMap.abatementMonths},0,IF(${monthCol}${worksheetRow}=${cellMap.abatementMonths}+1,${scheduledBaseRentCol}${worksheetRow}*${cellMap.abatementPartialFactor},${scheduledBaseRentCol}${worksheetRow}))`,
+        `IF(${freeRentActive},0,IF(${fullAbatement},MAX(0,${sbr}-${cellMap.abatementAmount}),IF(${boundaryAbatement},${sbr}*${cellMap.abatementPartialFactor},${sbr})))`,
         row.baseRentApplied ?? 0,
         FMT.currency,
         nnnFill,
       ),
     });
 
+    // NNN charge columns
     if (assumptions.nnnMode === 'aggregate' && colByKey.nnnAggregate) {
       cells.push({
         col: colByKey.nnnAggregate.index,
         row: worksheetRow,
         cell: formulaCell(
-          `${cellMap.nnnAgg_year1}*(1+${cellMap.nnnAgg_escRate})^(${yearCol}${worksheetRow}-1)`,
+          `IF(${termGate},0,${cellMap.nnnAgg_year1}*(1+${cellMap.nnnAgg_escRate})^(${yearCol}${worksheetRow}-1))`,
           row.nnnAggregateAmount ?? 0,
           FMT.currency,
           nnnFill,
@@ -246,7 +333,7 @@ function buildDataSection(exportModel, layout) {
           col: column.index,
           row: worksheetRow,
           cell: formulaCell(
-            `${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1)`,
+            `IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1))`,
             row[category.amountField] ?? 0,
             FMT.currency,
             nnnFill,
@@ -255,6 +342,7 @@ function buildDataSection(exportModel, layout) {
       }
     }
 
+    // Other charge columns (security, otherItems, etc.)
     for (const column of otherChargeColumns) {
       const category = column.catDef;
       if (!category) continue;
@@ -262,7 +350,7 @@ function buildDataSection(exportModel, layout) {
         col: column.index,
         row: worksheetRow,
         cell: formulaCell(
-          `${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1)`,
+          `IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1))`,
           row[category.amountField] ?? 0,
           FMT.currency,
           nnnFill,
@@ -270,6 +358,7 @@ function buildDataSection(exportModel, layout) {
       });
     }
 
+    // Total NNN
     if (nnnColumns.length > 0) {
       const nnnFormula = nnnColumns.map((column) => `${column.letter}${worksheetRow}`).join('+');
       const nnnFallback = nnnColumns.reduce((sum, column) => {
@@ -290,28 +379,38 @@ function buildDataSection(exportModel, layout) {
       });
     }
 
-    const oneTimeAmounts = row.oneTimeItemAmounts ?? {};
-    for (const column of otColumns) {
+    // Non-Recurring Charges (§6.1): dynamic SUMPRODUCT from NRC input table
+    if (nrcColumn && nrcDateRange && nrcAmountRange) {
+      const nrcFallback = Object.values(row.oneTimeItemAmounts ?? {}).reduce(
+        (sum, amt) => sum + (Number(amt) || 0), 0,
+      );
       cells.push({
-        col: column.index,
+        col: nrcColumn.index,
         row: worksheetRow,
-        cell: inputCell(Number(oneTimeAmounts[column.otLabel] ?? 0), FMT.currency, rowFill),
+        cell: formulaCell(
+          `SUMPRODUCT((${nrcDateRange}<>"")*(${CD(nrcDateRange)}>=${CD(`${periodStartCol}${worksheetRow}`)})*(${CD(nrcDateRange)}<=${CD(`${periodEndCol}${worksheetRow}`)})*${nrcAmountRange})`,
+          nrcFallback,
+          FMT.currency,
+          rowFill,
+        ),
       });
     }
 
+    // Total Monthly Obligation (§6.4): baseRentApplied + totalNNN + otherCharges + nonRecurringCharges
+    const nrcTerm = nrcColumn ? `+${nrcColumn.letter}${worksheetRow}` : '';
     const otherTerms = otherChargeColumns.map((column) => `+${column.letter}${worksheetRow}`).join('');
-    const otTerms = otColumns.map((column) => `+${column.letter}${worksheetRow}`).join('');
     cells.push({
       col: colByKey.totalMonthly.index,
       row: worksheetRow,
       cell: formulaCell(
-        `${colByKey.baseRentApplied.letter}${worksheetRow}+${colByKey.totalNNN.letter}${worksheetRow}${otherTerms}${otTerms}`,
+        `${colByKey.baseRentApplied.letter}${worksheetRow}+${colByKey.totalNNN.letter}${worksheetRow}${otherTerms}${nrcTerm}`,
         row.totalMonthlyObligation ?? 0,
         FMT.currency,
         rowFill,
       ),
     });
 
+    // Effective $/SF (§6.5)
     cells.push({
       col: colByKey.effSF.index,
       row: worksheetRow,
@@ -323,6 +422,7 @@ function buildDataSection(exportModel, layout) {
       ),
     });
 
+    // Remaining balances (§6.6)
     cells.push({
       col: colByKey.obligRem.index,
       row: worksheetRow,
@@ -356,9 +456,10 @@ function buildDataSection(exportModel, layout) {
       ),
     });
 
+    // Other Charges Remaining (§6.6): includes otherCharge cols + NRC column
     const otherRemainingParts = [
       ...otherChargeColumns.map((column) => `SUM(${column.letter}${worksheetRow}:${column.letter}${lastDataRow})`),
-      ...otColumns.map((column) => `SUM(${column.letter}${worksheetRow}:${column.letter}${lastDataRow})`),
+      ...(nrcColumn ? [`SUM(${nrcColumn.letter}${worksheetRow}:${nrcColumn.letter}${lastDataRow})`] : []),
     ];
 
     cells.push({
@@ -418,13 +519,14 @@ function buildFootnotesSection(layout) {
   const otherColumnNames = layout.otherChargeColumns.map((column) => `${column.header} (${column.letter})`).join(' + ');
   const totalMonthlyLabel = `col ${layout.colByKey.totalMonthly.letter}`;
   const totalNnnLabel = layout.colByKey.totalNNN.letter;
+  const nrcLabel = layout.nrcColumn ? ` + Non-Recurring Charges (${layout.nrcColumn.letter})` : '';
 
   const notes = [
     `① Total NNN (col ${totalNnnLabel}) = ${nnnColumnNames || 'N/A'}. Other Charges (${otherColumnNames || 'none'}) are NOT included in NNN.`,
-    `② Total Monthly Obligation (${totalMonthlyLabel}) = Base Rent Applied + Total NNN + Other Charges${layout.otColumns.length > 0 ? ' + one-time charge columns (blue)' : ''}.`,
+    `② Total Monthly Obligation (${totalMonthlyLabel}) = Base Rent Applied + Total NNN${otherColumnNames ? ' + Other Charges' : ''}${nrcLabel}.`,
     '③ Remaining: Obligation = SUM of future Total Monthly Obligation. Base Rent / NNN / Other Charges = tail-sums of their respective columns.',
-    '④ NNN escalation: Year 1 Monthly Amounts in assumption cells are compounded annually by their escalation rates. Charge columns are live formulas - edit assumptions to recalculate.',
-    '⑤ Color guide: Blue text = direct user inputs (incl. one-time charge event cells) | Black text = formula outputs | Red-pink fill = NNN/obligation columns | Amber rows = abatement periods.',
+    '④ NNN escalation: Year 1 Monthly Amounts in assumption cells are compounded annually by their escalation rates. Charge columns are live formulas — edit assumptions to recalculate.',
+    '⑤ Color guide: Yellow fill + blue text = user-editable inputs | Black text = formula outputs | Red-pink fill = NNN/obligation columns | Amber rows = abatement periods.',
   ];
 
   return {
@@ -438,27 +540,38 @@ function buildFootnotesSection(layout) {
 
 function toSerial(isoDate) {
   if (!isoDate) return null;
-  const parts = String(isoDate).split('-');
-  if (parts.length !== 3) return null;
-  const value = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  const s = String(isoDate);
+  let yr, mo, dy;
+  // Primary: YYYY-MM-DD
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    [, yr, mo, dy] = iso;
+  } else {
+    // Fallback: MM/DD/YYYY or M/D/YYYY (prevents text-cell fallback if normalisation was skipped)
+    const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!mdy) return null;
+    [, mo, dy, yr] = mdy;
+  }
+  const value = new Date(Number(yr), Number(mo) - 1, Number(dy));
   const epoch = new Date(1899, 11, 30);
   return Math.round((value.getTime() - epoch.getTime()) / 86400000);
 }
 
-function dateCell(isoDate, fill) {
+function dateCell(isoDate, fill, fontColor = C.fcCalc) {
   const serial = toSerial(isoDate);
   if (serial === null) {
+    // Always use date format so user-typed dates are stored as serials, not text.
     return {
       t: 's',
       v: isoDate ?? '',
-      s: ds(fill, FMT.text, { align: 'center', fontColor: C.fcCalc }),
+      s: ds(fill, FMT.date, { align: 'center', fontColor }),
     };
   }
 
   return {
     t: 'n',
     v: serial,
-    s: ds(fill, FMT.date, { align: 'center', fontColor: C.fcCalc }),
+    s: ds(fill, FMT.date, { align: 'center', fontColor }),
   };
 }
 

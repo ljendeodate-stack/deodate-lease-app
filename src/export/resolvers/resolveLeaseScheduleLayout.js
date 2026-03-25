@@ -8,6 +8,7 @@ export function resolveLeaseScheduleLayout(exportModel) {
   const assumptionStartRow = 5;
   const assumptionLabelCol = 1;
   const assumptionValueCol = 2;
+  const assumptionAmountCol = 3; // col D for NRC amounts
 
   const assumptionEntries = exportModel.assumptionEntries.map((entry, index) => {
     const row = assumptionStartRow + index;
@@ -15,6 +16,7 @@ export function resolveLeaseScheduleLayout(exportModel) {
       ...entry,
       row,
       address: `$C$${row}`,
+      amountAddress: `$D$${row}`, // NRC amount column
     };
   });
 
@@ -34,16 +36,28 @@ export function resolveLeaseScheduleLayout(exportModel) {
   const noteRow = totalsRow + 2;
   const lastCol = exportModel.columns[exportModel.columns.length - 1]?.index ?? 0;
 
+  // NRC input table ranges — OT entries have kind === 'ot_item'
+  const otEntries = assumptionEntries.filter((e) => e.kind === 'ot_item');
+  const nrcDateRange = otEntries.length > 0
+    ? `$C$${otEntries[0].row}:$C$${otEntries[otEntries.length - 1].row}`
+    : null;
+  const nrcAmountRange = otEntries.length > 0
+    ? `$D$${otEntries[0].row}:$D$${otEntries[otEntries.length - 1].row}`
+    : null;
+
   return {
     assumptionStartRow,
     assumptionLabelCol,
     assumptionValueCol,
+    assumptionAmountCol,
     assumptionEntries,
     cellMap,
     colByKey,
     nnnColumns: exportModel.columns.filter((column) => column.group === 'nnn'),
     otherChargeColumns: exportModel.columns.filter((column) => column.group === 'otherCharge'),
-    otColumns: exportModel.columns.filter((column) => column.group === 'oneTime'),
+    nrcColumn: exportModel.columns.find((column) => column.group === 'nrc') ?? null,
+    nrcDateRange,
+    nrcAmountRange,
     assumptionLastRow,
     headerRow,
     firstDataRow,

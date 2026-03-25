@@ -193,16 +193,13 @@ export function buildColumnLayout(activeCategories, otLabels, nnnMode) {
     group: 'totalNNN',
   });
 
-  // --- One-time item columns (dynamic) ---
-  for (const lbl of otLabels) {
-    columns.push({
-      key:     `ot_${lbl}`,
-      header:  lbl,
-      width:   22,
-      group:   'oneTime',
-      otLabel: lbl,
-    });
-  }
+  // --- Non-Recurring Charges (single combined column) ---
+  columns.push({
+    key:    'nonRecurringCharges',
+    header: 'Non-Recurring\nCharges',
+    width:  20,
+    group:  'nrc',
+  });
 
   // --- Tail columns (always present) ---
   columns.push(

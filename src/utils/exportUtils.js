@@ -1104,7 +1104,7 @@ function pFmla(formula, fallback, fmt, fill = C.white) {
 // ---------------------------------------------------------------------------
 
 function writeRenegotiationPanel(ws, cr, LS = '') {
-  const { TMO, BRENT, SBRENT, TNNN, LAST, FDR } = cr;
+  const { TMO, BRENT, SBRENT, TNNN, LAST, FDR, SF_ADDR } = cr;
   const AR  = `${LS}$A$${FDR}:$A$${LAST}`;
   // Dynamic column references — resolved from the actual Lease Schedule layout
   const BR  = `${LS}$${BRENT}$${FDR}:$${BRENT}$${LAST}`;   // Base Rent Applied (FV/NPV discount)
@@ -1126,7 +1126,8 @@ function writeRenegotiationPanel(ws, cr, LS = '') {
   const fvTier  = (discountCell) => `(${fvBase})-${discountCell}*(${fvBrent})`;
   const npvTier = (discountCell) => `(${npvBase})-${discountCell}*(${npvBrent})`;
 
-  const SF = `${LS}$C$5`;
+  // §8.1: $/SF resolves from the shared squareFootage assumption
+  const SF = `${LS}${SF_ADDR}`;
 
   const dateCell = (f) => ({
     t: 'n', v: 0, f,
@@ -1271,12 +1272,13 @@ function writeRenegotiationPanel(ws, cr, LS = '') {
   sc(ws, 7, 29, pFmla(`(${fullTMO})-H15*(${fullBRENT})`, 0, FMT.currency));
   sc(ws, 8, 29, pFmla(`(${fullTMO})-I15*(${fullBRENT})`, 0, FMT.currency));
 
-  // Row 30: Cross-check NNN after discount
-  sc(ws, 4, 30, pRowLbl('Cross-check: NNN after discount'));
-  sc(ws, 5, 30, pFmla('F18*(1-F15)', 0, FMT.currency));
-  sc(ws, 6, 30, pFmla('F18*(1-G15)', 0, FMT.currency));
-  sc(ws, 7, 30, pFmla('F18*(1-H15)', 0, FMT.currency));
-  sc(ws, 8, 30, pFmla('F18*(1-I15)', 0, FMT.currency));
+  // Row 30: §8.3 NNN cross-check — undiscounted future sum of totalNNN, identical across all columns
+  const nnnCrossCheck = `SUMPRODUCT((${AR}>=$I$5)*${NR})`;
+  sc(ws, 4, 30, pRowLbl('Cross-check: Future NNN'));
+  sc(ws, 5, 30, pFmla(nnnCrossCheck, 0, FMT.currency));
+  sc(ws, 6, 30, pFmla(nnnCrossCheck, 0, FMT.currency));
+  sc(ws, 7, 30, pFmla(nnnCrossCheck, 0, FMT.currency));
+  sc(ws, 8, 30, pFmla(nnnCrossCheck, 0, FMT.currency));
 }
 
 // ---------------------------------------------------------------------------
@@ -1284,8 +1286,8 @@ function writeRenegotiationPanel(ws, cr, LS = '') {
 // ---------------------------------------------------------------------------
 
 function writeExitPanel(ws, cr, LS = '') {
-  const { TMO, BRENT, LAST, FDR } = cr;
-  const SF = `${LS}$C$5`;
+  const { TMO, BRENT, LAST, FDR, SF_ADDR } = cr;
+  const SF = `${LS}${SF_ADDR}`;
 
   const dateCell = (f) => ({
     t: 'n', v: 0, f,
@@ -1326,10 +1328,12 @@ function writeExitPanel(ws, cr, LS = '') {
   sc(ws, 4, 34, pRowLbl('% Buyout'));
   [5, 6, 7, 8, 9].forEach((c, i) => sc(ws, c, 34, pPct([0, 0.2, 0.3, 0.4, 0.5][i])));
 
-  // Row 35: Monthly Base Rent (references renegotiation F16)
+  // Row 35: Monthly Base Rent = $F$16 × (1 − buyout%) — same discount pattern as Renegotiation row 16
   sc(ws, 4, 35, pRowLbl('Monthly Base Rent'));
-  sc(ws, 5, 35, pFmla('F16', 0, FMT.currency));
-  [6, 7, 8, 9].forEach((c) => sc(ws, c, 35, pFmla('F35', 0, FMT.currency)));
+  [5, 6, 7, 8, 9].forEach((c, i) => {
+    const col_ = ['F', 'G', 'H', 'I', 'J'][i];
+    sc(ws, c, 35, pFmla(`$F$16*(1-${col_}34)`, 0, FMT.currency));
+  });
 
   // Row 36: Base $/PSF
   sc(ws, 4, 36, pRowLbl('Base/$PSF'));
@@ -1441,7 +1445,7 @@ function writeExitPanel(ws, cr, LS = '') {
 // Sheet 4 — Scenario Analysis
 // ===========================================================================
 
-function buildScenarioSheet(rows, otLabels, columns, firstDataRow) {
+function buildScenarioSheet(rows, otLabels, columns, firstDataRow, cellMap) {
   const ws = {};
   ws['!merges'] = [];
 
@@ -1474,6 +1478,9 @@ function buildScenarioSheet(rows, otLabels, columns, firstDataRow) {
 
   const LS = "'Lease Schedule'!";
 
+  // §8.1: Resolve SF from the shared assumption cell, not a hardcoded position
+  const sfAddr = cellMap?.squareFootage ?? '$C$7';
+
   // Title (row 1, col E — merged E1:J1)
   sc(ws, 4, 1, {
     t: 's', v: 'DEODATE — Scenario Analysis',
@@ -1496,7 +1503,7 @@ function buildScenarioSheet(rows, otLabels, columns, firstDataRow) {
   }
   ws['!merges'].push({ s: { r: 0, c: 4 }, e: { r: 0, c: 9 } });
 
-  // Analysis date input — H5 label, I5 value (defaults to first schedule date)
+  // §7: Analysis date input — I5 resolves to the shared analysisDate assumption
   sc(ws, 7, 5, {
     t: 's', v: 'Effective Date of Analysis:',
     s: {
@@ -1507,13 +1514,18 @@ function buildScenarioSheet(rows, otLabels, columns, firstDataRow) {
       numFmt:    FMT.text,
     },
   });
+  const analysisDateAddr = cellMap?.effectiveAnalysisDate ?? `A${FDR}`;
   const defaultAnalysisDate = rows[0]?.periodStart ?? rows[0]?.date ?? null;
-  sc(ws, 8, 5, cFmlaInput(
-    `${LS}A${FDR}`,
-    toSerial(defaultAnalysisDate),
-    FMT.date,
-    C.white,
-  ));  // I5 defaults to the first valid schedule date but remains user-overridable
+  // §11: gentle yellow fill + blue input font for editable date
+  sc(ws, 8, 5, {
+    t: 'n',
+    v: toSerial(defaultAnalysisDate) ?? 0,
+    f: `${LS}${analysisDateAddr}`,
+    s: ds('FFFACD', FMT.date, { fontColor: C.fcInput }),
+  });  // I5 resolves from the shared analysisDate assumption — user-overridable
+
+  // Pass SF address through colRefs so panels use the semantic assumption
+  colRefs.SF_ADDR = sfAddr;
 
   // Scenario params + panel blocks
   writeScenarioParams(ws);
@@ -1570,7 +1582,7 @@ export function buildXLSXWorkbook(rows, params = {}, filename = 'lease-schedule'
   );
   XLSX.utils.book_append_sheet(
     wb,
-    buildScenarioSheet(rows, exportModel.otLabels, exportModel.columns, leaseLayout.firstDataRow),
+    buildScenarioSheet(rows, exportModel.otLabels, exportModel.columns, leaseLayout.firstDataRow, leaseLayout.cellMap),
     'Scenario Analysis',
   );
 

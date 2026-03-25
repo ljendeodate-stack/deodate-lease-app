@@ -20,7 +20,7 @@ describe('resolveLeaseScheduleLayout', () => {
         totalBaseRentRemaining: 10000,
         totalNNNRemaining: 1200,
         totalOtherChargesRemaining: 250,
-        oneTimeItemAmounts: { 'Broker Fee': 0 },
+        oneTimeItemAmounts: {},
       },
       {
         periodStart: '2026-02-01',
@@ -36,7 +36,7 @@ describe('resolveLeaseScheduleLayout', () => {
         totalBaseRentRemaining: 10000,
         totalNNNRemaining: 1200,
         totalOtherChargesRemaining: 750,
-        oneTimeItemAmounts: { 'Broker Fee': 500 },
+        oneTimeItemAmounts: {},
       },
     ];
 
@@ -51,29 +51,56 @@ describe('resolveLeaseScheduleLayout', () => {
     const model = buildExportModel(rows, params, 'spec-check');
     const layout = resolveLeaseScheduleLayout(model);
 
-    // Six-section assumptions block: 7+5+5+5+3+2 = 27 entries (heading + leaseName + squareFootage
-    // + commencementDate + expirationDate + rentCommencementDate + effectiveAnalysisDate |
-    // heading + nnnMode + year1BaseRent + cams_year1 + security_year1 |
-    // heading + annualEscRate + anniversaryMonth + cams_escRate + security_escRate |
-    // heading + abatementMonths + abatementEndDate + abatementPct + abatementPartialFactor |
-    // heading + freeRentMonths + freeRentEndDate |
-    // heading + "(none)")
-    expect(layout.assumptionEntries).toHaveLength(27);
+    // Six-section assumptions block with 11 NRC slots:
+    // Section 1 (11): heading + leaseName + squareFootage + commencementDate + expirationDate +
+    //   rentCommencementDate + effectiveAnalysisDate + totalLeaseTerm + effectiveMonth +
+    //   monthsRemaining + monthsUntilNextEsc
+    // Section 2 (5): heading + nnnMode + year1BaseRent + cams_year1 + security_year1
+    // Section 3 (5): heading + annualEscRate + anniversaryMonth + cams_escRate + security_escRate
+    // Section 4 (8): heading + abatementStart + abatementEnd + abatementAmount + abatementMonths +
+    //   abatementPct + abatementPartialFactor + additionalAbatementFlag
+    // Section 5 (6): heading + freeRentStart + freeRentEnd + freeRentMonths + freeRentPct + additionalFreeRentFlag
+    // Section 6 (12): heading + 11 NRC items
+    // Total: 11 + 5 + 5 + 8 + 6 + 12 = 47
+    expect(layout.assumptionEntries).toHaveLength(47);
     // Row positions: assumptionStartRow(5) + index
-    expect(layout.cellMap.squareFootage).toBe('$C$7');       // index 2
-    expect(layout.cellMap.year1BaseRent).toBe('$C$14');      // index 9
-    expect(layout.cellMap.annualEscRate).toBe('$C$18');      // index 13
-    expect(layout.cellMap.abatementMonths).toBe('$C$23');    // index 18
-    expect(layout.cellMap.abatementPartialFactor).toBe('$C$26'); // index 21
-    expect(layout.cellMap.cams_year1).toBe('$C$15');         // index 10
-    expect(layout.cellMap.cams_escRate).toBe('$C$20');       // index 15
-    expect(layout.cellMap.security_year1).toBe('$C$16');     // index 11
-    expect(layout.cellMap.security_escRate).toBe('$C$21');   // index 16
-    expect(layout.headerRow).toBe(33);    // 5 + 27 - 1 + 2
-    expect(layout.firstDataRow).toBe(34); // headerRow + 1
-    expect(layout.totalsRow).toBe(36);    // lastDataRow(35) + 1 for 2 data rows
-    expect(layout.noteRow).toBe(38);      // totalsRow + 2
+    expect(layout.cellMap.squareFootage).toBe('$C$7');           // index 2
+    expect(layout.cellMap.totalLeaseTerm).toBe('$C$12');         // index 7
+    expect(layout.cellMap.effectiveMonth).toBe('$C$13');         // index 8
+    expect(layout.cellMap.monthsRemaining).toBe('$C$14');        // index 9
+    expect(layout.cellMap.monthsUntilNextEsc).toBe('$C$15');     // index 10
+    expect(layout.cellMap.year1BaseRent).toBe('$C$18');          // index 13
+    expect(layout.cellMap.annualEscRate).toBe('$C$22');          // index 17
+    expect(layout.cellMap.cams_year1).toBe('$C$19');             // index 14
+    expect(layout.cellMap.cams_escRate).toBe('$C$24');           // index 19
+    expect(layout.cellMap.security_year1).toBe('$C$20');         // index 15
+    expect(layout.cellMap.security_escRate).toBe('$C$25');       // index 20
+
+    // Abatement section starts at index 21 (section heading) = row 26
+    expect(layout.cellMap.abatementStart).toBe('$C$27');         // index 22
+    expect(layout.cellMap.abatementEnd).toBe('$C$28');           // index 23
+    expect(layout.cellMap.abatementMonths).toBe('$C$30');        // index 25
+    expect(layout.cellMap.abatementPartialFactor).toBe('$C$32'); // index 27
+
+    // Header row = assumptionStartRow(5) + 47 - 1 + 2 = 53
+    expect(layout.headerRow).toBe(53);
+    expect(layout.firstDataRow).toBe(54);
+    expect(layout.totalsRow).toBe(56);    // lastDataRow(55) + 1 for 2 data rows
+    expect(layout.noteRow).toBe(58);      // totalsRow + 2
+
+    // NRC ranges should span the 11 OT entries
+    expect(layout.nrcDateRange).toBeDefined();
+    expect(layout.nrcAmountRange).toBeDefined();
+
+    // Single NRC column instead of per-label OT columns
+    expect(layout.nrcColumn).toBeDefined();
+    expect(layout.nrcColumn.key).toBe('nonRecurringCharges');
+
+    // Column K is now nonRecurringCharges (after cams=G, security=H, totalNNN=I, nrc=J... let me check)
+    // Columns: A=periodStart, B=periodEnd, C=monthNum, D=yearNum, E=scheduledBaseRent, F=baseRentApplied,
+    //   G=cams(nnn), H=security(otherCharge), I=totalNNN, J=nonRecurringCharges, K=totalMonthly, ...
     expect(layout.colByKey.totalMonthly.letter).toBe('K');
+    expect(layout.colByKey.nonRecurringCharges.letter).toBe('J');
   });
 
   it('inserts aggregate NNN assumption rows before category-specific assumptions', () => {
@@ -108,13 +135,96 @@ describe('resolveLeaseScheduleLayout', () => {
     const model = buildExportModel(rows, params, 'aggregate-case');
     const layout = resolveLeaseScheduleLayout(model);
 
-    // Aggregate mode: same 27-entry count (nnnAgg entries replace cams/insurance/taxes in sections 2/3)
-    expect(layout.assumptionEntries).toHaveLength(27);
-    expect(layout.cellMap.nnnAgg_year1).toBe('$C$15');    // index 10 — after heading+mode+year1BaseRent
-    expect(layout.cellMap.nnnAgg_escRate).toBe('$C$20');  // index 15 — after heading+annualEscRate+anniversaryMonth+nnnAgg_year1(sec2)
-    expect(layout.cellMap.security_year1).toBe('$C$16');  // index 11
-    expect(layout.headerRow).toBe(33);
+    // Aggregate mode: 47-entry count (nnnAgg entries replace cams/insurance/taxes in sections 2/3)
+    expect(layout.assumptionEntries).toHaveLength(47);
+    expect(layout.cellMap.nnnAgg_year1).toBe('$C$19');    // index 14
+    expect(layout.cellMap.nnnAgg_escRate).toBe('$C$24');  // index 19
+    expect(layout.cellMap.security_year1).toBe('$C$20');  // index 15
+    expect(layout.headerRow).toBe(53);
     expect(layout.colByKey.nnnAggregate.letter).toBe('G');
     expect(layout.colByKey.totalNNN.letter).toBe('I');
+  });
+
+  it('exposes NRC date and amount ranges for SUMPRODUCT formula', () => {
+    const rows = [
+      {
+        periodStart: '2026-01-01',
+        periodEnd: '2026-01-31',
+        leaseMonth: 1,
+        leaseYear: 1,
+        scheduledBaseRent: 10000,
+        baseRentApplied: 10000,
+        oneTimeItemAmounts: {},
+      },
+    ];
+
+    const params = {
+      squareFootage: 1000,
+      nnnMode: 'individual',
+      oneTimeItems: [
+        { label: 'Broker Fee', date: '2026-01-01', amount: 5000 },
+      ],
+    };
+
+    const model = buildExportModel(rows, params, 'nrc-range-check');
+    const layout = resolveLeaseScheduleLayout(model);
+
+    // NRC ranges should be defined (11 OT slots)
+    expect(layout.nrcDateRange).toBeDefined();
+    expect(layout.nrcAmountRange).toBeDefined();
+    // The ranges should span 11 rows
+    const dateRangeMatch = layout.nrcDateRange.match(/\$C\$(\d+):\$C\$(\d+)/);
+    expect(dateRangeMatch).toBeTruthy();
+    expect(Number(dateRangeMatch[2]) - Number(dateRangeMatch[1]) + 1).toBe(11);
+  });
+
+  it('defaults rentCommencementDate to commencementDate when not provided', () => {
+    const rows = [
+      {
+        periodStart: '2026-01-01',
+        periodEnd: '2026-01-31',
+        leaseMonth: 1,
+        leaseYear: 1,
+        scheduledBaseRent: 10000,
+        baseRentApplied: 10000,
+        oneTimeItemAmounts: {},
+      },
+    ];
+
+    const params = {
+      squareFootage: 1000,
+      nnnMode: 'individual',
+      // rentCommencementDate NOT provided
+    };
+
+    const model = buildExportModel(rows, params, 'default-rent-comm');
+
+    // Should default to commencementDate (first row's periodStart)
+    expect(model.assumptions.rentCommencementDate).toBe('2026-01-01');
+  });
+
+  it('defaults effectiveAnalysisDate to first of current month when not provided', () => {
+    const rows = [
+      {
+        periodStart: '2026-01-01',
+        periodEnd: '2026-01-31',
+        leaseMonth: 1,
+        leaseYear: 1,
+        scheduledBaseRent: 10000,
+        baseRentApplied: 10000,
+        oneTimeItemAmounts: {},
+      },
+    ];
+
+    const params = {
+      squareFootage: 1000,
+      nnnMode: 'individual',
+      // effectiveAnalysisDate NOT provided
+    };
+
+    const model = buildExportModel(rows, params, 'default-analysis-date');
+
+    // Should be a valid ISO date string (YYYY-MM-DD) ending in -01
+    expect(model.assumptions.effectiveAnalysisDate).toMatch(/^\d{4}-\d{2}-01$/);
   });
 });

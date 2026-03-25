@@ -1,5 +1,15 @@
 # CLAUDE.md — deodate-lease-app
 
+## Style
+
+## Global Rules (CRITICAL: Follow always)
+- Concise: Code diffs only. No explanations, line-by-line logs, or summaries, unless requested.
+- No progress reports or chit-chat. Output: edited files + 1-line commit msg, unless requested.
+- Skip verbose thinking; act directly.
+- Workflow: Edit → test → commit. No status updates, unless requested.
+
+On compact: Preserve only code changes/tests. Drop explanations.
+
 ## Quality Standards (DEODATE)
 
 All work on this project must prioritize **institutional-quality, decision-grade output**.

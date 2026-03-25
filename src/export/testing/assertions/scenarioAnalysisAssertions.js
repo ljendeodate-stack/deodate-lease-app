@@ -85,6 +85,14 @@ export function evaluateScenarioAnalysisFixture(fixture, scenario) {
     'warning'
   ));
 
+  checks.push(check(
+    'exit-row35-buyout-discount-applied',
+    scenario.formulaSemantics.exitBaseRentFormulasApplyDiscount,
+    scenario.formulaSemantics.exitBaseRentFormulasApplyDiscount
+      ? 'Exit row 35 (F–J): all columns use $F$16*(1-X34) buyout discount formula.'
+      : 'Exit row 35 has one or more columns that do not apply the buyout % from row 34 (expected $F$16*(1-X34) pattern).'
+  ));
+
   return {
     fixtureId: fixture.id,
     passed: checks.every((item) => item.passed || item.severity === 'warning'),
