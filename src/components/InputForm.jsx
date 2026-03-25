@@ -134,6 +134,7 @@ export default function InputForm({
   onSubmit,
   onBack,
   onBackToSchedule,
+  onDraftChange,
   isProcessing,
 }) {
   const [form, setForm] = useState(() => ({
@@ -146,6 +147,10 @@ export default function InputForm({
       setForm((prev) => ({ ...prev, ...initialValues }));
     }
   }, [initialValues]);
+
+  useEffect(() => {
+    onDraftChange?.(form);
+  }, [form, onDraftChange]);
 
   function setTop(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));

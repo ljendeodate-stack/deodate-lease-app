@@ -28,7 +28,7 @@ import { validateParams, validateSchedule } from './engine/validator.js';
 import { extractFromPDF } from './ocr/extractor.js';
 import { parseMDYStrict, parseExcelDate } from './engine/yearMonth.js';
 import { classifyExpenseLabel, NNN_BUCKET_KEYS } from './engine/labelClassifier.js';
-import { scoreExtraction, shouldFallbackToManual, categorizeFields } from './engine/confidenceScorer.js';
+import { scoreExtraction, categorizeFields } from './engine/confidenceScorer.js';
 import { checkSchedulePlausibility } from './engine/plausibility.js';
 
 // ---------------------------------------------------------------------------
@@ -152,15 +152,18 @@ export default function App() {
   const [step, setStep] = useState(STEP.UPLOAD);
   const [inputPath, setInputPath] = useState(null);
   const [fileName, setFileName] = useState('lease-schedule');
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Schedule rows (from parser + expander)
   const [expandedRows, setExpandedRows] = useState([]);
+  const [schedulePeriodRows, setSchedulePeriodRows] = useState([]);
   const [parseWarnings, setParseWarnings] = useState([]);
   const [duplicateDates, setDuplicateDates] = useState([]);
   const [dupConfirmed, setDupConfirmed] = useState(false);
 
   // Form state
   const [formInitialValues, setFormInitialValues] = useState(null);
+  const [formDraftValues, setFormDraftValues] = useState(null);
   const [ocrConfidenceFlags, setOcrConfidenceFlags] = useState([]);
   const [ocrNotices, setOcrNotices] = useState([]);
   const [sfRequired, setSfRequired] = useState(false);
@@ -170,9 +173,7 @@ export default function App() {
   const [fieldCategories, setFieldCategories] = useState(null);
   const [plausibilityIssues, setPlausibilityIssues] = useState([]);
 
-  // Fallback state: period rows extracted from OCR for pre-populating ScheduleEditor
-  const [fallbackPeriodRows, setFallbackPeriodRows] = useState(null);
-  const [fallbackReason, setFallbackReason] = useState(null);
+  const [scheduleNotice, setScheduleNotice] = useState(null);
 
   // Processing state
   const [validationErrors, setValidationErrors] = useState([]);
@@ -184,6 +185,45 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [globalError, setGlobalError] = useState(null);
 
+  const resetWorkflow = useCallback(() => {
+    setStep(STEP.UPLOAD);
+    setInputPath(null);
+    setFileName('lease-schedule');
+    setMenuOpen(false);
+    setExpandedRows([]);
+    setSchedulePeriodRows([]);
+    setParseWarnings([]);
+    setDuplicateDates([]);
+    setDupConfirmed(false);
+    setFormInitialValues(null);
+    setFormDraftValues(null);
+    setOcrConfidenceFlags([]);
+    setOcrNotices([]);
+    setSfRequired(false);
+    setConfidenceResult(null);
+    setFieldCategories(null);
+    setPlausibilityIssues([]);
+    setScheduleNotice(null);
+    setValidationErrors([]);
+    setValidationWarnings([]);
+    setProcessedRows([]);
+    setProcessedParams({});
+    setLabelClassifications(null);
+    setIsExtracting(false);
+    setIsProcessing(false);
+    setGlobalError(null);
+  }, []);
+
+  const navigateToStep = useCallback((nextStep) => {
+    setStep(nextStep);
+    setMenuOpen(false);
+  }, []);
+
+  const showWorkflowMenu = inputPath !== null || schedulePeriodRows.length > 0 || expandedRows.length > 0 || processedRows.length > 0;
+  const canVisitSchedule = step === STEP.SCHEDULE || schedulePeriodRows.length > 0 || inputPath !== null;
+  const canVisitForm = step === STEP.FORM || step === STEP.RESULTS || expandedRows.length > 0;
+  const canVisitResults = processedRows.length > 0;
+
   // ---------------------------------------------------------------------------
   // Upload handlers
   // ---------------------------------------------------------------------------
@@ -192,6 +232,7 @@ export default function App() {
     setGlobalError(null);
     setInputPath('pdf');
     setFileName(file.name.replace(/\.[^/.]+$/, ''));
+    setMenuOpen(false);
     setIsExtracting(true);
 
     try {
@@ -223,37 +264,28 @@ export default function App() {
       const plausibility = checkSchedulePlausibility(periodRows);
       setPlausibilityIssues(plausibility);
 
-      // If confidence is too low, route to manual schedule editor with pre-populated data
-      if (shouldFallbackToManual(confidence)) {
-        setFallbackPeriodRows(periodRows.length > 0 ? periodRows : null);
-        setFallbackReason(
-          confidence.reasons.length > 0
-            ? confidence.reasons[0]
-            : 'Extraction confidence is too low to proceed automatically.'
-        );
-
-        // Still pre-populate form from OCR (whatever we got)
-        prepopulateFormFromOCR(result);
-        setParseWarnings(scheduleWarnings);
-        setIsExtracting(false);
-        setStep(STEP.SCHEDULE);
-        return;
-      }
-
-      // Normal path: expand and proceed to form
-      const { rows, duplicateDates: dups, warnings: expandWarnings } = expandPeriods(periodRows);
-      setExpandedRows(rows);
-      setParseWarnings([...scheduleWarnings, ...expandWarnings]);
-      setDuplicateDates(dups);
-      setDupConfirmed(dups.length === 0);
-
       prepopulateFormFromOCR(result);
-      setStep(STEP.FORM);
+      setSchedulePeriodRows(periodRows);
+      setParseWarnings(scheduleWarnings);
+      setScheduleNotice({
+        tone: confidence.level === 'low' ? 'warning' : 'info',
+        title: periodRows.length > 0 ? 'Review OCR schedule before assumptions' : 'Manual schedule entry needed',
+        message: periodRows.length > 0
+          ? 'OCR extracted a draft rent schedule. Review and edit the schedule preview below before continuing to lease assumptions.'
+          : 'OCR extracted assumptions, but a usable rent schedule was not identified. Enter or paste the rent schedule below before continuing.',
+        detail: `Extraction confidence: ${(confidence.overall * 100).toFixed(0)}% (${confidence.level})${confidence.reasons.length > 0 ? ` - ${confidence.reasons[0]}` : ''}`,
+      });
+      setStep(STEP.SCHEDULE);
     } catch (err) {
       // Even if everything fails, don't dead-end — route to manual
       setGlobalError(`Extraction encountered issues: ${err.message}. You can enter the schedule manually below.`);
-      setFallbackPeriodRows(null);
-      setFallbackReason('Extraction failed unexpectedly.');
+      setSchedulePeriodRows([]);
+      setScheduleNotice({
+        tone: 'warning',
+        title: 'Manual schedule entry needed',
+        message: 'OCR extraction failed unexpectedly. Enter or paste the rent schedule below, then continue to lease assumptions.',
+        detail: null,
+      });
       setStep(STEP.SCHEDULE);
     } finally {
       setIsExtracting(false);
@@ -303,7 +335,7 @@ export default function App() {
       depositOTC = [];
     }
 
-    setFormInitialValues({
+    const nextFormState = {
       leaseName:        result.leaseName ?? '',
       squareFootage:    result.squareFootage != null ? String(result.squareFootage) : '',
       abatementEndDate: result.abatementEndDate ?? '',
@@ -318,7 +350,10 @@ export default function App() {
           ? String(Math.abs(item.amount) * (item.sign === -1 ? -1 : 1))
           : '',
       })),
-    });
+    };
+
+    setFormInitialValues(nextFormState);
+    setFormDraftValues(nextFormState);
 
     setOcrConfidenceFlags(allConfidenceFlags);
     setOcrNotices(result.notices ?? []);
@@ -339,9 +374,11 @@ export default function App() {
     setGlobalError(null);
     setInputPath('file');
     setFileName(file.name.replace(/\.[^/.]+$/, ''));
+    setMenuOpen(false);
 
     try {
       const { rows: periodRows, warnings } = await parseFile(file);
+      setSchedulePeriodRows(periodRows);
 
       // Run plausibility checks
       const plausibility = checkSchedulePlausibility(periodRows);
@@ -352,7 +389,9 @@ export default function App() {
       setParseWarnings([...warnings, ...expandWarnings]);
       setDuplicateDates(dups);
       setDupConfirmed(dups.length === 0);
-      setFormInitialValues(emptyFormState());
+      const emptyState = emptyFormState();
+      setFormInitialValues(emptyState);
+      setFormDraftValues(emptyState);
       setOcrConfidenceFlags([]);
       setOcrNotices([]);
       setSfRequired(false);
@@ -362,17 +401,27 @@ export default function App() {
 
       // If no rows were produced, route to manual entry
       if (rows.length === 0 && periodRows.length === 0) {
-        setFallbackPeriodRows(null);
-        setFallbackReason('No valid rent schedule data could be extracted from the file.');
+        setScheduleNotice({
+          tone: 'warning',
+          title: 'Manual schedule entry needed',
+          message: 'No valid rent schedule data could be extracted from the file. Enter or paste the rent schedule below.',
+          detail: null,
+        });
         setStep(STEP.SCHEDULE);
       } else {
+        setScheduleNotice(null);
         setStep(STEP.FORM);
       }
     } catch (err) {
       // Don't dead-end — route to manual
       setGlobalError(`File parsing encountered issues: ${err.message}. You can enter the schedule manually.`);
-      setFallbackPeriodRows(null);
-      setFallbackReason('File parsing failed.');
+      setSchedulePeriodRows([]);
+      setScheduleNotice({
+        tone: 'warning',
+        title: 'Manual schedule entry needed',
+        message: 'File parsing failed. Enter or paste the rent schedule below.',
+        detail: null,
+      });
       setStep(STEP.SCHEDULE);
     }
   }, []);
@@ -381,11 +430,15 @@ export default function App() {
     setGlobalError(null);
     setInputPath('manual');
     setFileName('lease-schedule');
+    setMenuOpen(false);
     setExpandedRows([]);
+    setSchedulePeriodRows([]);
     setParseWarnings([]);
     setDuplicateDates([]);
     setDupConfirmed(true);
-    setFormInitialValues(emptyFormState());
+    const emptyState = emptyFormState();
+    setFormInitialValues(emptyState);
+    setFormDraftValues(emptyState);
     setOcrConfidenceFlags([]);
     setOcrNotices([]);
     setSfRequired(false);
@@ -393,14 +446,14 @@ export default function App() {
     setConfidenceResult(null);
     setFieldCategories(null);
     setPlausibilityIssues([]);
-    setFallbackPeriodRows(null);
-    setFallbackReason(null);
+    setScheduleNotice(null);
     setStep(STEP.SCHEDULE);
   }, []);
 
   const handleScheduleConfirm = useCallback((periodRows, warnings) => {
     setGlobalError(null);
     try {
+      setSchedulePeriodRows(periodRows);
       const { rows, duplicateDates: dups, warnings: expandWarnings } = expandPeriods(periodRows);
       setExpandedRows(rows);
       setParseWarnings([...warnings, ...expandWarnings]);
@@ -410,9 +463,6 @@ export default function App() {
       // Run plausibility checks on the confirmed schedule
       const plausibility = checkSchedulePlausibility(periodRows);
       setPlausibilityIssues(plausibility);
-
-      setFallbackPeriodRows(null);
-      setFallbackReason(null);
       setStep(STEP.FORM);
     } catch (err) {
       setGlobalError(`Schedule parsing failed: ${err.message}`);
@@ -450,6 +500,7 @@ export default function App() {
 
     setIsProcessing(true);
     try {
+      setFormDraftValues(form);
       const params = formToCalculatorParams(form);
       const rows = calculateAllCharges(expandedRows, params);
       const annotatedRows = labelClassifications
@@ -478,29 +529,68 @@ export default function App() {
             <span className="text-gray-300">|</span>
             <span className="text-gray-600 text-sm">Lease Schedule Engine</span>
           </div>
-          {step !== STEP.UPLOAD && (
-            <button
-              onClick={() => {
-                setStep(STEP.UPLOAD);
-                setInputPath(null);
-                setProcessedRows([]);
-                setExpandedRows([]);
-                setValidationErrors([]);
-                setValidationWarnings([]);
-                setGlobalError(null);
-                setDuplicateDates([]);
-                setDupConfirmed(false);
-                setLabelClassifications(null);
-                setConfidenceResult(null);
-                setFieldCategories(null);
-                setPlausibilityIssues([]);
-                setFallbackPeriodRows(null);
-                setFallbackReason(null);
-              }}
-              className="text-sm text-gray-500 hover:text-gray-700 underline"
-            >
-              Start over
-            </button>
+          {showWorkflowMenu && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-gray-800"
+                aria-label="Open navigation menu"
+              >
+                <span className="flex flex-col gap-1">
+                  <span className="block h-0.5 w-4 bg-current" />
+                  <span className="block h-0.5 w-4 bg-current" />
+                  <span className="block h-0.5 w-4 bg-current" />
+                </span>
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 z-20 mt-2 w-56 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={() => navigateToStep(STEP.UPLOAD)}
+                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <span>Upload</span>
+                    {step === STEP.UPLOAD && <span className="text-xs text-blue-600">Current</span>}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigateToStep(STEP.SCHEDULE)}
+                    disabled={!canVisitSchedule}
+                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-white"
+                  >
+                    <span>Schedule</span>
+                    {step === STEP.SCHEDULE && <span className="text-xs text-blue-600">Current</span>}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigateToStep(STEP.FORM)}
+                    disabled={!canVisitForm}
+                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-white"
+                  >
+                    <span>Assumptions</span>
+                    {step === STEP.FORM && <span className="text-xs text-blue-600">Current</span>}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigateToStep(STEP.RESULTS)}
+                    disabled={!canVisitResults}
+                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-white"
+                  >
+                    <span>Results</span>
+                    {step === STEP.RESULTS && <span className="text-xs text-blue-600">Current</span>}
+                  </button>
+                  <div className="my-2 border-t border-gray-200" />
+                  <button
+                    type="button"
+                    onClick={resetWorkflow}
+                    className="w-full rounded-md px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                  >
+                    Start over
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </header>
@@ -527,26 +617,26 @@ export default function App() {
         {step === STEP.SCHEDULE && (
           <div className="space-y-4">
             {/* Fallback banner — shown when routing from failed/weak extraction */}
-            {fallbackReason && (
+            {scheduleNotice && (
               <div className="rounded-md bg-amber-50 border border-amber-300 p-4 space-y-2">
                 <p className="text-sm font-semibold text-amber-800">
-                  Manual schedule entry needed
+                  {scheduleNotice.title}
                 </p>
                 <p className="text-sm text-amber-700">
-                  {fallbackReason} Please enter or paste the rent schedule below.
+                  {scheduleNotice.message}
                 </p>
-                {confidenceResult && (
+                {scheduleNotice.detail && (
                   <p className="text-xs text-amber-600">
-                    Extraction confidence: {(confidenceResult.overall * 100).toFixed(0)}% ({confidenceResult.level})
-                    {confidenceResult.reasons.length > 0 && ` — ${confidenceResult.reasons[0]}`}
+                    {scheduleNotice.detail}
                   </p>
                 )}
               </div>
             )}
             <ScheduleEditor
               onConfirm={handleScheduleConfirm}
-              onBack={() => setStep(STEP.UPLOAD)}
-              initialPeriodRows={fallbackPeriodRows}
+              onBack={() => navigateToStep(STEP.UPLOAD)}
+              initialPeriodRows={schedulePeriodRows}
+              initialEntryMode={schedulePeriodRows.length > 0 || inputPath === 'pdf' ? 'manual' : 'quick'}
             />
           </div>
         )}
@@ -629,9 +719,7 @@ export default function App() {
             <div className="flex justify-end">
               <button
                 onClick={() => {
-                  setFallbackPeriodRows(null);
-                  setFallbackReason(null);
-                  setStep(STEP.SCHEDULE);
+                  navigateToStep(STEP.SCHEDULE);
                 }}
                 className="text-xs text-blue-600 hover:text-blue-800 underline"
               >
@@ -640,7 +728,7 @@ export default function App() {
             </div>
 
             <InputForm
-              initialValues={formInitialValues}
+              initialValues={formDraftValues ?? formInitialValues}
               confidenceFlags={ocrConfidenceFlags}
               notices={ocrNotices}
               validationErrors={validationErrors}
@@ -650,12 +738,9 @@ export default function App() {
               scheduledBaseRent={expandedRows.length > 0 ? expandedRows[0].monthlyRent : null}
               expandedRowCount={expandedRows.length}
               onSubmit={handleFormSubmit}
-              onBack={() => setStep(STEP.UPLOAD)}
-              onBackToSchedule={() => {
-                setFallbackPeriodRows(null);
-                setFallbackReason(null);
-                setStep(STEP.SCHEDULE);
-              }}
+              onBack={() => navigateToStep(STEP.UPLOAD)}
+              onBackToSchedule={() => navigateToStep(STEP.SCHEDULE)}
+              onDraftChange={setFormDraftValues}
               isProcessing={isProcessing}
             />
           </div>
@@ -683,6 +768,33 @@ export default function App() {
                   duplicateDatesConfirmed: dupConfirmed,
                 }}
               />
+            </div>
+
+            {/* Back navigation row */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => navigateToStep(STEP.FORM)}
+                className="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+              >
+                Back to assumptions
+              </button>
+              {canVisitSchedule && (
+                <button
+                  type="button"
+                  onClick={() => navigateToStep(STEP.SCHEDULE)}
+                  className="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                >
+                  Back to schedule
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={resetWorkflow}
+                className="rounded border border-red-200 bg-white px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
+              >
+                Start over
+              </button>
             </div>
 
             {/* Confidence / plausibility summary on results page */}

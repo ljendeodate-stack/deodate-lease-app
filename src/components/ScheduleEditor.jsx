@@ -19,7 +19,7 @@ import {
   parseBulkPasteText,
   toCanonicalPeriodRows,
 } from '../engine/periodParser.js';
-import { toISOLocal } from '../engine/yearMonth.js';
+import { addMonthsAnchored, toISOLocal } from '../engine/yearMonth.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -58,13 +58,30 @@ function fmtMDY(d) {
  * @param {number} escRate   - Annual escalation rate as a decimal (e.g. 0.03).
  * @returns {{ periodStart: Date, periodEnd: Date, monthlyRent: number }[]}
  */
+function resolveQuickEntryExpiration(commence, expire) {
+  if (
+    commence &&
+    expire &&
+    expire.getDate() === commence.getDate() &&
+    expire.getTime() > commence.getTime()
+  ) {
+    const anchoredNextMonth = addMonthsAnchored(expire, 1);
+    const effectiveExpire = new Date(anchoredNextMonth.getTime() - 86400000);
+    effectiveExpire.setHours(0, 0, 0, 0);
+    return effectiveExpire;
+  }
+
+  return expire;
+}
+
 function generatePeriodsFromQuickEntry(commence, expire, year1Rent, escRate) {
   const periods = [];
+  const effectiveExpire = resolveQuickEntryExpiration(commence, expire);
   let yearStart = new Date(commence);
   yearStart.setHours(0, 0, 0, 0);
   let yearIdx = 0;
 
-  while (yearStart <= expire) {
+  while (yearStart <= effectiveExpire) {
     // Next anniversary: same month/day as commencement, next year
     const nextAnniversary = new Date(
       commence.getFullYear() + yearIdx + 1,
@@ -76,7 +93,7 @@ function generatePeriodsFromQuickEntry(commence, expire, year1Rent, escRate) {
     // Year end = day before next anniversary, capped at expiration
     let yearEnd = new Date(nextAnniversary.getTime() - 86400000);
     yearEnd.setHours(0, 0, 0, 0);
-    if (yearEnd > expire) yearEnd = new Date(expire);
+    if (yearEnd > effectiveExpire) yearEnd = new Date(effectiveExpire);
 
     const rent = Math.round(year1Rent * Math.pow(1 + escRate, yearIdx) * 100) / 100;
 
@@ -126,14 +143,19 @@ function ParsedPreview({ p, periodStr }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function ScheduleEditor({ onConfirm, onBack, initialPeriodRows }) {
+export default function ScheduleEditor({
+  onConfirm,
+  onBack,
+  initialPeriodRows,
+  initialEntryMode = null,
+}) {
   // If we have pre-populated period rows from a fallback, start in manual mode
   const hasInitialRows = Array.isArray(initialPeriodRows) && initialPeriodRows.length > 0;
 
   // ---------------------------------------------------------------------------
   // Entry mode toggle: 'manual' (existing) or 'quick' (new)
   // ---------------------------------------------------------------------------
-  const [entryMode, setEntryMode] = useState(hasInitialRows ? 'manual' : 'quick');
+  const [entryMode, setEntryMode] = useState(initialEntryMode ?? (hasInitialRows ? 'manual' : 'quick'));
 
   // ---------------------------------------------------------------------------
   // Quick Entry state
