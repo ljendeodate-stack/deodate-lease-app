@@ -674,6 +674,14 @@ export default function App() {
                 fieldCategories={fieldCategories}
                 plausibilityIssues={plausibilityIssues}
                 validationWarnings={validationWarnings}
+                leaseMetadata={{
+                  inputPath: inputPath === 'pdf' ? 'scan' : 'manual',
+                  ocrConfidenceFlags,
+                  ocrNotices,
+                  parseWarnings,
+                  validationWarnings,
+                  duplicateDatesConfirmed: dupConfirmed,
+                }}
               />
             </div>
 

@@ -5,7 +5,7 @@
  */
 
 import { exportToXLSX, exportToCSV } from '../utils/exportUtils.js';
-import { generateReviewMemo } from '../utils/reviewDocGenerator.js';
+import { generateLeaseDoc } from '../utils/leaseDocGenerator.js';
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -28,28 +28,17 @@ export default function ExportButton({
   fieldCategories = null,
   plausibilityIssues = [],
   validationWarnings = [],
+  leaseMetadata = null,
 }) {
   if (!rows.length) return null;
 
-  async function handleReviewMemo() {
-    const leaseStart = rows.length > 0 ? rows[0].date : null;
-    const leaseEnd = rows.length > 0 ? rows[rows.length - 1].date : null;
-
-    const blob = await generateReviewMemo({
-      leaseName: params.leaseName || filename,
-      leaseStart,
-      leaseEnd,
-      squareFootage: params.squareFootage || 0,
-      totalMonths: rows.length,
-      confidenceResult,
-      fieldCategories,
-      plausibilityIssues,
-      validationWarnings,
-      nnnMode: params.nnnMode || 'individual',
-      generatedDate: new Date().toLocaleDateString('en-US'),
-    });
-
-    downloadBlob(blob, `${filename}-review-memo.docx`);
+  async function handleLeaseDoc() {
+    try {
+      const blob = await generateLeaseDoc(rows, params, leaseMetadata ?? {});
+      downloadBlob(blob, `${filename}-lease-review.docx`);
+    } catch (err) {
+      console.error('Word export failed:', err);
+    }
   }
 
   return (
@@ -73,11 +62,11 @@ export default function ExportButton({
       </button>
 
       <button
-        onClick={() => void handleReviewMemo()}
+        onClick={() => void handleLeaseDoc()}
         className="rounded-md bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700 transition-colors"
-        title="1-page Word document summarizing extraction confidence, plausibility checks, and items requiring manual review."
+        title="Word document with lease overview, key terms, idiosyncrasies, assumptions, warnings, and Excel workbook guidance."
       >
-        ↓ Review Memo
+        ↓ Lease Review Doc
       </button>
 
       <span className="text-xs text-gray-400">
