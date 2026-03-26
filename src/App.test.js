@@ -71,40 +71,23 @@ describe('formToCalculatorParams', () => {
     expect(params.cams.year1).toBe(0);
   });
 
-  it('produces empty charges array when form.charges is absent', () => {
+  it('falls back to the standard charge scaffold when form.charges is absent', () => {
     const params = formToCalculatorParams({ nnnMode: 'individual', oneTimeItems: [] });
-    expect(params.charges).toEqual([]);
+    expect(params.charges).toHaveLength(5);
+    expect(params.cams.year1).toBe(0);
   });
 
-  it('free rent overrides abatement when freeRentEndDate is set', () => {
+  it('normalizes dated free-rent and abatement events into one canonical concession array', () => {
     const params = formToCalculatorParams({
       nnnMode: 'individual',
-      abatementEndDate: '03/31/2026',
-      abatementPct: '50',
-      freeRentEndDate: '01/31/2026',
+      freeRentEvents: [{ date: '01/15/2026', label: 'Launch month' }],
+      abatementEvents: [{ date: '03/20/2026', value: '50', label: 'Half rent' }],
       oneTimeItems: [],
     });
-    // Free rent takes precedence: 100% abatement until free rent end date
-    expect(params.abatementPct).toBe(100);
-    expect(params.abatementEndDate).not.toBeNull();
-    // The abatement end date should be 01/31/2026, not 03/31/2026
-    expect(params.abatementEndDate.getFullYear()).toBe(2026);
-    expect(params.abatementEndDate.getMonth()).toBe(0); // January = 0
-    expect(params.abatementEndDate.getDate()).toBe(31);
-  });
 
-  it('abatement fields apply normally when free rent is not set', () => {
-    const params = formToCalculatorParams({
-      nnnMode: 'individual',
-      abatementEndDate: '06/30/2026',
-      abatementPct: '75',
-      freeRentMonths: '',
-      freeRentEndDate: '',
-      oneTimeItems: [],
-    });
-    expect(params.abatementPct).toBe(75);
-    expect(params.abatementEndDate).not.toBeNull();
-    expect(params.abatementEndDate.getMonth()).toBe(5); // June = 5
+    expect(params.concessionEvents).toHaveLength(2);
+    expect(params.concessionEvents[0]).toMatchObject({ type: 'free_rent', scope: 'monthly_row', value: 100 });
+    expect(params.concessionEvents[1]).toMatchObject({ type: 'abatement', scope: 'monthly_row', value: 50 });
   });
 
   it('preserves rentCommencementDate and effectiveAnalysisDate in params', () => {
@@ -118,5 +101,23 @@ describe('formToCalculatorParams', () => {
     expect(params.rentCommencementDate.getMonth()).toBe(1); // February = 1
     expect(params.effectiveAnalysisDate).not.toBeNull();
     expect(params.effectiveAnalysisDate.getDate()).toBe(24);
+  });
+
+  it('preserves legacy contiguous abatement fields for backward compatibility', () => {
+    const params = formToCalculatorParams({
+      nnnMode: 'individual',
+      rentCommencementDate: '01/01/2026',
+      abatementEndDate: '06/30/2026',
+      abatementPct: '75',
+      oneTimeItems: [],
+    });
+
+    expect(params.abatementPct).toBe(75);
+    expect(params.abatementEndDate).not.toBeNull();
+    expect(params.concessionEvents[0]).toMatchObject({
+      scope: 'legacy_window',
+      type: 'abatement',
+      value: 75,
+    });
   });
 });

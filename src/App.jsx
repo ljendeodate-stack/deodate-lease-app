@@ -30,6 +30,11 @@ import { classifyExpenseLabel, NNN_BUCKET_KEYS } from './engine/labelClassifier.
 import { scoreExtraction, categorizeFields } from './engine/confidenceScorer.js';
 import { checkSchedulePlausibility } from './engine/plausibility.js';
 import { buildChargesFromOCR, hasDetectedNNNCharges } from './ocr/chargeNormalizer.js';
+import {
+  buildOCRConcessionForms,
+  buildLegacyConcessionEventsFromOCR,
+  normalizeFormToCalculatorParams,
+} from './engine/leaseTerms.js';
 
 // ---------------------------------------------------------------------------
 // Step constants
@@ -63,61 +68,8 @@ function mapChargeFormToParams(form, key) {
 }
 
 
-export function formToCalculatorParams(form) {
-  // Free Rent takes precedence over Abatement when set.
-  // Free rent is 100% abatement for the specified period.
-  const hasFreeRent = Boolean(
-    form.freeRentEndDate ||
-    (form.freeRentMonths && Number(form.freeRentMonths) > 0)
-  );
-
-  return {
-    leaseName: String(form.leaseName || '').trim(),
-    nnnMode: form.nnnMode ?? 'individual',
-    nnnAggregate: {
-      year1: Number(form.nnnAggregate?.year1) || 0,
-      escPct: Number(form.nnnAggregate?.escPct) || 0,
-    },
-    squareFootage: Number(form.squareFootage) || 0,
-    // Lease Drivers metadata — preserved in params for export model / scenario use.
-    rentCommencementDate:  parseMDYStrict(form.rentCommencementDate),
-    effectiveAnalysisDate: parseMDYStrict(form.effectiveAnalysisDate),
-    // Free rent overrides abatement when set (always 100% for the free rent period).
-    abatementEndDate: hasFreeRent
-      ? parseMDYStrict(form.freeRentEndDate)
-      : parseMDYStrict(form.abatementEndDate),
-    abatementPct: hasFreeRent ? 100 : (Number(form.abatementPct) || 0),
-    // Preserve raw free-rent fields for export display (separate from resolved abatement).
-    freeRentMonths: hasFreeRent ? (Number(form.freeRentMonths) || 0) : 0,
-    freeRentEndDate: hasFreeRent ? parseMDYStrict(form.freeRentEndDate) : null,
-    oneTimeItems: (form.oneTimeItems ?? [])
-      .map((item) => ({
-        label:  item.label ?? '',
-        date:   parseMDYStrict(item.date),
-        amount: Number(item.amount) || 0,
-      }))
-      .filter((item) => item.amount !== 0),
-    // Normalized charges array — drives dynamic charge calculation in calculator.js.
-    // Preserves all user-defined charges (including custom keys) with parsed dates.
-    charges: (form.charges ?? []).map((c) => ({
-      key:          c.key,
-      canonicalType: c.canonicalType ?? 'other',
-      displayLabel:  c.displayLabel ?? c.key,
-      year1:        Number(c.year1) || 0,
-      escPct:       Number(c.escPct) || 0,
-      escStart:     parseMDYStrict(c.escStart),
-      chargeStart:  parseMDYStrict(c.chargeStart),
-    })),
-    // Legacy charge params retained for backward compat (consumed when charges[] absent).
-    cams: mapChargeFormToParams(form, 'cams'),
-    insurance: mapChargeFormToParams(form, 'insurance'),
-    taxes: mapChargeFormToParams(form, 'taxes'),
-    security: mapChargeFormToParams(form, 'security'),
-    otherItems: mapChargeFormToParams(form, 'otherItems'),
-    oneTimeCharges: (form.oneTimeCharges ?? [])
-      .map((c) => ({ name: String(c.name || '').trim(), amount: Number(c.amount) || 0, date: String(c.date || '').trim() }))
-      .filter((c) => c.name),
-  };
+export function formToCalculatorParams(form, rows = []) {
+  return normalizeFormToCalculatorParams(form, rows);
 }
 
 /**
@@ -254,7 +206,8 @@ export default function App() {
       const plausibility = checkSchedulePlausibility(periodRows);
       setPlausibilityIssues(plausibility);
 
-      prepopulateFormFromOCR(result);
+      const { rows: previewRows } = expandPeriods(periodRows);
+      prepopulateFormFromOCR(result, previewRows);
       setSchedulePeriodRows(periodRows);
       setParseWarnings(scheduleWarnings);
       setScheduleNotice({
@@ -290,7 +243,7 @@ export default function App() {
    * 2. Legacy fixed buckets (result.cams, result.insurance, etc.) when #1 is absent
    * 3. estimatedNNNMonthly → aggregate mode when no named charges detected at all
    */
-  function prepopulateFormFromOCR(result) {
+  function prepopulateFormFromOCR(result, rows = []) {
     // ── Charges: prefer recurringCharges[] over legacy fixed buckets ──────────
     const {
       charges: builtCharges,
@@ -348,17 +301,22 @@ export default function App() {
     }
 
     // ── Notices ───────────────────────────────────────────────────────────────
-    const allNotices = [...(result.notices ?? []), ...chargeNotices];
+    const generatedConcessions = buildOCRConcessionForms(result, rows);
+    const allNotices = [...(result.notices ?? []), ...chargeNotices, ...generatedConcessions.notices];
 
     // ── Assemble form state ───────────────────────────────────────────────────
     const nextFormState = {
       leaseName:        result.leaseName ?? '',
       squareFootage:    result.squareFootage != null ? String(result.squareFootage) : '',
-      abatementEndDate: result.abatementEndDate ?? '',
-      abatementPct:     result.abatementPct != null ? String(result.abatementPct) : '',
       nnnMode,
       nnnAggregate: nnnAggregateForm,
       charges: builtCharges,
+      freeRentEvents: generatedConcessions.freeRentEvents,
+      abatementEvents: generatedConcessions.abatementEvents,
+      legacyConcessionEvents:
+        generatedConcessions.freeRentEvents.length === 0 && generatedConcessions.abatementEvents.length === 0
+          ? buildLegacyConcessionEventsFromOCR(result, rows)
+          : [],
       oneTimeItems: (result.oneTimeItems?.length ? result.oneTimeItems : depositOTC).map((item) => ({
         label:  item.label ?? item.name ?? '',
         date:   item.dueDate ?? item.date ?? '',
@@ -516,7 +474,7 @@ export default function App() {
     setIsProcessing(true);
     try {
       setFormDraftValues(form);
-      const params = formToCalculatorParams(form);
+      const params = formToCalculatorParams(form, expandedRows);
       const rows = calculateAllCharges(expandedRows, params);
       const annotatedRows = labelClassifications
         ? rows.map((r) => ({ ...r, labelClassifications }))
@@ -842,7 +800,7 @@ export default function App() {
               <h3 className="mt-2 mb-3 text-xl font-semibold text-txt-primary">Monthly Ledger</h3>
               <p className="text-xs text-txt-muted mb-2">
                 Click any row to expand its calculation trace.
-                <span className="status-chip ml-2 border-status-warn-border bg-status-warn-bg text-status-warn-text">Abatement rows</span>
+                <span className="status-chip ml-2 border-status-warn-border bg-status-warn-bg text-status-warn-text">Free rent / abatement rows</span>
               </p>
               <LedgerTable rows={processedRows} />
             </div>

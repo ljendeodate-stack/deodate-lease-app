@@ -1,14 +1,5 @@
 /**
  * @fileoverview Core lease obligation calculation engine.
- *
- * Replicates n8n node: "Calculate All Charges + Obligations"
- * with all Section 7 flaws corrected.
- *
- * Processing model:
- *   Pass 1 (forward)  — per-row charges, proration, abatement, periodFactor
- *   Pass 2 (reverse)  — remaining balance accumulation (last row → first row)
- *
- * No UI dependencies. All functions are pure given the same inputs.
  */
 
 import {
@@ -18,25 +9,32 @@ import {
   toISOLocal,
   parseMDYStrict,
 } from './yearMonth.js';
+import {
+  CONCESSION_SCOPES,
+  CONCESSION_TYPES,
+  CONCESSION_VALUE_MODES,
+  resolveMonthlyRowIndex,
+} from './leaseTerms.js';
 
-// ---------------------------------------------------------------------------
-// Internal pure helpers
-// ---------------------------------------------------------------------------
+function parseLooseDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const parsed = parseISODate(value);
+    if (!parsed) return null;
+    const [year, month, day] = value.split('-').map(Number);
+    if (
+      parsed.getFullYear() !== year ||
+      parsed.getMonth() !== month - 1 ||
+      parsed.getDate() !== day
+    ) {
+      return null;
+    }
+    return parsed;
+  }
+  return parseMDYStrict(value);
+}
 
-/**
- * Compute the number of full escalation years elapsed between an anchor date
- * and a row's period start date.
- *
- * Returns null when no explicit startDate is provided — the caller must then
- * fall back to (leaseYear − 1) as the exponent, matching the n8n workflow
- * behaviour for charges with no explicit escalation start date.
- *
- * @param {Date} rowDate    - The anchor date for this monthly row.
- * @param {Date|null} startDate - The escalation start date (escStart from form).
- * @returns {number|null}   - Full years elapsed since startDate (≥ 0), or null.
- *
- * @n8nNode "Calculate All Charges + Obligations" → yearsSinceStart
- */
 function yearsSinceStart(rowDate, startDate) {
   if (!startDate) return null;
   if (rowDate < startDate) return 0;
@@ -48,171 +46,250 @@ function yearsSinceStart(rowDate, startDate) {
   return Math.floor(monthDiff / 12);
 }
 
-/**
- * Determine whether a charge category is active (billable) on a given date.
- * Returns true when no chargeStartDate is configured (charge is always active).
- *
- * @param {Date} rowDate              - Anchor date for the row.
- * @param {Date|null} chargeStartDate - Date when billing begins (chargeStart from form).
- * @returns {boolean}
- *
- * @n8nNode "Calculate All Charges + Obligations" → isChargeActive
- */
 function isChargeActive(rowDate, chargeStartDate) {
   if (!chargeStartDate) return true;
   if (!rowDate) return false;
   return rowDate.getTime() >= chargeStartDate.getTime();
 }
 
-/**
- * Compute the base-rent proration factor for a single monthly row.
- *
- * Convention: `abatementEndDate` is the LAST day of abatement (inclusive),
- * matching standard lease language ("until June 30, 2018").
- * `rentStartDate` = abatementEndDate + 1 day = first day full rent is owed.
- *
- * Four cases:
- *   1. No abatement configured → factor = 1
- *   2. Row falls entirely within abatement (periodEnd ≤ abatementEndDate)
- *      → factor = tenantPaysFraction
- *   3. Row straddles the abatement boundary (periodStart ≤ abatementEndDate < periodEnd)
- *      → day-weighted blend: (abatedDays × tenantPaysFraction + fullRentDays × 1) / totalDays
- *   4. Row falls entirely after abatement (periodStart > abatementEndDate) → factor = 1
- *
- * @param {Date}      periodStart        - First day of the monthly anchor period.
- * @param {Date}      periodEnd          - Last day of the monthly anchor period.
- * @param {Date|null} abatementEndDate   - Last day of the abatement period (inclusive).
- * @param {number}    tenantPaysFraction - 1 − (abatementPct / 100).
- * @returns {number}                     - Proration factor in [0, 1].
- *
- * @n8nNode "Calculate All Charges + Obligations" → baseRentProrationFactor
- */
-function baseRentProrationFactor(periodStart, periodEnd, abatementEndDate, tenantPaysFraction) {
-  if (!abatementEndDate) return 1;
-
-  // First day full rent is owed (one day after the last abated day)
-  const rentStartDate = new Date(abatementEndDate.getTime() + 86400000);
-
-  // Entire month after abatement ends
-  if (rentStartDate.getTime() <= periodStart.getTime()) return 1;
-
-  // Entire month still within abatement (periodEnd on or before last abated day)
-  if (periodEnd.getTime() <= abatementEndDate.getTime()) return tenantPaysFraction;
-
-  // Boundary month: straddles the abatement/full-rent transition
-  const totalDays = daysBetweenInclusive(periodStart, periodEnd);
-  if (totalDays <= 0) return 0;
-
-  const abatementDays = daysBetweenInclusive(periodStart, abatementEndDate);
-  const fullRentDays  = daysBetweenInclusive(rentStartDate, periodEnd);
-
-  return (abatementDays * tenantPaysFraction + fullRentDays * 1) / totalDays;
-}
-
-/**
- * Compute the period factor for a single monthly row.
- *
- * Factor = 1.0 for all months except the final lease month when the expiry date
- * falls before the natural end of the final anchor cycle.
- * Final partial month factor = actualDays / calendarDaysInExpiryMonth.
- *
- * Returns metadata needed by the TracePanel to describe the proration.
- *
- * @param {number} rowIndex    - Zero-based index of this row in the sorted array.
- * @param {number} totalRows   - Total number of monthly rows.
- * @param {Date}   periodStart - Anchor start date for this row.
- * @param {Date|null} periodEnd - Explicit period end date (available on last row only).
- * @returns {{ factor: number, actualDays: number, calMonthDays: number }}
- *
- * @n8nNode "Calculate All Charges + Obligations" → periodFactor logic
- */
 function computePeriodFactor(rowIndex, totalRows, periodStart, periodEnd) {
   const isLast = rowIndex === totalRows - 1;
-
   if (!isLast || !periodStart || !periodEnd) {
     return { factor: 1, actualDays: 1, calMonthDays: 1 };
   }
 
-  // Natural end of the anchor month for this row
   const nextAnchor = addMonthsAnchored(periodStart, 1);
   const naturalEnd = new Date(nextAnchor.getTime() - 86400000);
   naturalEnd.setHours(0, 0, 0, 0);
 
   if (periodEnd.getTime() >= naturalEnd.getTime()) {
-    // Lease expires at or after the natural anchor end — full month
     return { factor: 1, actualDays: 1, calMonthDays: 1 };
   }
 
-  // Genuine partial final month — prorate by actual days over calendar days
   const calMonthStart = new Date(periodEnd.getFullYear(), periodEnd.getMonth(), 1);
-  const calMonthEnd   = new Date(periodEnd.getFullYear(), periodEnd.getMonth() + 1, 0);
-  const calMonthDays  = daysBetweenInclusive(calMonthStart, calMonthEnd);
-  const actualDays    = daysBetweenInclusive(periodStart, periodEnd);
+  const calMonthEnd = new Date(periodEnd.getFullYear(), periodEnd.getMonth() + 1, 0);
+  const calMonthDays = daysBetweenInclusive(calMonthStart, calMonthEnd);
+  const actualDays = daysBetweenInclusive(periodStart, periodEnd);
   if (calMonthDays <= 0) return { factor: 0, actualDays: 0, calMonthDays: 0 };
-  const factor        = actualDays / calMonthDays;
-
-  return { factor, actualDays, calMonthDays };
+  return { factor: actualDays / calMonthDays, actualDays, calMonthDays };
 }
 
-/**
- * Compute the compounded annual charge amount for one NNN category in one row.
- * Applies the period factor to the result.
- *
- * @param {number}      year1      - Year 1 monthly base amount.
- * @param {number}      escRate    - Annual escalation rate as a decimal (e.g. 0.03).
- * @param {number|null} escYears   - Escalation year index from yearsSinceStart,
- *                                   or null to use (leaseYear − 1).
- * @param {number}      leaseYear  - The row's 'Year #' value (1-indexed).
- * @param {number}      periodFactor
- * @returns {number}               - Computed monthly charge amount.
- *
- * @n8nNode "Calculate All Charges + Obligations" → CAMS / Insurance / Taxes / Security / Other Items blocks
- */
 function computeChargeAmount(year1, escRate, escYears, leaseYear, periodFactor) {
   const exponent = escYears !== null ? escYears : leaseYear - 1;
   return year1 * Math.pow(1 + escRate, exponent) * periodFactor;
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+function getRowBounds(rows, index) {
+  const row = rows[index];
+  const periodStart = parseISODate(row.date ?? row.periodStart);
+  let periodEnd = null;
 
-/**
- * Main calculation engine. Two-pass processing of expanded monthly rows.
- *
- * Pass 1 (forward): for each row, compute all charge amounts, proration factors,
- * abatement application, period factor, and per-row totals.
- *
- * Pass 2 (reverse): accumulate remaining balance totals from last row to first,
- * replicating the reverse-pass logic in the n8n workflow.
- *
- * @param {Object[]} expandedRows
- *   Monthly rows from expander.js. Each row must contain:
- *   { date: string, periodEnd: string|null, monthlyRent: number,
- *     year: number, 'Month #': number, 'Year #': number }
- *
- * @param {Object}    params
- * @param {number}    params.squareFootage
- * @param {Date|null} params.abatementEndDate
- * @param {number}    params.abatementPct        - 0–100 whole number (Flaw 4 fix: explicit).
- * @param {Object}    params.cams                - { year1, escPct, escStart, chargeStart }
- * @param {Object}    params.insurance
- * @param {Object}    params.taxes
- * @param {Object}    params.security
- * @param {Object}    params.otherItems
- * @param {Array}     params.oneTimeItems      - [{ label, amount, date }]
- *
- * @returns {Object[]} Processed ledger rows with all output fields populated.
- *
- * @n8nNode "Calculate All Charges + Obligations" (complete node, with all Section 7 corrections applied)
- */
+  if (index < rows.length - 1) {
+    const nextDate = parseISODate(rows[index + 1].date ?? rows[index + 1].periodStart);
+    if (nextDate) {
+      periodEnd = new Date(nextDate.getTime() - 86400000);
+      periodEnd.setHours(0, 0, 0, 0);
+    }
+  } else if (row.periodEnd) {
+    periodEnd = parseISODate(row.periodEnd);
+  }
+
+  if (!periodEnd && periodStart) {
+    periodEnd = new Date(addMonthsAnchored(periodStart, 1).getTime() - 86400000);
+    periodEnd.setHours(0, 0, 0, 0);
+  }
+
+  return { periodStart, periodEnd };
+}
+
+function clampPercent(value) {
+  return Math.min(Math.max(Number(value) || 0, 0), 100);
+}
+
+function buildLegacyWindowConcessions(params, rows) {
+  const explicitLegacyEvents = Array.isArray(params.concessionEvents)
+    ? params.concessionEvents.filter((event) => event?.scope === CONCESSION_SCOPES.LEGACY_WINDOW)
+    : [];
+  if (explicitLegacyEvents.length > 0) return explicitLegacyEvents;
+
+  const endDate = parseLooseDate(params.abatementEndDate);
+  const pct = clampPercent(params.abatementPct);
+  if (!endDate || pct <= 0 || rows.length === 0) return [];
+
+  const leaseStart = parseISODate(rows[0].date ?? rows[0].periodStart);
+  if (!leaseStart) return [];
+
+  return [{
+    id: 'legacy_helper_abatement',
+    type: pct === 100 ? CONCESSION_TYPES.FREE_RENT : CONCESSION_TYPES.ABATEMENT,
+    scope: CONCESSION_SCOPES.LEGACY_WINDOW,
+    startDate: leaseStart,
+    endDate,
+    valueMode: CONCESSION_VALUE_MODES.PERCENT,
+    value: pct,
+    source: 'legacy',
+    confidence: 'high',
+    label: pct === 100 ? 'Legacy Free Rent Window' : 'Legacy Abatement Window',
+    assumptionNote: 'Legacy contiguous concession preserved for backward compatibility.',
+    rawText: '',
+  }];
+}
+
+function normalizeConcessionEngineState(rows, params) {
+  const events = Array.isArray(params.concessionEvents) ? params.concessionEvents : [];
+  const explicitMap = new Map();
+
+  for (const event of events) {
+    if (event?.scope !== CONCESSION_SCOPES.MONTHLY_ROW) continue;
+    const effectiveDate = parseLooseDate(event.effectiveDate ?? event.date);
+    const rowIndex = resolveMonthlyRowIndex(rows, effectiveDate);
+    if (rowIndex >= 0 && !explicitMap.has(rowIndex)) {
+      explicitMap.set(rowIndex, { ...event, effectiveDate });
+    }
+  }
+
+  return {
+    explicitMap,
+    legacyWindows: buildLegacyWindowConcessions(params, rows),
+  };
+}
+
+function applyExplicitConcession(event, scheduledBaseRent, periodFactor) {
+  const periodAdjustedBaseRent = scheduledBaseRent * periodFactor;
+  if (!event) {
+    return {
+      appliedBaseRent: periodAdjustedBaseRent,
+      abatementAmount: 0,
+      baseFactor: periodFactor,
+      prorationBasis: periodFactor < 1 ? 'final-month' : 'full',
+      isConcessionRow: false,
+      abatementDays: 0,
+      fullRentDays: 0,
+      totalDays: 0,
+      concessionEventId: null,
+      concessionType: null,
+      concessionScope: null,
+      concessionValueMode: null,
+      concessionValue: null,
+      concessionTriggerDate: null,
+      concessionStartDate: null,
+      concessionEndDate: null,
+      concessionSource: null,
+      concessionConfidence: null,
+      concessionLabel: null,
+      concessionAssumptionNote: null,
+    };
+  }
+
+  let appliedBaseRent = periodAdjustedBaseRent;
+  if (event.type === CONCESSION_TYPES.FREE_RENT) {
+    appliedBaseRent = 0;
+  } else if (event.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT) {
+    appliedBaseRent = Math.max(0, periodAdjustedBaseRent - (Number(event.value) || 0));
+  } else {
+    appliedBaseRent = periodAdjustedBaseRent * (1 - clampPercent(event.value) / 100);
+  }
+
+  return {
+    appliedBaseRent,
+    abatementAmount: Math.max(0, periodAdjustedBaseRent - appliedBaseRent),
+    baseFactor: scheduledBaseRent === 0 ? 0 : appliedBaseRent / scheduledBaseRent,
+    prorationBasis: 'concession-event',
+    isConcessionRow: true,
+    abatementDays: 0,
+    fullRentDays: 0,
+    totalDays: 0,
+    concessionEventId: event.id ?? null,
+    concessionType: event.type ?? null,
+    concessionScope: event.scope ?? null,
+    concessionValueMode: event.valueMode ?? null,
+    concessionValue: event.type === CONCESSION_TYPES.FREE_RENT ? 100 : Number(event.value) || 0,
+    concessionTriggerDate: event.effectiveDate ? toISOLocal(event.effectiveDate) : null,
+    concessionStartDate: null,
+    concessionEndDate: null,
+    concessionSource: event.source ?? null,
+    concessionConfidence: event.confidence ?? null,
+    concessionLabel: event.label ?? null,
+    concessionAssumptionNote: event.assumptionNote ?? null,
+  };
+}
+
+function getOverlapDays(periodStart, periodEnd, startDate, endDate) {
+  if (!periodStart || !periodEnd || !startDate || !endDate) return 0;
+  const overlapStart = periodStart.getTime() > startDate.getTime() ? periodStart : startDate;
+  const overlapEnd = periodEnd.getTime() < endDate.getTime() ? periodEnd : endDate;
+  if (overlapEnd.getTime() < overlapStart.getTime()) return 0;
+  return daysBetweenInclusive(overlapStart, overlapEnd);
+}
+
+function applyLegacyWindowConcession(event, periodStart, periodEnd, scheduledBaseRent, periodFactor) {
+  const periodAdjustedBaseRent = scheduledBaseRent * periodFactor;
+  if (!event || !periodStart || !periodEnd) {
+    return applyExplicitConcession(null, scheduledBaseRent, periodFactor);
+  }
+
+  const startDate = parseLooseDate(event.startDate);
+  const endDate = parseLooseDate(event.endDate);
+  const totalDays = daysBetweenInclusive(periodStart, periodEnd);
+  const overlapDays = getOverlapDays(periodStart, periodEnd, startDate, endDate);
+
+  if (!overlapDays || totalDays <= 0) {
+    return applyExplicitConcession(null, scheduledBaseRent, periodFactor);
+  }
+
+  const overlapFraction = overlapDays / totalDays;
+  let discountedAmount = periodAdjustedBaseRent;
+
+  if (event.type === CONCESSION_TYPES.FREE_RENT) {
+    discountedAmount = periodAdjustedBaseRent * (1 - overlapFraction);
+  } else if (event.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT) {
+    discountedAmount = Math.max(0, periodAdjustedBaseRent - ((Number(event.value) || 0) * overlapFraction));
+  } else {
+    discountedAmount = periodAdjustedBaseRent * (1 - (clampPercent(event.value) / 100) * overlapFraction);
+  }
+
+  const isPartial = overlapDays < totalDays;
+
+  return {
+    appliedBaseRent: discountedAmount,
+    abatementAmount: Math.max(0, periodAdjustedBaseRent - discountedAmount),
+    baseFactor: scheduledBaseRent === 0 ? 0 : discountedAmount / scheduledBaseRent,
+    prorationBasis: isPartial
+      ? 'concession-boundary'
+      : (periodFactor < 1 ? 'final-month' : 'full'),
+    isConcessionRow: true,
+    abatementDays: overlapDays,
+    fullRentDays: Math.max(0, totalDays - overlapDays),
+    totalDays,
+    concessionEventId: event.id ?? null,
+    concessionType: event.type ?? null,
+    concessionScope: event.scope ?? null,
+    concessionValueMode: event.valueMode ?? null,
+    concessionValue: event.type === CONCESSION_TYPES.FREE_RENT ? 100 : Number(event.value) || 0,
+    concessionTriggerDate: null,
+    concessionStartDate: startDate ? toISOLocal(startDate) : null,
+    concessionEndDate: endDate ? toISOLocal(endDate) : null,
+    concessionSource: event.source ?? null,
+    concessionConfidence: event.confidence ?? null,
+    concessionLabel: event.label ?? null,
+    concessionAssumptionNote: event.assumptionNote ?? null,
+  };
+}
+
+function getLegacyConcessionForRow(legacyWindows, periodStart, periodEnd) {
+  return legacyWindows.find((event) => getOverlapDays(
+    periodStart,
+    periodEnd,
+    parseLooseDate(event.startDate),
+    parseLooseDate(event.endDate),
+  ) > 0) ?? null;
+}
+
 export function calculateAllCharges(expandedRows, params) {
   if (!expandedRows || expandedRows.length === 0) return [];
 
   const {
     squareFootage,
-    abatementEndDate,
-    abatementPct,
     nnnMode,
     nnnAggregate,
     cams,
@@ -225,194 +302,109 @@ export function calculateAllCharges(expandedRows, params) {
   } = params;
 
   const isAggregate = nnnMode === 'aggregate';
-  // When a normalized charges array is provided, use dynamic path.
   const useDynamicCharges = Array.isArray(paramCharges) && paramCharges.length > 0;
-
-  // Flaw 4 fix: convention explicitly enforced — 100 = full abatement (tenant pays 0).
-  const tenantPaysFraction = 1 - (Math.min(Math.max(Number(abatementPct) || 0, 0), 100) / 100);
-
-  // Pre-compute escalation rates as decimals (legacy path)
-  const nnnAggEsc     = (Number(nnnAggregate?.escPct) || 0) / 100;
-  const camsEsc       = (Number(cams?.escPct)       || 0) / 100;
-  const insuranceEsc  = (Number(insurance?.escPct)  || 0) / 100;
-  const taxesEsc      = (Number(taxes?.escPct)      || 0) / 100;
-  const securityEsc   = (Number(security?.escPct)   || 0) / 100;
+  const nnnAggEsc = (Number(nnnAggregate?.escPct) || 0) / 100;
+  const camsEsc = (Number(cams?.escPct) || 0) / 100;
+  const insuranceEsc = (Number(insurance?.escPct) || 0) / 100;
+  const taxesEsc = (Number(taxes?.escPct) || 0) / 100;
+  const securityEsc = (Number(security?.escPct) || 0) / 100;
   const otherItemsEsc = (Number(otherItems?.escPct) || 0) / 100;
 
-  // Sort rows ascending by date (defensive — expander already sorts)
   const rows = expandedRows
-    .map((r) => ({ ...r }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .map((row) => ({ ...row }))
+    .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
 
   const totalRows = rows.length;
+  const concessionState = normalizeConcessionEngineState(rows, params);
 
-  // Collect unique OT labels in insertion order (non-zero items only).
   const seenOTLabels = new Set();
   const otLabelOrder = [];
   for (const item of oneTimeItems) {
     if (!(Number(item.amount) || 0)) continue;
-    const lbl = String(item.label || '').trim() || 'One-time Charge';
-    if (!seenOTLabels.has(lbl)) { seenOTLabels.add(lbl); otLabelOrder.push(lbl); }
+    const label = String(item.label || '').trim() || 'One-time Charge';
+    if (!seenOTLabels.has(label)) {
+      seenOTLabels.add(label);
+      otLabelOrder.push(label);
+    }
   }
 
-  // Pre-assign one-time items to row indices, tracked per label.
-  // Items with no date go to row 0 (lease commencement).
-  // Items before lease start → row 0; after lease end → last row.
   const oneTimeByRow = Array.from({ length: totalRows }, () => {
-    const obj = {};
-    for (const lbl of otLabelOrder) obj[lbl] = 0;
-    return obj;
+    const result = {};
+    for (const label of otLabelOrder) result[label] = 0;
+    return result;
   });
 
   for (const item of oneTimeItems) {
     const amount = Number(item.amount) || 0;
     if (!amount) continue;
-    const lbl = String(item.label || '').trim() || 'One-time Charge';
+    const label = String(item.label || '').trim() || 'One-time Charge';
+    const itemDate = parseLooseDate(item.date);
 
-    if (!item.date) {
-      oneTimeByRow[0][lbl] = (oneTimeByRow[0][lbl] || 0) + amount;
+    if (!itemDate) {
+      oneTimeByRow[0][label] = (oneTimeByRow[0][label] || 0) + amount;
       continue;
     }
 
-    let assigned = false;
-    for (let i = 0; i < totalRows; i++) {
-      const rowStart = parseISODate(rows[i].date);
-      let rowEnd = null;
-      if (i < totalRows - 1) {
-        const nextStart = parseISODate(rows[i + 1].date);
-        if (nextStart) rowEnd = new Date(nextStart.getTime() - 86400000);
-      } else {
-        rowEnd = rows[i].periodEnd ? parseISODate(rows[i].periodEnd) : null;
-        if (!rowEnd && rowStart) {
-          rowEnd = new Date(addMonthsAnchored(rowStart, 1).getTime() - 86400000);
-        }
-      }
-      if (rowStart && rowEnd &&
-          item.date.getTime() >= rowStart.getTime() &&
-          item.date.getTime() <= rowEnd.getTime()) {
-        oneTimeByRow[i][lbl] = (oneTimeByRow[i][lbl] || 0) + amount;
-        assigned = true;
-        break;
-      }
-    }
-    if (!assigned) {
-      const leaseStart = parseISODate(rows[0].date);
-      const targetRow = leaseStart && item.date < leaseStart ? 0 : totalRows - 1;
-      oneTimeByRow[targetRow][lbl] = (oneTimeByRow[targetRow][lbl] || 0) + amount;
-    }
+    const rowIndex = resolveMonthlyRowIndex(rows, itemDate);
+    const targetRow = rowIndex >= 0 ? rowIndex : 0;
+    oneTimeByRow[targetRow][label] = (oneTimeByRow[targetRow][label] || 0) + amount;
   }
 
-  // -------------------------------------------------------------------------
-  // Pass 1: forward — compute all per-row values
-  // -------------------------------------------------------------------------
-  for (let i = 0; i < totalRows; i++) {
+  for (let i = 0; i < totalRows; i += 1) {
     const row = rows[i];
+    const leaseYear = Number(row['Year #'] || row.leaseYear || 1);
+    const leaseMonth = Number(row['Month #'] || row.leaseMonth || i + 1);
+    const { periodStart, periodEnd } = getRowBounds(rows, i);
 
-    const leaseYear  = Number(row['Year #']  || 1);
-    const leaseMonth = Number(row['Month #'] || i + 1);
+    const {
+      factor: periodFactor,
+      actualDays,
+      calMonthDays,
+    } = computePeriodFactor(i, totalRows, periodStart, periodEnd);
 
-    const periodStart = parseISODate(row.date);
+    const scheduledBaseRent = Number(row.monthlyRent ?? row.scheduledBaseRent ?? 0);
+    const periodAdjustedBaseRent = scheduledBaseRent * periodFactor;
 
-    // Derive periodEnd: next row's date − 1 day for non-final rows;
-    // the explicit periodEnd from the expander for the final row.
-    let periodEnd = null;
-    if (i < totalRows - 1) {
-      const nextDate = parseISODate(rows[i + 1].date);
-      if (nextDate) {
-        periodEnd = new Date(nextDate.getTime() - 86400000);
-        periodEnd.setHours(0, 0, 0, 0);
-      }
-    } else {
-      // Final row: use explicit periodEnd if present, else treat as full anchor month
-      if (row.periodEnd) {
-        periodEnd = parseISODate(row.periodEnd);
-      }
-      if (!periodEnd && periodStart) {
-        const nextAnchor = addMonthsAnchored(periodStart, 1);
-        periodEnd = new Date(nextAnchor.getTime() - 86400000);
-        periodEnd.setHours(0, 0, 0, 0);
-      }
-    }
+    const explicitEvent = concessionState.explicitMap.get(i) ?? null;
+    const legacyEvent = explicitEvent ? null : getLegacyConcessionForRow(concessionState.legacyWindows, periodStart, periodEnd);
+    const concessionResult = explicitEvent
+      ? applyExplicitConcession(explicitEvent, scheduledBaseRent, periodFactor)
+      : applyLegacyWindowConcession(legacyEvent, periodStart, periodEnd, scheduledBaseRent, periodFactor);
 
-    // --- Period factor ---
-    const { factor: periodFactor, actualDays, calMonthDays } =
-      computePeriodFactor(i, totalRows, periodStart, periodEnd);
-
-    // --- Base rent proration and abatement ---
-    const scheduledBaseRent = Number(row.monthlyRent || 0);
-    let baseFactor = 1;
-    let prorationBasis = 'full';
-    let abatementDays = 0;
-    let fullRentDays = 0;
-    let totalDays = 0;
-
-    if (abatementEndDate && periodStart && periodEnd) {
-      // abatementEndDate = last day of abatement (inclusive).
-      // rentStartDate    = first day full rent is owed.
-      const rentStartDate = new Date(abatementEndDate.getTime() + 86400000);
-
-      if (rentStartDate.getTime() <= periodStart.getTime()) {
-        // Entire month is post-abatement
-        baseFactor = 1;
-        prorationBasis = 'full';
-      } else if (periodEnd.getTime() <= abatementEndDate.getTime()) {
-        // Entire month is within abatement (periodEnd on or before last abated day)
-        baseFactor = tenantPaysFraction;
-        prorationBasis = 'full'; // full abatement application, not a blend
-      } else {
-        // Boundary month: straddles the abatement/full-rent transition
-        totalDays     = daysBetweenInclusive(periodStart, periodEnd);
-        abatementDays = daysBetweenInclusive(periodStart, abatementEndDate);
-        fullRentDays  = daysBetweenInclusive(rentStartDate, periodEnd);
-        prorationBasis = 'abatement-boundary';
-        baseFactor = baseRentProrationFactor(periodStart, periodEnd, abatementEndDate, tenantPaysFraction);
-      }
-    } else if (abatementEndDate && periodStart && !periodEnd) {
-      baseFactor = periodStart.getTime() <= abatementEndDate.getTime() ? tenantPaysFraction : 1;
-    }
-
-    // Apply period factor on top of the base proration factor
-    const combinedProrationFactor = baseFactor * periodFactor;
-
-    // Detect final partial month for trace panel
-    if (i === totalRows - 1 && periodFactor < 1) {
-      prorationBasis = 'final-month';
-    }
-
-    const baseRentApplied = scheduledBaseRent * combinedProrationFactor;
-    // A row is an abatement row when its entire period falls on or before the
-    // last abated day (abatementEndDate inclusive). Boundary months that straddle
-    // the transition are NOT highlighted amber — they show a partial charge.
-    const isAbatementRow  = abatementEndDate !== null &&
-                            periodEnd !== null &&
-                            periodEnd.getTime() <= abatementEndDate.getTime();
-
-    // --- Charge computation: dynamic path (params.charges) or legacy 5-category path ---
-
-    // chargeAmounts: { [key]: amount } — canonical per-row charge values
-    // chargeDetails: { [key]: { displayLabel, canonicalType, active, escYears, escPct } }
     const chargeAmounts = {};
     const chargeDetails = {};
 
-    // Legacy individual fields (kept for backward compat with Pass 2 and export consumers).
-    let camsAmount = 0, camsEscYears = null, camsActive = false;
-    let insuranceAmount = 0, insuranceEscYears = null, insuranceActive = false;
-    let taxesAmount = 0, taxesEscYears = null, taxesActive = false;
+    let camsAmount = 0;
+    let camsEscYears = null;
+    let camsActive = false;
+    let insuranceAmount = 0;
+    let insuranceEscYears = null;
+    let insuranceActive = false;
+    let taxesAmount = 0;
+    let taxesEscYears = null;
+    let taxesActive = false;
     let nnnAggregateAmount = 0;
-    let securityAmount = 0, securityEscYears = null, securityActive = false;
-    let otherItemsAmount = 0, otherItemsEscYears = null, otherItemsActive = false;
+    let securityAmount = 0;
+    let securityEscYears = null;
+    let securityActive = false;
+    let otherItemsAmount = 0;
+    let otherItemsEscYears = null;
+    let otherItemsActive = false;
 
     let trueNNN = 0;
     let otherChargesBase = 0;
 
     if (isAggregate) {
-      // Aggregate NNN: single combined amount.
       nnnAggregateAmount = Number(computeChargeAmount(
-        Number(nnnAggregate?.year1) || 0, nnnAggEsc, null, leaseYear, periodFactor
+        Number(nnnAggregate?.year1) || 0,
+        nnnAggEsc,
+        null,
+        leaseYear,
+        periodFactor,
       ).toFixed(2));
       trueNNN = nnnAggregateAmount;
-      chargeAmounts['nnnAggregate'] = nnnAggregateAmount;
-      chargeDetails['nnnAggregate'] = {
+      chargeAmounts.nnnAggregate = nnnAggregateAmount;
+      chargeDetails.nnnAggregate = {
         displayLabel: 'NNN (Aggregate)',
         canonicalType: 'nnn',
         active: true,
@@ -422,18 +414,14 @@ export function calculateAllCharges(expandedRows, params) {
     }
 
     if (useDynamicCharges) {
-      // Dynamic charges path: iterate over normalized params.charges array.
-      // In aggregate mode, NNN-type charges are skipped (aggregate column takes priority).
       for (const charge of paramCharges) {
         if (isAggregate && charge.canonicalType === 'nnn') continue;
 
         const escRate = (Number(charge.escPct) || 0) / 100;
-        const active  = isChargeActive(periodStart, charge.chargeStart);
+        const active = isChargeActive(periodStart, charge.chargeStart);
         const escYears = active ? yearsSinceStart(periodStart, charge.escStart) : null;
-        const amount  = active
-          ? Number(computeChargeAmount(
-              Number(charge.year1) || 0, escRate, escYears, leaseYear, periodFactor
-            ).toFixed(2))
+        const amount = active
+          ? Number(computeChargeAmount(Number(charge.year1) || 0, escRate, escYears, leaseYear, periodFactor).toFixed(2))
           : 0;
 
         chargeAmounts[charge.key] = amount;
@@ -451,184 +439,182 @@ export function calculateAllCharges(expandedRows, params) {
           otherChargesBase += amount;
         }
 
-        // Mirror to legacy named fields for backward compat.
         switch (charge.key) {
-          case 'cams':       camsAmount = amount; camsEscYears = escYears; camsActive = active; break;
-          case 'insurance':  insuranceAmount = amount; insuranceEscYears = escYears; insuranceActive = active; break;
-          case 'taxes':      taxesAmount = amount; taxesEscYears = escYears; taxesActive = active; break;
-          case 'security':   securityAmount = amount; securityEscYears = escYears; securityActive = active; break;
-          case 'otherItems': otherItemsAmount = amount; otherItemsEscYears = escYears; otherItemsActive = active; break;
+          case 'cams':
+            camsAmount = amount;
+            camsEscYears = escYears;
+            camsActive = active;
+            break;
+          case 'insurance':
+            insuranceAmount = amount;
+            insuranceEscYears = escYears;
+            insuranceActive = active;
+            break;
+          case 'taxes':
+            taxesAmount = amount;
+            taxesEscYears = escYears;
+            taxesActive = active;
+            break;
+          case 'security':
+            securityAmount = amount;
+            securityEscYears = escYears;
+            securityActive = active;
+            break;
+          case 'otherItems':
+            otherItemsAmount = amount;
+            otherItemsEscYears = escYears;
+            otherItemsActive = active;
+            break;
         }
       }
     } else {
-      // Legacy path — hardcoded 5-category computation (unchanged behaviour).
       if (!isAggregate) {
-        camsActive   = isChargeActive(periodStart, cams?.chargeStart);
+        camsActive = isChargeActive(periodStart, cams?.chargeStart);
         camsEscYears = camsActive ? yearsSinceStart(periodStart, cams?.escStart) : null;
-        camsAmount   = camsActive
+        camsAmount = camsActive
           ? Number(computeChargeAmount(Number(cams?.year1) || 0, camsEsc, camsEscYears, leaseYear, periodFactor).toFixed(2))
           : 0;
 
-        insuranceActive   = isChargeActive(periodStart, insurance?.chargeStart);
+        insuranceActive = isChargeActive(periodStart, insurance?.chargeStart);
         insuranceEscYears = insuranceActive ? yearsSinceStart(periodStart, insurance?.escStart) : null;
-        insuranceAmount   = insuranceActive
+        insuranceAmount = insuranceActive
           ? Number(computeChargeAmount(Number(insurance?.year1) || 0, insuranceEsc, insuranceEscYears, leaseYear, periodFactor).toFixed(2))
           : 0;
 
-        taxesActive   = isChargeActive(periodStart, taxes?.chargeStart);
+        taxesActive = isChargeActive(periodStart, taxes?.chargeStart);
         taxesEscYears = taxesActive ? yearsSinceStart(periodStart, taxes?.escStart) : null;
-        taxesAmount   = taxesActive
+        taxesAmount = taxesActive
           ? Number(computeChargeAmount(Number(taxes?.year1) || 0, taxesEsc, taxesEscYears, leaseYear, periodFactor).toFixed(2))
           : 0;
 
         trueNNN = camsAmount + insuranceAmount + taxesAmount;
       }
 
-      securityActive   = isChargeActive(periodStart, security?.chargeStart);
+      securityActive = isChargeActive(periodStart, security?.chargeStart);
       securityEscYears = securityActive ? yearsSinceStart(periodStart, security?.escStart) : null;
-      securityAmount   = securityActive
+      securityAmount = securityActive
         ? Number(computeChargeAmount(Number(security?.year1) || 0, securityEsc, securityEscYears, leaseYear, periodFactor).toFixed(2))
         : 0;
 
-      otherItemsActive   = isChargeActive(periodStart, otherItems?.chargeStart);
+      otherItemsActive = isChargeActive(periodStart, otherItems?.chargeStart);
       otherItemsEscYears = otherItemsActive ? yearsSinceStart(periodStart, otherItems?.escStart) : null;
-      otherItemsAmount   = otherItemsActive
+      otherItemsAmount = otherItemsActive
         ? Number(computeChargeAmount(Number(otherItems?.year1) || 0, otherItemsEsc, otherItemsEscYears, leaseYear, periodFactor).toFixed(2))
         : 0;
 
       otherChargesBase = securityAmount + otherItemsAmount;
 
-      // Populate chargeAmounts/chargeDetails from legacy results so consumers can
-      // always use the normalized fields.
       if (!isAggregate) {
-        chargeAmounts.cams      = camsAmount;
+        chargeAmounts.cams = camsAmount;
         chargeAmounts.insurance = insuranceAmount;
-        chargeAmounts.taxes     = taxesAmount;
-        chargeDetails.cams      = { displayLabel: 'CAMS',      canonicalType: 'nnn', active: camsActive,      escYears: camsEscYears,      escPct: Number(cams?.escPct)      || 0 };
+        chargeAmounts.taxes = taxesAmount;
+        chargeDetails.cams = { displayLabel: 'CAMS', canonicalType: 'nnn', active: camsActive, escYears: camsEscYears, escPct: Number(cams?.escPct) || 0 };
         chargeDetails.insurance = { displayLabel: 'Insurance', canonicalType: 'nnn', active: insuranceActive, escYears: insuranceEscYears, escPct: Number(insurance?.escPct) || 0 };
-        chargeDetails.taxes     = { displayLabel: 'Taxes',     canonicalType: 'nnn', active: taxesActive,     escYears: taxesEscYears,     escPct: Number(taxes?.escPct)     || 0 };
+        chargeDetails.taxes = { displayLabel: 'Taxes', canonicalType: 'nnn', active: taxesActive, escYears: taxesEscYears, escPct: Number(taxes?.escPct) || 0 };
       }
-      chargeAmounts.security   = securityAmount;
+
+      chargeAmounts.security = securityAmount;
       chargeAmounts.otherItems = otherItemsAmount;
-      chargeDetails.security   = { displayLabel: 'Security',    canonicalType: 'other', active: securityActive,   escYears: securityEscYears,   escPct: Number(security?.escPct)   || 0 };
+      chargeDetails.security = { displayLabel: 'Security', canonicalType: 'other', active: securityActive, escYears: securityEscYears, escPct: Number(security?.escPct) || 0 };
       chargeDetails.otherItems = { displayLabel: 'Other Items', canonicalType: 'other', active: otherItemsActive, escYears: otherItemsEscYears, escPct: Number(otherItems?.escPct) || 0 };
     }
 
-    const oneTimeItemAmounts = oneTimeByRow[i];  // { [label]: amount }
-    const oneTimeChargesAmount = Number(
-      Object.values(oneTimeItemAmounts).reduce((s, v) => s + v, 0).toFixed(2)
-    );
+    const oneTimeItemAmounts = oneTimeByRow[i];
+    const oneTimeChargesAmount = Number(Object.values(oneTimeItemAmounts).reduce((sum, value) => sum + value, 0).toFixed(2));
+    const totalOtherChargesAmount = Number((otherChargesBase + oneTimeChargesAmount).toFixed(2));
+    const baseRentApplied = Number(concessionResult.appliedBaseRent.toFixed(2));
+    const abatementAmount = Number(concessionResult.abatementAmount.toFixed(2));
+    const totalMonthlyObligation = Number((baseRentApplied + trueNNN + totalOtherChargesAmount).toFixed(2));
+    const effectivePerSF = squareFootage > 0
+      ? Number((totalMonthlyObligation / squareFootage).toFixed(6))
+      : null;
 
-    // Other Charges bucket = other-canonicalType charges + all one-time items.
-    const totalOtherChargesAmount = Number(
-      (otherChargesBase + oneTimeChargesAmount).toFixed(2)
-    );
-
-    const totalMonthlyObligation = Number(
-      (Number(baseRentApplied.toFixed(2)) + trueNNN + totalOtherChargesAmount).toFixed(2)
-    );
-
-    const effectivePerSF =
-      squareFootage > 0 ? Number((totalMonthlyObligation / squareFootage).toFixed(6)) : null;
-
-    // Assign all computed fields back to the row
     Object.assign(row, {
-      // Identity
       periodStart: toISOLocal(periodStart),
-      periodEnd:   periodEnd ? toISOLocal(periodEnd) : null,
+      periodEnd: periodEnd ? toISOLocal(periodEnd) : null,
       leaseYear,
       leaseMonth,
-
-      // Base rent
-      scheduledBaseRent:       Number(scheduledBaseRent.toFixed(2)),
-      baseRentApplied:         Number(baseRentApplied.toFixed(2)),
-      baseRentProrationFactor: Number(combinedProrationFactor.toFixed(6)),
-      isAbatementRow,
-
-      // Trace fields
-      periodFactor:    Number(periodFactor.toFixed(6)),
-      prorationBasis,
-      abatementDays,
-      fullRentDays,
-      totalDays,
+      scheduledBaseRent: Number(scheduledBaseRent.toFixed(2)),
+      periodAdjustedBaseRent: Number(periodAdjustedBaseRent.toFixed(2)),
+      baseRentApplied,
+      abatementAmount,
+      baseRentProrationFactor: Number(concessionResult.baseFactor.toFixed(6)),
+      isConcessionRow: concessionResult.isConcessionRow,
+      isAbatementRow: concessionResult.isConcessionRow,
+      periodFactor: Number(periodFactor.toFixed(6)),
+      prorationBasis: concessionResult.prorationBasis,
+      abatementDays: concessionResult.abatementDays,
+      fullRentDays: concessionResult.fullRentDays,
+      totalDays: concessionResult.totalDays,
       actualDays,
       calMonthDays,
-
-      // NNN mode
       nnnMode: isAggregate ? 'aggregate' : 'individual',
       nnnAggregateAmount,
-
-      // Normalized charge maps (always populated regardless of path)
       chargeAmounts,
       chargeDetails,
-
-      // Legacy individual charge fields (backward compat)
       camsAmount,
-      camsEscPct:   Number(cams?.escPct) || 0,
+      camsEscPct: Number(cams?.escPct) || 0,
       camsEscYears,
       camsActive,
-
       insuranceAmount,
-      insuranceEscPct:   Number(insurance?.escPct) || 0,
+      insuranceEscPct: Number(insurance?.escPct) || 0,
       insuranceEscYears,
       insuranceActive,
-
       taxesAmount,
-      taxesEscPct:   Number(taxes?.escPct) || 0,
+      taxesEscPct: Number(taxes?.escPct) || 0,
       taxesEscYears,
       taxesActive,
-
       securityAmount,
-      securityEscPct:   Number(security?.escPct) || 0,
+      securityEscPct: Number(security?.escPct) || 0,
       securityEscYears,
       securityActive,
-
       otherItemsAmount,
-      otherItemsEscPct:   Number(otherItems?.escPct) || 0,
+      otherItemsEscPct: Number(otherItems?.escPct) || 0,
       otherItemsEscYears,
       otherItemsActive,
-
-      // One-time charges
       oneTimeItemAmounts,
       oneTimeChargesAmount,
-
-      // Charge buckets (used for remaining-balance computation in Pass 2)
       totalOtherChargesAmount,
-
-      // Totals
-      totalNNNAmount: trueNNN,
+      totalNNNAmount: Number(trueNNN.toFixed(2)),
       totalMonthlyObligation,
       effectivePerSF,
-
-      // Remaining balance fields — populated in Pass 2
-      totalObligationRemaining:   0,
-      totalNNNRemaining:          0,
-      totalBaseRentRemaining:     0,
+      totalObligationRemaining: 0,
+      totalNNNRemaining: 0,
+      totalBaseRentRemaining: 0,
       totalOtherChargesRemaining: 0,
+      concessionEventId: concessionResult.concessionEventId,
+      concessionType: concessionResult.concessionType,
+      concessionScope: concessionResult.concessionScope,
+      concessionValueMode: concessionResult.concessionValueMode,
+      concessionValue: concessionResult.concessionValue,
+      concessionTriggerDate: concessionResult.concessionTriggerDate,
+      concessionStartDate: concessionResult.concessionStartDate,
+      concessionEndDate: concessionResult.concessionEndDate,
+      concessionSource: concessionResult.concessionSource,
+      concessionConfidence: concessionResult.concessionConfidence,
+      concessionLabel: concessionResult.concessionLabel,
+      concessionAssumptionNote: concessionResult.concessionAssumptionNote,
+      sourcePeriodIndex: row.sourcePeriodIndex ?? null,
+      sourcePeriodStart: row.sourcePeriodStart ?? null,
+      sourcePeriodEnd: row.sourcePeriodEnd ?? null,
     });
   }
 
-  // -------------------------------------------------------------------------
-  // Pass 2: reverse — accumulate remaining balances (last row → first row)
-  // Matches the n8n second-pass logic exactly.
-  // -------------------------------------------------------------------------
-  let runningTotal        = 0;
-  let runningNNN          = 0;
-  let runningBase         = 0;
+  let runningTotal = 0;
+  let runningNNN = 0;
+  let runningBase = 0;
   let runningOtherCharges = 0;
 
-  for (let i = totalRows - 1; i >= 0; i--) {
+  for (let i = totalRows - 1; i >= 0; i -= 1) {
     const row = rows[i];
-
-    runningTotal        += row.totalMonthlyObligation;
-    // Use the canonical totalNNNAmount (covers both individual and aggregate modes).
-    runningNNN          += row.totalNNNAmount;
-    runningBase         += row.baseRentApplied;
+    runningTotal += row.totalMonthlyObligation;
+    runningNNN += row.totalNNNAmount;
+    runningBase += row.baseRentApplied;
     runningOtherCharges += row.totalOtherChargesAmount;
 
-    row.totalObligationRemaining   = Number(runningTotal.toFixed(2));
-    row.totalNNNRemaining          = Number(runningNNN.toFixed(2));
-    row.totalBaseRentRemaining     = Number(runningBase.toFixed(2));
+    row.totalObligationRemaining = Number(runningTotal.toFixed(2));
+    row.totalNNNRemaining = Number(runningNNN.toFixed(2));
+    row.totalBaseRentRemaining = Number(runningBase.toFixed(2));
     row.totalOtherChargesRemaining = Number(runningOtherCharges.toFixed(2));
   }
 

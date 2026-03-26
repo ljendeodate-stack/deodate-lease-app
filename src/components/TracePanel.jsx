@@ -89,13 +89,30 @@ export default function TracePanel({ row }) {
 
   const prorationDetail = (() => {
     if (row.prorationBasis === 'full') return 'Full anchor month; no proration.';
-    if (row.prorationBasis === 'abatement-boundary') {
-      return `Abatement boundary blend: ${row.abatementDays} abated day(s) + ${row.fullRentDays} full-rent day(s) over ${row.totalDays} total day(s).`;
+    if (row.prorationBasis === 'abatement-boundary' || row.prorationBasis === 'concession-boundary') {
+      return `Concession boundary blend: ${row.abatementDays} concession day(s) + ${row.fullRentDays} full-rent day(s) over ${row.totalDays} total day(s).`;
     }
+    if (row.prorationBasis === 'concession-event') return 'Date-triggered concession event applied to this resolved monthly row.';
     if (row.prorationBasis === 'final-month') {
       return `Final partial month: ${row.actualDays} actual day(s) / ${row.calMonthDays} calendar day(s) in expiry month.`;
     }
     return '-';
+  })();
+
+  const concessionValue = (() => {
+    if (!row.concessionType) return null;
+    if (row.concessionType === 'free_rent') return '100% free rent';
+    if (row.concessionValueMode === 'fixed_amount') return `$${Number(row.concessionValue || 0).toLocaleString()} fixed reduction`;
+    return `${Number(row.concessionValue || 0)}% abatement`;
+  })();
+
+  const concessionDetail = (() => {
+    if (!row.concessionType) return null;
+    if (row.concessionTriggerDate) return `Triggered on ${row.concessionTriggerDate}.`;
+    if (row.concessionStartDate || row.concessionEndDate) {
+      return `Legacy window ${row.concessionStartDate ?? 'start'} through ${row.concessionEndDate ?? 'end'}.`;
+    }
+    return null;
   })();
 
   return (
@@ -117,6 +134,13 @@ export default function TracePanel({ row }) {
             value={formatFactor(row.baseRentProrationFactor)}
             detail={prorationDetail}
           />
+          {row.concessionType && (
+            <TraceRow
+              label="Concession"
+              value={concessionValue}
+              detail={[concessionDetail, row.concessionAssumptionNote].filter(Boolean).join(' ')}
+            />
+          )}
 
           <tr>
             <td colSpan={3} className="pt-4 pb-1">

@@ -1,19 +1,47 @@
 /**
  * @fileoverview Parameter and schedule validation.
- *
- * Validates all form inputs against the constraints in Section 2 of the spec
- * before processing is triggered. Returns structured error and warning objects
- * rather than throwing, so the UI can render them without crashing.
- *
- * Errors BLOCK processing. Warnings are informational — processing proceeds.
- *
- * No UI dependencies. All functions are pure.
  */
 
 import { parseMDYStrict, parseISODate } from './yearMonth.js';
 import { EXPENSE_CATEGORY_DEFS } from './labelClassifier.js';
+import {
+  CONCESSION_SCOPES,
+  CONCESSION_VALUE_MODES,
+  resolveMonthlyRowIndex,
+} from './leaseTerms.js';
 
 const STANDARD_CHARGE_KEYS = ['cams', 'insurance', 'taxes', 'security', 'otherItems'];
+
+function parseLooseDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const parsed = parseISODate(value);
+    if (!parsed) return null;
+    const [year, month, day] = value.split('-').map(Number);
+    if (
+      parsed.getFullYear() !== year ||
+      parsed.getMonth() !== month - 1 ||
+      parsed.getDate() !== day
+    ) {
+      return null;
+    }
+    return parsed;
+  }
+  return parseMDYStrict(value);
+}
+
+function pushIssue(list, field, message, severity) {
+  list.push({ field, message, severity });
+}
+
+function getLeaseBounds(rows) {
+  if (!rows?.length) return { leaseStart: null, leaseEnd: null };
+  return {
+    leaseStart: parseISODate(rows[0].date ?? rows[0].periodStart),
+    leaseEnd: parseISODate(rows[rows.length - 1].periodEnd ?? rows[rows.length - 1].date),
+  };
+}
 
 function getChargeValidationEntries(params) {
   if (Array.isArray(params.charges) && params.charges.length > 0) {
@@ -35,135 +63,189 @@ function getChargeValidationEntries(params) {
     }));
 }
 
-/**
- * @typedef {Object} ValidationIssue
- * @property {string} field    - The parameter field key or 'schedule'.
- * @property {string} message  - Human-readable description.
- * @property {'error'|'warning'} severity
- */
+function validateConcessionEvents(params, rows, errors, warnings) {
+  const { leaseStart, leaseEnd } = getLeaseBounds(rows);
+  const rowAssignments = new Map();
 
-/**
- * Validate all form parameters and cross-check them against the monthly rows
- * produced by the expander.
- *
- * @param {Object}   params              - All form parameters as entered by the user.
- * @param {{ date: string, 'Month #': number }[]} rows
- *   Monthly rows from expander (used to derive lease term bounds).
- *
- * @returns {{ errors: ValidationIssue[], warnings: ValidationIssue[] }}
- */
-export function validateParams(params, rows) {
-  const errors = [];
-  const warnings = [];
+  const validateDatedEvent = (event, index, type) => {
+    const fieldBase = `${type}.${index}`;
+    const label = type === 'freeRentEvents' ? 'Free-rent event' : 'Abatement event';
+    const date = parseLooseDate(event?.date);
 
-  // --- Square footage ---
-  const sf = Number(params.squareFootage);
-  if (!params.squareFootage || isNaN(sf) || sf <= 0) {
-    if (params.sfRequired) {
-      // SF is truly required when rent is $/SF
-      errors.push({
-        field: 'squareFootage',
-        message: 'Square footage is required because the lease expresses rent as $/SF. Enter the rentable area to derive monthly dollar amounts.',
-        severity: 'error',
-      });
-    } else {
-      // SF is nice-to-have for $/SF column but not blocking
-      warnings.push({
-        field: 'squareFootage',
-        message: 'Square footage not provided — the Effective $/SF column will show $0.',
-        severity: 'warning',
-      });
+    if (!event?.date || !String(event.date).trim()) {
+      pushIssue(errors, `${fieldBase}.date`, `${label} date is required.`, 'error');
+      return;
     }
-  }
+    if (!date) {
+      pushIssue(errors, `${fieldBase}.date`, `${label} date must be in MM/DD/YYYY format.`, 'error');
+      return;
+    }
 
-  // --- Abatement ---
-  if (params.abatementEndDate && params.abatementEndDate.trim()) {
-    const abDate = parseMDYStrict(params.abatementEndDate);
-    if (!abDate) {
-      errors.push({ field: 'abatementEndDate', message: 'Abatement end date must be in MM/DD/YYYY format.', severity: 'error' });
-    } else if (rows.length > 0) {
-      const leaseStart = parseISODate(rows[0].date);
-      const leaseEnd = parseISODate(rows[rows.length - 1].periodEnd ?? rows[rows.length - 1].date);
-      if (leaseStart && abDate < leaseStart) {
-        warnings.push({ field: 'abatementEndDate', message: 'Abatement end date falls before the lease start date.', severity: 'warning' });
-      }
-      if (leaseEnd && abDate > leaseEnd) {
-        warnings.push({ field: 'abatementEndDate', message: 'Abatement end date falls after the lease end date.', severity: 'warning' });
+    if (leaseStart && leaseEnd && (date < leaseStart || date > leaseEnd)) {
+      pushIssue(
+        warnings,
+        `${fieldBase}.date`,
+        `${label} date falls outside the resolved lease term and will snap to the nearest schedule row.`,
+        'warning',
+      );
+    }
+
+    const rowIndex = resolveMonthlyRowIndex(rows, date);
+    if (rowIndex >= 0) {
+      const existing = rowAssignments.get(rowIndex);
+      if (existing) {
+        pushIssue(
+          errors,
+          `${fieldBase}.date`,
+          `${label} resolves to the same monthly row as ${existing}. Use one concession event per monthly row.`,
+          'error',
+        );
+      } else {
+        rowAssignments.set(rowIndex, label.toLowerCase());
       }
     }
+
+    if (type !== 'abatementEvents') return;
+
+    const value = Number(event?.value);
+    if (event?.value === '' || event?.value === undefined || event?.value === null) {
+      pushIssue(errors, `${fieldBase}.value`, 'Abatement percentage is required.', 'error');
+      return;
+    }
+    if (!Number.isFinite(value)) {
+      pushIssue(errors, `${fieldBase}.value`, 'Abatement percentage must be a number.', 'error');
+      return;
+    }
+
+    const valueMode = event?.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT
+      ? CONCESSION_VALUE_MODES.FIXED_AMOUNT
+      : CONCESSION_VALUE_MODES.PERCENT;
+
+    if (valueMode === CONCESSION_VALUE_MODES.PERCENT && (value < 0 || value > 100)) {
+      pushIssue(errors, `${fieldBase}.value`, 'Abatement percentage must be between 0 and 100.', 'error');
+    }
+  };
+
+  (params.freeRentEvents ?? []).forEach((event, index) => validateDatedEvent(event, index, 'freeRentEvents'));
+  (params.abatementEvents ?? []).forEach((event, index) => validateDatedEvent(event, index, 'abatementEvents'));
+
+  (params.legacyConcessionEvents ?? []).forEach((event, index) => {
+    const fieldBase = `legacyConcessionEvents.${index}`;
+    const scope = event?.scope === CONCESSION_SCOPES.MONTHLY_ROW
+      ? CONCESSION_SCOPES.MONTHLY_ROW
+      : CONCESSION_SCOPES.LEGACY_WINDOW;
+
+    if (scope === CONCESSION_SCOPES.MONTHLY_ROW) {
+      const date = parseLooseDate(event?.effectiveDate ?? event?.date);
+      if (!date) {
+        pushIssue(errors, `${fieldBase}.effectiveDate`, 'Imported concession event date is invalid.', 'error');
+      }
+      return;
+    }
+
+    const startDate = parseLooseDate(event?.startDate);
+    const endDate = parseLooseDate(event?.endDate);
+    if (!startDate || !endDate) {
+      pushIssue(errors, `${fieldBase}.startDate`, 'Imported legacy concession window must have valid start and end dates.', 'error');
+      return;
+    }
+    if (endDate < startDate) {
+      pushIssue(errors, `${fieldBase}.endDate`, 'Imported legacy concession window cannot end before it starts.', 'error');
+    }
+  });
+
+  const abDate = parseLooseDate(params.abatementEndDate);
+  if (params.abatementEndDate && !abDate) {
+    pushIssue(errors, 'abatementEndDate', 'Abatement end date must be in MM/DD/YYYY format.', 'error');
   }
 
   if (params.abatementPct !== '' && params.abatementPct !== undefined) {
     const pct = Number(params.abatementPct);
-    if (isNaN(pct)) {
-      errors.push({ field: 'abatementPct', message: 'Abatement percentage must be a number.', severity: 'error' });
+    if (Number.isNaN(pct)) {
+      pushIssue(errors, 'abatementPct', 'Abatement percentage must be a number.', 'error');
     } else if (pct < 0 || pct > 100) {
-      errors.push({ field: 'abatementPct', message: 'Abatement percentage must be between 0 and 100.', severity: 'error' });
+      pushIssue(errors, 'abatementPct', 'Abatement percentage must be between 0 and 100.', 'error');
     }
   }
+}
+
+export function validateParams(params, rows) {
+  const errors = [];
+  const warnings = [];
+
+  const sf = Number(params.squareFootage);
+  if (!params.squareFootage || Number.isNaN(sf) || sf <= 0) {
+    if (params.sfRequired) {
+      pushIssue(
+        errors,
+        'squareFootage',
+        'Square footage is required because the lease expresses rent as $/SF. Enter the rentable area to derive monthly dollar amounts.',
+        'error',
+      );
+    } else {
+      pushIssue(
+        warnings,
+        'squareFootage',
+        'Square footage not provided - the Effective $/SF column will show $0.',
+        'warning',
+      );
+    }
+  }
+
+  validateConcessionEvents(params, rows, errors, warnings);
 
   if ((params.nnnMode ?? 'individual') === 'aggregate') {
     if (params.nnnAggregate?.year1 !== '' && params.nnnAggregate?.year1 !== undefined) {
       const year1 = Number(params.nnnAggregate.year1);
-      if (isNaN(year1)) {
-        errors.push({ field: 'nnnAggregate.year1', message: 'Aggregate NNN Year 1 amount must be a number.', severity: 'error' });
+      if (Number.isNaN(year1)) {
+        pushIssue(errors, 'nnnAggregate.year1', 'Aggregate NNN Year 1 amount must be a number.', 'error');
       }
     }
 
     if (params.nnnAggregate?.escPct !== '' && params.nnnAggregate?.escPct !== undefined) {
       const escPct = Number(params.nnnAggregate.escPct);
-      if (isNaN(escPct)) {
-        errors.push({ field: 'nnnAggregate.escPct', message: 'Aggregate NNN escalation percentage must be a number.', severity: 'error' });
+      if (Number.isNaN(escPct)) {
+        pushIssue(errors, 'nnnAggregate.escPct', 'Aggregate NNN escalation percentage must be a number.', 'error');
       }
     }
   }
 
-  // --- NNN charge categories ---
-  const leaseStart = rows.length > 0 ? parseISODate(rows[0].date) : null;
-  const leaseEnd = rows.length > 0 ? parseISODate(rows[rows.length - 1].periodEnd ?? rows[rows.length - 1].date) : null;
+  const { leaseStart, leaseEnd } = getLeaseBounds(rows);
 
   for (const entry of getChargeValidationEntries(params)) {
     const catParams = entry.value;
     if (!catParams) continue;
     const label = entry.label;
 
-    // Year 1 amount
     if (catParams.year1 !== '' && catParams.year1 !== undefined) {
       const y1 = Number(catParams.year1);
-      if (isNaN(y1)) {
-        errors.push({ field: `${entry.fieldPrefix}.year1`, message: `${label} Year 1 amount must be a number.`, severity: 'error' });
+      if (Number.isNaN(y1)) {
+        pushIssue(errors, `${entry.fieldPrefix}.year1`, `${label} Year 1 amount must be a number.`, 'error');
       }
     }
 
-    // Escalation %
     if (catParams.escPct !== '' && catParams.escPct !== undefined) {
       const esc = Number(catParams.escPct);
-      if (isNaN(esc)) {
-        errors.push({ field: `${entry.fieldPrefix}.escPct`, message: `${label} escalation percentage must be a number.`, severity: 'error' });
+      if (Number.isNaN(esc)) {
+        pushIssue(errors, `${entry.fieldPrefix}.escPct`, `${label} escalation percentage must be a number.`, 'error');
       }
     }
 
-    // Charge start date
-    if (catParams.chargeStart && catParams.chargeStart.trim()) {
-      const chargeDate = parseMDYStrict(catParams.chargeStart);
+    if (catParams.chargeStart && String(catParams.chargeStart).trim()) {
+      const chargeDate = parseLooseDate(catParams.chargeStart);
       if (!chargeDate) {
-        errors.push({ field: `${entry.fieldPrefix}.chargeStart`, message: `${label} billing start date must be in MM/DD/YYYY format.`, severity: 'error' });
-      } else if (leaseStart && leaseEnd) {
-        if (chargeDate < leaseStart || chargeDate > leaseEnd) {
-          warnings.push({ field: `${entry.fieldPrefix}.chargeStart`, message: `${label} billing start date falls outside the lease term.`, severity: 'warning' });
-        }
+        pushIssue(errors, `${entry.fieldPrefix}.chargeStart`, `${label} billing start date must be in MM/DD/YYYY format.`, 'error');
+      } else if (leaseStart && leaseEnd && (chargeDate < leaseStart || chargeDate > leaseEnd)) {
+        pushIssue(warnings, `${entry.fieldPrefix}.chargeStart`, `${label} billing start date falls outside the lease term.`, 'warning');
       }
     }
 
-    // Escalation start date
-    if (catParams.escStart && catParams.escStart.trim()) {
-      const escDate = parseMDYStrict(catParams.escStart);
+    if (catParams.escStart && String(catParams.escStart).trim()) {
+      const escDate = parseLooseDate(catParams.escStart);
       if (!escDate) {
-        errors.push({ field: `${entry.fieldPrefix}.escStart`, message: `${label} escalation start date must be in MM/DD/YYYY format.`, severity: 'error' });
-      } else if (leaseStart && leaseEnd) {
-        if (escDate < leaseStart || escDate > leaseEnd) {
-          warnings.push({ field: `${entry.fieldPrefix}.escStart`, message: `${label} escalation start date falls outside the lease term.`, severity: 'warning' });
-        }
+        pushIssue(errors, `${entry.fieldPrefix}.escStart`, `${label} escalation start date must be in MM/DD/YYYY format.`, 'error');
+      } else if (leaseStart && leaseEnd && (escDate < leaseStart || escDate > leaseEnd)) {
+        pushIssue(warnings, `${entry.fieldPrefix}.escStart`, `${label} escalation start date falls outside the lease term.`, 'warning');
       }
     }
   }
@@ -171,13 +253,6 @@ export function validateParams(params, rows) {
   return { errors, warnings };
 }
 
-/**
- * Validate that the schedule rows themselves are non-empty and contain dates.
- * This is now a WARNING, not an error — the app will still try to produce output.
- *
- * @param {{ date: string }[]} rows - Expanded monthly rows.
- * @returns {{ errors: ValidationIssue[], warnings: ValidationIssue[] }}
- */
 export function validateSchedule(rows) {
   if (!rows || rows.length === 0) {
     return {

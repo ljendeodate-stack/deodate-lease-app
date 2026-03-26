@@ -249,3 +249,80 @@ describe('normalized row outputs', () => {
     expect(result[0].chargeDetails.cams.canonicalType).toBe('nnn');
   });
 });
+
+describe('dated concession events', () => {
+  it('applies a free-rent event only to the resolved target row', () => {
+    const rows = expand(makePeriods('01/01/2030', '03/31/2030', 10000));
+    const params = baseParams({
+      concessionEvents: [
+        { id: 'free_1', type: 'free_rent', scope: 'monthly_row', effectiveDate: parseMDYStrict('02/15/2030'), valueMode: 'percent', value: 100 },
+      ],
+    });
+
+    const result = calculateAllCharges(rows, params);
+    expect(result[0].baseRentApplied).toBe(10000);
+    expect(result[1].baseRentApplied).toBe(0);
+    expect(result[1].concessionType).toBe('free_rent');
+    expect(result[2].baseRentApplied).toBe(10000);
+  });
+
+  it('applies an abatement event only to the resolved target row', () => {
+    const rows = expand(makePeriods('01/01/2030', '03/31/2030', 10000));
+    const params = baseParams({
+      concessionEvents: [
+        { id: 'abatement_1', type: 'abatement', scope: 'monthly_row', effectiveDate: parseMDYStrict('03/05/2030'), valueMode: 'percent', value: 25 },
+      ],
+    });
+
+    const result = calculateAllCharges(rows, params);
+    expect(result[2].baseRentApplied).toBe(7500);
+    expect(result[2].abatementAmount).toBe(2500);
+    expect(result[1].baseRentApplied).toBe(10000);
+  });
+
+  it('lets an explicit dated event override an overlapping legacy window', () => {
+    const rows = expand(makePeriods('01/01/2030', '03/31/2030', 10000));
+    const params = baseParams({
+      abatementEndDate: parseMDYStrict('02/28/2030'),
+      abatementPct: 100,
+      concessionEvents: [
+        { id: 'abatement_1', type: 'abatement', scope: 'monthly_row', effectiveDate: parseMDYStrict('02/10/2030'), valueMode: 'percent', value: 50 },
+      ],
+    });
+
+    const result = calculateAllCharges(rows, params);
+    expect(result[0].baseRentApplied).toBe(0);
+    expect(result[1].baseRentApplied).toBe(5000);
+    expect(result[1].concessionType).toBe('abatement');
+  });
+});
+
+describe('irregular stepped rent schedules', () => {
+  it('preserves a five-year step-up because rent comes from explicit schedule rows, not annual assumptions', () => {
+    const rows = expand([
+      { periodStart: parseMDYStrict('01/01/2030'), periodEnd: parseMDYStrict('12/31/2034'), monthlyRent: 10000 },
+      { periodStart: parseMDYStrict('01/01/2035'), periodEnd: parseMDYStrict('04/30/2039'), monthlyRent: 12500 },
+    ]);
+
+    const result = calculateAllCharges(rows, baseParams());
+
+    expect(result[0].scheduledBaseRent).toBe(10000);
+    expect(result[59].scheduledBaseRent).toBe(10000);
+    expect(result[60].scheduledBaseRent).toBe(12500);
+    expect(result[111].scheduledBaseRent).toBe(12500);
+  });
+
+  it('applies a dated concession to a prorated final month', () => {
+    const rows = expand(makePeriods('01/01/2030', '03/15/2030', 9000));
+    const params = baseParams({
+      concessionEvents: [
+        { id: 'free_1', type: 'free_rent', scope: 'monthly_row', effectiveDate: parseMDYStrict('03/05/2030'), valueMode: 'percent', value: 100 },
+      ],
+    });
+
+    const result = calculateAllCharges(rows, params);
+    expect(result[2].periodFactor).toBeLessThan(1);
+    expect(result[2].baseRentApplied).toBe(0);
+    expect(result[2].prorationBasis).toBe('concession-event');
+  });
+});

@@ -2,7 +2,7 @@
  * Regression: partial final-month proration for 01/01/2023 → 01/15/2033.
  *
  * Engine must produce periodFactor = 15/31 on the last row.
- * Export formulas must include the period-factor term (EOMONTH) on recurring charge cells.
+ * Export must preserve the resolved prorated values from the preview rows.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -78,7 +78,7 @@ import { buildExportModel }             from '../export/model/buildExportModel.j
 import { resolveLeaseScheduleLayout }   from '../export/resolvers/resolveLeaseScheduleLayout.js';
 import { renderLeaseScheduleWorksheet } from '../export/builders/renderLeaseScheduleWorksheet.js';
 
-describe('partial final month proration — export formulas', () => {
+describe('partial final month proration — export parity', () => {
   function buildWorksheet(rows, params) {
     const model     = buildExportModel(rows, params, 'proration-regression');
     const layout    = resolveLeaseScheduleLayout(model);
@@ -120,20 +120,19 @@ describe('partial final month proration — export formulas', () => {
     oneTimeItems: [],
   };
 
-  it('baseRentApplied formula includes EOMONTH period-factor term', () => {
+  it('exports the resolved prorated base rent value directly', () => {
     const { worksheet, layout } = buildWorksheet(rows, params);
     const fdr = layout.firstDataRow;
-    const formula = worksheet[`F${fdr}`]?.f ?? '';
-    expect(formula).toContain('EOMONTH');
+    expect(worksheet[`F${fdr}`]?.f).toContain(`E${fdr}`);
+    expect(worksheet[`F${fdr}`]?.v).toBe(rows[0].baseRentApplied);
   });
 
-  it('a NNN charge formula includes EOMONTH period-factor term', () => {
+  it('exports resolved prorated NNN values directly', () => {
     const { worksheet, layout } = buildWorksheet(rows, params);
     const fdr = layout.firstDataRow;
-    // G is the first charge column after baseRentApplied (F); check G or H
-    const gFormula = worksheet[`G${fdr}`]?.f ?? '';
-    const hFormula = worksheet[`H${fdr}`]?.f ?? '';
-    const hasEOMONTH = gFormula.includes('EOMONTH') || hFormula.includes('EOMONTH');
-    expect(hasEOMONTH).toBe(true);
+    const camsCol = layout.colByKey.cams?.letter ?? layout.nnnColumns?.[0]?.letter;
+    if (!camsCol) return;
+    expect(worksheet[`${camsCol}${fdr}`]?.f).toBeUndefined();
+    expect(worksheet[`${camsCol}${fdr}`]?.v).toBe(rows[0].camsAmount);
   });
 });

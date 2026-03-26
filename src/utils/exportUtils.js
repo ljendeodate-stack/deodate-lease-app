@@ -819,6 +819,7 @@ function buildAuditTrail(rows, activeCategories) {
   const fixedHeaders = [
     'Period Start', 'Month #',
     'Period Factor', 'Proration Factor', 'Proration Basis',
+    'Concession Type', 'Concession Trigger', 'Concession Detail', 'Concession Amount',
   ];
   const catHeaders = [];
   const catWidths  = [];
@@ -830,7 +831,7 @@ function buildAuditTrail(rows, activeCategories) {
     catWidths.push(13, 11);
   }
   const headers = [...fixedHeaders, ...catHeaders];
-  const widths  = [13, 9, 14, 16, 20, ...catWidths];
+  const widths  = [13, 9, 14, 16, 20, 16, 16, 28, 16, ...catWidths];
 
   headers.forEach((h, ci) => sc(ws, ci, 1, cHdr(h, C.headerPurple)));
 
@@ -843,8 +844,29 @@ function buildAuditTrail(rows, activeCategories) {
     sc(ws, 2, r, cInput(row.periodFactor            ?? 1, FMT.factor, fill));
     sc(ws, 3, r, cInput(row.baseRentProrationFactor ?? 1, FMT.factor, fill));
     sc(ws, 4, r, cText(row.prorationBasis ?? '', fill, false, 'center', C.fcInput));
+    sc(ws, 5, r, cText(row.concessionType ?? '', fill, false, 'center', C.fcInput));
+    sc(ws, 6, r, cText(row.concessionTriggerDate ?? row.concessionEndDate ?? '', fill, false, 'center', C.fcInput));
+    sc(
+      ws,
+      7,
+      r,
+      cText(
+        row.concessionLabel
+          ?? row.concessionAssumptionNote
+          ?? (
+            row.concessionStartDate || row.concessionEndDate
+              ? `${row.concessionStartDate ?? ''}${row.concessionEndDate ? ` -> ${row.concessionEndDate}` : ''}`
+              : ''
+          ),
+        fill,
+        false,
+        'left',
+        C.fcInput,
+      ),
+    );
+    sc(ws, 8, r, cInput(row.abatementAmount ?? 0, FMT.currency, fill));
 
-    let ci = 5;
+    let ci = 9;
     for (const cat of activeCategories) {
       sc(ws, ci,     r, cInt(row[cat.escYearsField] ?? 0, fill, false, C.fcInput));
       sc(ws, ci + 1, r, cText(String(row[cat.activeField] ?? ''), fill, false, 'center', C.fcInput));

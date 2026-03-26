@@ -146,9 +146,9 @@ export default function LedgerTable({ rows = [] }) {
                     <Td className="font-mono text-txt-muted">{row.leaseMonth}</Td>
                     <Td>{row.scheduledBaseRent != null ? formatDollar(row.scheduledBaseRent) : <UnresolvedFlag />}</Td>
                     <Td>
-                      {row.isAbatementRow && (
+                      {row.isConcessionRow && (
                         <span className="mr-2 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-status-warn-title">
-                          Abated
+                          Concession
                         </span>
                       )}
                       {row.baseRentApplied != null ? formatDollar(row.baseRentApplied) : <UnresolvedFlag />}

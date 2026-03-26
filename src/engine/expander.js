@@ -69,6 +69,9 @@ export function expandPeriods(periodRows) {
         periodEnd: isLast ? toISOLocal(periodEnd) : null,
         monthlyRent: parsedRent,
         year: anchorDate.getFullYear(),
+        sourcePeriodIndex: i,
+        sourcePeriodStart: toISOLocal(periodStart),
+        sourcePeriodEnd: toISOLocal(periodEnd),
       });
     }
   }

@@ -195,6 +195,68 @@ function CD(ref) {
   return `IFERROR(DATEVALUE(${ref}),${ref})`;
 }
 
+function parseSheetDate(value) {
+  if (!value) return null;
+  const isoMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+  }
+  const mdyMatch = String(value).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mdyMatch) {
+    return new Date(Number(mdyMatch[3]), Number(mdyMatch[1]) - 1, Number(mdyMatch[2]));
+  }
+  return null;
+}
+
+function roundCurrency(value) {
+  return Number((Number(value) || 0).toFixed(2));
+}
+
+function currencyClose(a, b, tolerance = 0.01) {
+  return Math.abs((Number(a) || 0) - (Number(b) || 0)) <= tolerance;
+}
+
+function hasExplicitMonthlyConcession(row) {
+  return row?.concessionScope === 'monthly_row' || row?.prorationBasis === 'concession-event';
+}
+
+function expectedScheduledBaseRent(row, assumptions) {
+  const leaseYear = Number(row.leaseYear ?? row['Year #'] ?? 0);
+  if (!leaseYear) return 0;
+
+  const rentCommencementDate = parseSheetDate(assumptions.rentCommencementDate);
+  const periodEnd = parseSheetDate(row.periodEnd);
+  if (rentCommencementDate && periodEnd && periodEnd.getTime() < rentCommencementDate.getTime()) {
+    return 0;
+  }
+
+  return roundCurrency(
+    (Number(assumptions.year1BaseRent) || 0)
+      * Math.pow(1 + (Number(assumptions.annualEscRate) || 0), leaseYear - 1),
+  );
+}
+
+function canUseAnnualBaseRentFormula(row, assumptions) {
+  return currencyClose(row.scheduledBaseRent ?? 0, expectedScheduledBaseRent(row, assumptions));
+}
+
+function expectedDynamicChargeAmount(row, categoryAssumption) {
+  const leaseYear = Number(row.leaseYear ?? row['Year #'] ?? 0);
+  const periodFactor = Number(row.periodFactor ?? 1);
+  if (!leaseYear) return 0;
+
+  return roundCurrency(
+    (Number(categoryAssumption?.year1) || 0)
+      * Math.pow(1 + (Number(categoryAssumption?.escRate) || 0), leaseYear - 1)
+      * periodFactor,
+  );
+}
+
+function canUseDynamicChargeFormula(row, categoryKey, amountField, assumptions) {
+  const actualAmount = row.chargeAmounts?.[categoryKey] ?? row[amountField] ?? 0;
+  return currencyClose(actualAmount, expectedDynamicChargeAmount(row, assumptions.categories?.[categoryKey]));
+}
+
 function buildDataSection(exportModel, layout) {
   const cells = [];
   const { assumptions, rows } = exportModel;
@@ -212,7 +274,7 @@ function buildDataSection(exportModel, layout) {
 
   rows.forEach((row, index) => {
     const worksheetRow = firstDataRow + index;
-    const rowFill = row.isAbatementRow
+    const rowFill = row.isConcessionRow || row.isAbatementRow
       ? C.amber
       : index % 2 === 0 ? C.rowEven : C.rowOdd;
     const nnnFill = C.softRedPink;
@@ -276,45 +338,41 @@ function buildDataSection(exportModel, layout) {
 
     // Schedule termination gate: zero out rows beyond total lease term
     const termGate = `AND(${cellMap.totalLeaseTerm}>0,${monthCol}${worksheetRow}>${cellMap.totalLeaseTerm})`;
-
-    // Rent commencement gate (§6.3): suppress base rent before rentCommencementDate
     const rentCommGate = `AND(${cellMap.rentCommencementDate}<>"",${CD(`${periodEndCol}${worksheetRow}`)}<${CD(cellMap.rentCommencementDate)})`;
-
-    // Scheduled Base Rent: with termination gate + rent commencement gate
-    cells.push({
-      col: colByKey.scheduledBaseRent.index,
-      row: worksheetRow,
-      cell: formulaCell(
-        `IF(${termGate},0,IF(${rentCommGate},0,${cellMap.year1BaseRent}*(1+${cellMap.annualEscRate})^(${yearCol}${worksheetRow}-1)))`,
-        row.scheduledBaseRent ?? 0,
-        FMT.currency,
-        rowFill,
-      ),
-    });
-
-    // Base Rent Applied (§6.2): Free Rent > Full Abatement > Boundary Abatement > Full Rent
-    // All date comparisons use defensive COERCE_DATE
     const ps = `${periodStartCol}${worksheetRow}`;
     const pe = `${periodEndCol}${worksheetRow}`;
     const sbr = `${scheduledBaseRentCol}${worksheetRow}`;
-
-    // Period factor: proration for partial first/last months.
-    // Evaluates to 1 for full calendar months; fractional for boundary months.
     const pfExpr = `IF(${pe}>=EDATE(${ps},1)-1,1,MAX(0,(${pe}-${ps}+1)/DAY(EOMONTH(${pe},0))))`;
-
     const freeRentActive = `AND(${cellMap.freeRentStart}<>"",${cellMap.freeRentEnd}<>"",${CD(ps)}>=${CD(cellMap.freeRentStart)},${CD(ps)}<=${CD(cellMap.freeRentEnd)})`;
     const fullAbatement = `AND(${cellMap.abatementStart}<>"",${cellMap.abatementEnd}<>"",${CD(ps)}>=${CD(cellMap.abatementStart)},${CD(pe)}<=${CD(cellMap.abatementEnd)})`;
     const boundaryAbatement = `AND(${cellMap.abatementStart}<>"",${cellMap.abatementEnd}<>"",${CD(ps)}>=${CD(cellMap.abatementStart)},${CD(ps)}<=${CD(cellMap.abatementEnd)},${CD(pe)}>${CD(cellMap.abatementEnd)})`;
 
+    // Scheduled Base Rent: annual schedules remain dynamic; irregular step-ups stay hardcoded
+    cells.push({
+      col: colByKey.scheduledBaseRent.index,
+      row: worksheetRow,
+      cell: canUseAnnualBaseRentFormula(row, assumptions)
+        ? formulaCell(
+            `IF(${termGate},0,IF(${rentCommGate},0,${cellMap.year1BaseRent}*(1+${cellMap.annualEscRate})^(${yearCol}${worksheetRow}-1)))`,
+            row.scheduledBaseRent ?? 0,
+            FMT.currency,
+            rowFill,
+          )
+        : calcCell(row.scheduledBaseRent ?? 0, FMT.currency, rowFill),
+    });
+
+    // Base Rent Applied: explicit dated concessions stay hardcoded; annual logic remains formula-driven
     cells.push({
       col: colByKey.baseRentApplied.index,
       row: worksheetRow,
-      cell: formulaCell(
-        `(IF(${freeRentActive},0,IF(${fullAbatement},MAX(0,${sbr}-${cellMap.abatementAmount}),IF(${boundaryAbatement},${sbr}*${cellMap.abatementPartialFactor},${sbr}))))*${pfExpr}`,
-        row.baseRentApplied ?? 0,
-        FMT.currency,
-        nnnFill,
-      ),
+      cell: hasExplicitMonthlyConcession(row)
+        ? calcCell(row.baseRentApplied ?? 0, FMT.currency, nnnFill)
+        : formulaCell(
+            `(IF(${freeRentActive},0,IF(${fullAbatement},MAX(0,${sbr}-${cellMap.abatementAmount}),IF(${boundaryAbatement},${sbr}*${cellMap.abatementPartialFactor},${sbr}))))*${pfExpr}`,
+            row.baseRentApplied ?? 0,
+            FMT.currency,
+            nnnFill,
+          ),
     });
 
     // NNN charge columns
@@ -336,12 +394,18 @@ function buildDataSection(exportModel, layout) {
         cells.push({
           col: column.index,
           row: worksheetRow,
-          cell: formulaCell(
-            `(IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1)))*${pfExpr}`,
-            row[category.amountField] ?? 0,
-            FMT.currency,
-            nnnFill,
-          ),
+          cell: canUseDynamicChargeFormula(row, category.key, category.amountField, assumptions)
+            ? formulaCell(
+                `(IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1)))*${pfExpr}`,
+                row.chargeAmounts?.[category.key] ?? row[category.amountField] ?? 0,
+                FMT.currency,
+                nnnFill,
+              )
+            : calcCell(
+                row.chargeAmounts?.[category.key] ?? row[category.amountField] ?? 0,
+                FMT.currency,
+                nnnFill,
+              ),
         });
       }
     }
@@ -353,12 +417,18 @@ function buildDataSection(exportModel, layout) {
       cells.push({
         col: column.index,
         row: worksheetRow,
-        cell: formulaCell(
-          `(IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1)))*${pfExpr}`,
-          row[category.amountField] ?? 0,
-          FMT.currency,
-          nnnFill,
-        ),
+        cell: canUseDynamicChargeFormula(row, category.key, category.amountField, assumptions)
+          ? formulaCell(
+              `(IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1)))*${pfExpr}`,
+              row.chargeAmounts?.[category.key] ?? row[category.amountField] ?? 0,
+              FMT.currency,
+              nnnFill,
+            )
+          : calcCell(
+              row.chargeAmounts?.[category.key] ?? row[category.amountField] ?? 0,
+              FMT.currency,
+              nnnFill,
+            ),
       });
     }
 
@@ -529,8 +599,8 @@ function buildFootnotesSection(layout) {
     `① Total NNN (col ${totalNnnLabel}) = ${nnnColumnNames || 'N/A'}. Other Charges (${otherColumnNames || 'none'}) are NOT included in NNN.`,
     `② Total Monthly Obligation (${totalMonthlyLabel}) = Base Rent Applied + Total NNN${otherColumnNames ? ' + Other Charges' : ''}${nrcLabel}.`,
     '③ Remaining: Obligation = SUM of future Total Monthly Obligation. Base Rent / NNN / Other Charges = tail-sums of their respective columns.',
-    '④ NNN escalation: Year 1 Monthly Amounts in assumption cells are compounded annually by their escalation rates. Charge columns are live formulas — edit assumptions to recalculate.',
-    '⑤ Color guide: Yellow fill + blue text = user-editable inputs | Black text = formula outputs | Red-pink fill = NNN/obligation columns | Amber rows = abatement periods.',
+    '④ Annual schedules remain live formulas. Non-annual rent steps and dated monthly concession rows are exported as resolved overrides so Excel stays consistent with the preview.',
+    '⑤ Color guide: Yellow fill + blue text = user-editable inputs | Black text = formula outputs or resolved overrides | Red-pink fill = NNN/obligation columns | Amber rows = concession rows.',
   ];
 
   return {

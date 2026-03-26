@@ -13,6 +13,13 @@ import {
   generateChargeKey,
   CANONICAL_TYPES,
 } from '../engine/chargeTypes.js';
+import {
+  describeLegacyConcessionEvent,
+  emptyAbatementEventForm,
+  emptyFreeRentEventForm,
+  emptyRecurringOverrideForm,
+  RECURRING_OVERRIDE_TARGETS,
+} from '../engine/leaseTerms.js';
 
 function SectionBox({ title, hint, children, actions }) {
   return (
@@ -116,12 +123,15 @@ export function emptyFormState() {
     abatementEndDate: '',
     abatementMonths: '',
     abatementPct: '',
-    freeRentMonths: '',
-    freeRentEndDate: '',
+    legacyConcessionStartDate: '',
     nnnMode: 'individual',
     nnnAggregate: { year1: '', escPct: '' },
     charges: defaultChargesForm(),
     oneTimeItems: [],
+    recurringOverrides: [],
+    freeRentEvents: [],
+    abatementEvents: [],
+    legacyConcessionEvents: [],
   };
 }
 
@@ -185,32 +195,70 @@ export default function InputForm({
     }));
   }
 
-  function handleAbatementMonths(value) {
-    setTop('abatementMonths', value);
-    const count = parseInt(value, 10);
-    if (leaseStartDate && !isNaN(count) && count > 0) {
-      const parts = leaseStartDate.split('-').map(Number);
-      const endDate = new Date(parts[0], parts[1] - 1 + count, 0);
-      const mm = String(endDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(endDate.getDate()).padStart(2, '0');
-      setTop('abatementEndDate', `${mm}/${dd}/${endDate.getFullYear()}`);
-    } else if (!value || value === '0') {
-      setTop('abatementEndDate', '');
-    }
+  function updateFreeRentEvent(index, field, value) {
+    setForm((prev) => {
+      const freeRentEvents = [...(prev.freeRentEvents ?? [])];
+      freeRentEvents[index] = { ...freeRentEvents[index], [field]: value };
+      return { ...prev, freeRentEvents };
+    });
   }
 
-  function handleFreeRentMonths(value) {
-    setTop('freeRentMonths', value);
-    const count = parseInt(value, 10);
-    if (leaseStartDate && !isNaN(count) && count > 0) {
-      const parts = leaseStartDate.split('-').map(Number);
-      const endDate = new Date(parts[0], parts[1] - 1 + count, 0);
-      const mm = String(endDate.getMonth() + 1).padStart(2, '0');
-      const dd = String(endDate.getDate()).padStart(2, '0');
-      setTop('freeRentEndDate', `${mm}/${dd}/${endDate.getFullYear()}`);
-    } else if (!value || value === '0') {
-      setTop('freeRentEndDate', '');
-    }
+  function addFreeRentEvent() {
+    setForm((prev) => ({
+      ...prev,
+      freeRentEvents: [...(prev.freeRentEvents ?? []), emptyFreeRentEventForm()],
+    }));
+  }
+
+  function removeFreeRentEvent(index) {
+    setForm((prev) => ({
+      ...prev,
+      freeRentEvents: (prev.freeRentEvents ?? []).filter((_, i) => i !== index),
+    }));
+  }
+
+  function updateAbatementEvent(index, field, value) {
+    setForm((prev) => {
+      const abatementEvents = [...(prev.abatementEvents ?? [])];
+      abatementEvents[index] = { ...abatementEvents[index], [field]: value };
+      return { ...prev, abatementEvents };
+    });
+  }
+
+  function addAbatementEvent() {
+    setForm((prev) => ({
+      ...prev,
+      abatementEvents: [...(prev.abatementEvents ?? []), emptyAbatementEventForm()],
+    }));
+  }
+
+  function removeAbatementEvent(index) {
+    setForm((prev) => ({
+      ...prev,
+      abatementEvents: (prev.abatementEvents ?? []).filter((_, i) => i !== index),
+    }));
+  }
+
+  function updateRecurringOverride(index, field, value) {
+    setForm((prev) => {
+      const recurringOverrides = [...(prev.recurringOverrides ?? [])];
+      recurringOverrides[index] = { ...recurringOverrides[index], [field]: value };
+      return { ...prev, recurringOverrides };
+    });
+  }
+
+  function addRecurringOverride() {
+    setForm((prev) => ({
+      ...prev,
+      recurringOverrides: [...(prev.recurringOverrides ?? []), emptyRecurringOverrideForm()],
+    }));
+  }
+
+  function removeRecurringOverride(index) {
+    setForm((prev) => ({
+      ...prev,
+      recurringOverrides: (prev.recurringOverrides ?? []).filter((_, i) => i !== index),
+    }));
   }
 
   const fieldErrors = {};
@@ -220,6 +268,15 @@ export default function InputForm({
 
   const defaultKeys = new Set(['cams', 'insurance', 'taxes', 'security', 'otherItems']);
   const charges = form.charges ?? defaultChargesForm();
+  const overrideTargets = [
+    { key: RECURRING_OVERRIDE_TARGETS.BASE_RENT, label: 'Base Rent' },
+    ...(form.nnnMode === 'aggregate'
+      ? [{ key: RECURRING_OVERRIDE_TARGETS.NNN_AGGREGATE, label: 'NNN - Aggregate' }]
+      : []),
+    ...charges
+      .filter((charge) => !(form.nnnMode === 'aggregate' && charge.canonicalType === CANONICAL_TYPES.NNN))
+      .map((charge) => ({ key: charge.key, label: charge.displayLabel || charge.key })),
+  ];
   const flag = (field) => confidenceFlags?.includes(field);
 
   function handleSubmit(e) {
@@ -498,112 +555,205 @@ export default function InputForm({
         </SectionBox>
 
         <SectionBox
-          title="Abatement"
-          hint="Partial or full rent reduction for a specified period. Percentage applies to base rent."
+          title="Explicit Schedule Overrides"
+          hint="Use dated recurring overrides when base rent, NNN, or another recurring charge changes on a non-annual or irregular schedule. Each override persists from its trigger month until superseded."
         >
-          <div className="grid gap-3 md:grid-cols-3">
-            <FieldRow
-              label="# Months of Abatement"
-              hint="Abatement period beginning at lease commencement. Auto-computes end date."
-              error={fieldErrors['abatementMonths']}
-            >
-              <TextInput
-                type="number"
-                value={form.abatementMonths}
-                onChange={handleAbatementMonths}
-                placeholder="e.g. 6"
-                error={fieldErrors['abatementMonths']}
-              />
-            </FieldRow>
-
-            <FieldRow
-              label={<>Abatement End Date <ConfidenceFlag flagged={flag('abatementEndDate')} /></>}
-              hint="Last day of abatement (inclusive). Auto-filled from months or enter directly."
-              error={fieldErrors['abatementEndDate']}
-            >
-              <TextInput
-                value={form.abatementEndDate}
-                onChange={(value) => {
-                  setTop('abatementEndDate', value);
-                  if (form.abatementMonths) setTop('abatementMonths', '');
-                }}
-                placeholder="MM/DD/YYYY"
-                error={fieldErrors['abatementEndDate']}
-              />
-            </FieldRow>
-
-            <FieldRow
-              label="Abatement Percentage (%)"
-              hint="100 = full abatement, 50 = half, 0 = none."
-              error={fieldErrors['abatementPct']}
-            >
-              <TextInput
-                type="number"
-                value={form.abatementPct}
-                onChange={(value) => setTop('abatementPct', value)}
-                placeholder="e.g. 100"
-                error={fieldErrors['abatementPct']}
-              />
-            </FieldRow>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-txt-dim">Quick set</span>
-            {[
-              { label: 'Full (100%)', value: '100' },
-              { label: 'Half (50%)', value: '50' },
-              { label: 'None (0%)', value: '0' },
-            ].map(({ label, value }) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setTop('abatementPct', value)}
-                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  form.abatementPct === value
-                    ? 'border-accent bg-accent text-accent-fg shadow-accent'
-                    : 'border-app-border-strong bg-app-panel-strong text-txt-muted hover:bg-app-panel-hover'
-                }`}
-              >
-                {label}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="section-kicker">Irregular Escalations</p>
+                <h5 className="mt-1 text-sm font-semibold text-txt-primary">Recurring Overrides</h5>
+              </div>
+              <button type="button" onClick={addRecurringOverride} className="btn-link">
+                + Add override
               </button>
-            ))}
+            </div>
+
+            {(form.recurringOverrides ?? []).length === 0 ? (
+              <p className="text-xs text-txt-dim">
+                No explicit recurring overrides. Use this only when the lease has a dated change that should replace the standard recurring assumption path.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-[180px_150px_140px_1fr_28px] gap-x-2">
+                  <ColumnHeader>Target</ColumnHeader>
+                  <ColumnHeader>Effective Date</ColumnHeader>
+                  <ColumnHeader>Monthly Amount</ColumnHeader>
+                  <ColumnHeader>Label</ColumnHeader>
+                  <span />
+                </div>
+                {(form.recurringOverrides ?? []).map((override, idx) => (
+                  <div key={override.id ?? `override-${idx}`} className="grid grid-cols-[180px_150px_140px_1fr_28px] items-center gap-x-2">
+                    <SelectInput
+                      value={override.targetKey ?? RECURRING_OVERRIDE_TARGETS.BASE_RENT}
+                      onChange={(value) => updateRecurringOverride(idx, 'targetKey', value)}
+                    >
+                      {overrideTargets.map((target) => (
+                        <option key={target.key} value={target.key}>{target.label}</option>
+                      ))}
+                    </SelectInput>
+                    <TextInput
+                      value={override.date ?? ''}
+                      onChange={(value) => updateRecurringOverride(idx, 'date', value)}
+                      placeholder="MM/DD/YYYY"
+                      error={fieldErrors[`recurringOverrides.${idx}.date`]}
+                    />
+                    <TextInput
+                      type="number"
+                      value={override.amount ?? ''}
+                      onChange={(value) => updateRecurringOverride(idx, 'amount', value)}
+                      placeholder="0"
+                      error={fieldErrors[`recurringOverrides.${idx}.amount`]}
+                    />
+                    <TextInput
+                      value={override.label ?? ''}
+                      onChange={(value) => updateRecurringOverride(idx, 'label', value)}
+                      placeholder="Optional note"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeRecurringOverride(idx)}
+                      className="text-sm font-medium leading-none text-status-err-text hover:text-status-err-title"
+                      title="Remove"
+                    >
+                      x
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
+
+            <p className="text-xs text-txt-dim">
+              An override starts on the monthly row containing the effective date and continues forward until another override for the same target replaces it.
+            </p>
           </div>
         </SectionBox>
 
         <SectionBox
-          title="Free Rent"
-          hint="If both Free Rent and Abatement are filled, Free Rent takes precedence."
+          title="Free Rent & Abatement"
+          hint="Each dated event applies to the resolved monthly row containing that trigger date."
         >
-          <div className="grid gap-3 md:grid-cols-2">
-            <FieldRow
-              label="# Months of Free Rent"
-              hint="Tenant pays zero base rent for this many months from lease commencement."
-            >
-              <TextInput
-                type="number"
-                value={form.freeRentMonths}
-                onChange={handleFreeRentMonths}
-                placeholder="e.g. 3"
-              />
-            </FieldRow>
+          <div className="space-y-5">
+            {(form.legacyConcessionEvents ?? []).length > 0 && (
+              <div className="rounded-[1rem] border border-status-warn-border bg-status-warn-bg/90 p-3 space-y-1">
+                <p className="text-sm font-semibold text-status-warn-title">Imported legacy concession window preserved</p>
+                {(form.legacyConcessionEvents ?? []).map((event, index) => (
+                  <p key={event.id ?? index} className="text-xs text-status-warn-text">
+                    {describeLegacyConcessionEvent(event)}
+                  </p>
+                ))}
+                <p className="text-xs text-status-warn-text">
+                  Explicit dated events below override overlapping months from the imported legacy window.
+                </p>
+              </div>
+            )}
 
-            <FieldRow
-              label="Free Rent End Date"
-              hint="Last day of the free rent period (inclusive)."
-            >
-              <TextInput
-                value={form.freeRentEndDate}
-                onChange={(value) => {
-                  setTop('freeRentEndDate', value);
-                  if (form.freeRentMonths) setTop('freeRentMonths', '');
-                }}
-                placeholder="MM/DD/YYYY"
-              />
-            </FieldRow>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="section-kicker">Concessions</p>
+                  <h5 className="mt-1 text-sm font-semibold text-txt-primary">Free Rent Events</h5>
+                </div>
+                <button type="button" onClick={addFreeRentEvent} className="btn-link">
+                  + Add free rent event
+                </button>
+              </div>
+
+              {(form.freeRentEvents ?? []).length === 0 ? (
+                <p className="text-xs text-txt-dim">No free-rent events. Add a dated event for any fully free month.</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-[160px_1fr_28px] gap-x-2">
+                    <ColumnHeader>Trigger Date</ColumnHeader>
+                    <ColumnHeader>Label</ColumnHeader>
+                    <span />
+                  </div>
+                  {(form.freeRentEvents ?? []).map((event, idx) => (
+                    <div key={event.id ?? `free-rent-${idx}`} className="grid grid-cols-[160px_1fr_28px] items-center gap-x-2">
+                      <TextInput
+                        value={event.date ?? ''}
+                        onChange={(value) => updateFreeRentEvent(idx, 'date', value)}
+                        placeholder="MM/DD/YYYY"
+                        error={fieldErrors[`freeRentEvents.${idx}.date`]}
+                      />
+                      <TextInput
+                        value={event.label ?? ''}
+                        onChange={(value) => updateFreeRentEvent(idx, 'label', value)}
+                        placeholder="Optional note"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeFreeRentEvent(idx)}
+                        className="text-sm font-medium leading-none text-status-err-text hover:text-status-err-title"
+                        title="Remove"
+                      >
+                        x
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="section-kicker">Concessions</p>
+                  <h5 className="mt-1 text-sm font-semibold text-txt-primary">Abatement Events</h5>
+                </div>
+                <button type="button" onClick={addAbatementEvent} className="btn-link">
+                  + Add abatement event
+                </button>
+              </div>
+
+              {(form.abatementEvents ?? []).length === 0 ? (
+                <p className="text-xs text-txt-dim">No abatement events. Add a dated event for any partial concession month.</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-[160px_120px_1fr_28px] gap-x-2">
+                    <ColumnHeader>Trigger Date</ColumnHeader>
+                    <ColumnHeader>Abatement %</ColumnHeader>
+                    <ColumnHeader>Label</ColumnHeader>
+                    <span />
+                  </div>
+                  {(form.abatementEvents ?? []).map((event, idx) => (
+                    <div key={event.id ?? `abatement-${idx}`} className="grid grid-cols-[160px_120px_1fr_28px] items-center gap-x-2">
+                      <TextInput
+                        value={event.date ?? ''}
+                        onChange={(value) => updateAbatementEvent(idx, 'date', value)}
+                        placeholder="MM/DD/YYYY"
+                        error={fieldErrors[`abatementEvents.${idx}.date`]}
+                      />
+                      <TextInput
+                        type="number"
+                        value={event.value ?? ''}
+                        onChange={(value) => updateAbatementEvent(idx, 'value', value)}
+                        placeholder="e.g. 50"
+                        error={fieldErrors[`abatementEvents.${idx}.value`]}
+                      />
+                      <TextInput
+                        value={event.label ?? ''}
+                        onChange={(value) => updateAbatementEvent(idx, 'label', value)}
+                        placeholder="Optional note"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeAbatementEvent(idx)}
+                        className="text-sm font-medium leading-none text-status-err-text hover:text-status-err-title"
+                        title="Remove"
+                      >
+                        x
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+
+            <p className="text-xs text-txt-dim">
+              Free rent sets that monthly row to $0 base rent. Abatement reduces the resolved monthly row by the entered percentage.
+            </p>
           </div>
-          <p className="mt-3 text-xs text-txt-dim">
-            Free rent is applied as 100% abatement for the specified period. Use Abatement for partial rent reductions.
-          </p>
         </SectionBox>
 
         <SectionBox
