@@ -1,23 +1,24 @@
 /**
  * ValidationBanner
  * Renders a list of structured validation errors at the top of the form.
- * Flaw 2 fix: errors are surfaced explicitly, not silenced.
  */
 
 export default function ValidationBanner({ errors = [] }) {
   if (!errors.length) return null;
 
   return (
-    <div className="rounded-md bg-red-50 border border-red-300 p-4 mb-4">
-      <div className="flex items-start gap-2">
-        <span className="text-red-600 text-lg leading-none">&#9888;</span>
-        <div>
-          <h3 className="text-sm font-semibold text-red-800 mb-1">
-            {errors.length === 1 ? '1 validation error' : `${errors.length} validation errors`} — fix before processing
+    <div className="rounded-[1.25rem] border border-status-err-border bg-status-err-bg/92 p-5 shadow-panel">
+      <div className="flex items-start gap-4">
+        <span className="status-chip border-status-err-border bg-status-err-bg text-status-err-title">
+          Validation
+        </span>
+        <div className="space-y-2">
+          <h3 className="font-display text-sm font-semibold tracking-[0.02em] text-status-err-title">
+            {errors.length === 1 ? '1 validation error' : `${errors.length} validation errors`} require review before processing.
           </h3>
-          <ul className="list-disc list-inside space-y-1">
+          <ul className="list-disc space-y-1 pl-5">
             {errors.map((err, i) => (
-              <li key={i} className="text-sm text-red-700">
+              <li key={i} className="text-sm leading-6 text-status-err-text">
                 {err.message}
               </li>
             ))}

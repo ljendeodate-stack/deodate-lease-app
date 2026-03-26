@@ -1,7 +1,6 @@
 /**
  * ExitTable
- * Displays early termination / exit analysis at each lease anniversary
- * and at lease expiration, showing paid-to-date and remaining balances.
+ * Displays early termination / exit analysis.
  */
 
 import { useMemo } from 'react';
@@ -15,44 +14,48 @@ export default function ExitTable({ rows = [] }) {
   if (!checkpoints.length) return null;
 
   return (
-    <div>
-      <h3 className="text-lg font-bold text-gray-900 mb-1">Exit Analysis</h3>
-      <p className="text-xs text-gray-500 mb-3">
-        Early termination exposure at each lease anniversary and at expiration.
-      </p>
-      <div className="overflow-x-auto rounded-lg border border-gray-200">
+    <section className="space-y-3">
+      <div>
+        <p className="section-kicker">Scenario Analysis</p>
+        <h3 className="mt-2 text-xl font-semibold text-txt-primary">Exit Analysis</h3>
+        <p className="mt-2 text-sm text-txt-muted">
+          Early termination exposure at each lease anniversary and at expiration.
+        </p>
+      </div>
+
+      <div className="overflow-x-auto rounded-[1.25rem] border border-app-border bg-app-panel shadow-panel">
         <table className="min-w-full text-sm">
           <thead>
-            <tr className="bg-gray-800 text-white text-xs uppercase tracking-wide">
-              <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">Exit Point</th>
-              <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">Exit Date</th>
-              <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">Mo. Elapsed</th>
-              <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">Mo. Remaining</th>
-              <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">Base Paid to Date</th>
-              <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">Total Paid to Date</th>
-              <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">Base Rent Remaining</th>
-              <th className="px-3 py-2 text-right font-semibold whitespace-nowrap">Total Remaining</th>
+            <tr className="bg-app-panel-strong text-[0.68rem] uppercase tracking-[0.18em] text-txt-dim">
+              <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Exit Point</th>
+              <th className="px-3 py-3 text-left font-semibold whitespace-nowrap">Exit Date</th>
+              <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Mo. Elapsed</th>
+              <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Mo. Remaining</th>
+              <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Base Paid to Date</th>
+              <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Total Paid to Date</th>
+              <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Base Rent Remaining</th>
+              <th className="px-3 py-3 text-right font-semibold whitespace-nowrap">Total Remaining</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
-            {checkpoints.map((cp, idx) => (
+          <tbody className="divide-y divide-app-border">
+            {checkpoints.map((checkpoint, idx) => (
               <tr
-                key={cp.exitDate + cp.label}
-                className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
+                key={checkpoint.exitDate + checkpoint.label}
+                className={idx % 2 === 0 ? 'bg-app-chrome' : 'bg-app-surface'}
               >
-                <td className="px-3 py-2 text-gray-800 font-medium whitespace-nowrap">{cp.label}</td>
-                <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{formatDateMDY(cp.exitDate)}</td>
-                <td className="px-3 py-2 text-right text-gray-700 tabular-nums">{cp.monthsElapsed}</td>
-                <td className="px-3 py-2 text-right text-gray-700 tabular-nums">{cp.monthsRemaining}</td>
-                <td className="px-3 py-2 text-right text-gray-700 tabular-nums">{formatDollar(cp.basePaidToDate)}</td>
-                <td className="px-3 py-2 text-right text-gray-700 tabular-nums">{formatDollar(cp.totalPaidToDate)}</td>
-                <td className="px-3 py-2 text-right text-gray-700 tabular-nums">{formatDollar(cp.baseRentRemaining)}</td>
-                <td className="px-3 py-2 text-right text-gray-900 font-semibold tabular-nums">{formatDollar(cp.totalRemainingObligation)}</td>
+                <td className="px-3 py-3 font-medium whitespace-nowrap text-txt-primary">{checkpoint.label}</td>
+                <td className="px-3 py-3 whitespace-nowrap text-txt-muted">{formatDateMDY(checkpoint.exitDate)}</td>
+                <td className="px-3 py-3 text-right font-mono text-txt-muted">{checkpoint.monthsElapsed}</td>
+                <td className="px-3 py-3 text-right font-mono text-txt-muted">{checkpoint.monthsRemaining}</td>
+                <td className="px-3 py-3 text-right font-mono text-txt-muted">{formatDollar(checkpoint.basePaidToDate)}</td>
+                <td className="px-3 py-3 text-right font-mono text-txt-muted">{formatDollar(checkpoint.totalPaidToDate)}</td>
+                <td className="px-3 py-3 text-right font-mono text-txt-muted">{formatDollar(checkpoint.baseRentRemaining)}</td>
+                <td className="px-3 py-3 text-right font-mono font-semibold text-txt-primary">{formatDollar(checkpoint.totalRemainingObligation)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   );
 }

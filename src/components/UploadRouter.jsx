@@ -1,9 +1,9 @@
 /**
  * UploadRouter
  * Presents three intake options:
- *   1. Scan Lease — PDF upload → OCR extraction
- *   2. Input Schedule — routes to ScheduleEditor (manual entry / file upload)
- *   3. Download Blank Excel Template — static download
+ *   1. Scan Lease - PDF upload -> OCR extraction
+ *   2. Input Schedule - routes to ScheduleEditor (manual entry / file upload)
+ *   3. Download Blank Excel Template - static download
  */
 
 import { useRef, useState } from 'react';
@@ -14,6 +14,18 @@ const OCR_NOTICES = [
   'Rent escalation embedded in narrative legal prose (not a table)',
   'Non-standard or multi-column rent schedule layouts',
 ];
+
+function StepBadge({ number, muted = false }) {
+  return (
+    <span className={`inline-flex h-10 w-10 items-center justify-center rounded-full border text-sm font-semibold ${
+      muted
+        ? 'border-app-border text-txt-dim'
+        : 'border-accent/45 bg-accent/12 text-accent'
+    }`}>
+      {number}
+    </span>
+  );
+}
 
 export default function UploadRouter({ onPDFUpload, onFileUpload, onManualEntry, isExtracting }) {
   const pdfRef = useRef(null);
@@ -34,101 +46,127 @@ export default function UploadRouter({ onPDFUpload, onFileUpload, onManualEntry,
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">DEODATE Lease Schedule</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Choose how to begin. All paths produce the same output package.
-        </p>
-      </div>
-
-      <div className="space-y-5">
-        {/* Option 1 — Scan Lease */}
-        <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold">1</span>
-            <h2 className="text-lg font-semibold text-gray-800">Scan Lease</h2>
-          </div>
-          <p className="text-sm text-gray-600">
-            Upload a raw lease PDF. The system will extract rent schedule parameters via OCR
-            and pre-fill the form. <strong>You must review and confirm all fields before processing.</strong>
+    <div className="mx-auto max-w-4xl space-y-8">
+      <section className="surface-glass px-8 py-10">
+        <p className="section-kicker">Institutional Lease Review</p>
+        <div className="mt-4 max-w-3xl">
+          <h1 className="text-4xl font-semibold leading-tight text-txt-primary sm:text-5xl">
+            Build a lease schedule from scan, schedule input, or template.
+          </h1>
+          <p className="mt-4 max-w-2xl text-base leading-7 text-txt-muted">
+            Choose the intake path that matches the document you have today.
+            Every path converges into the same review flow, calculations, and export package.
           </p>
+        </div>
+      </section>
 
-          {/* OCR limitation notice */}
-          <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
-            <p className="font-semibold mb-1">Reduced extraction reliability for:</p>
-            <ul className="list-disc list-inside space-y-0.5">
-              {OCR_NOTICES.map((n) => <li key={n}>{n}</li>)}
-            </ul>
-            <p className="mt-1">In these cases, manual field review is strongly recommended.</p>
+      <div className="grid gap-5 lg:grid-cols-[1.35fr_1fr]">
+        <section className="surface-panel overflow-hidden">
+          <div className="border-b border-app-border px-6 py-5">
+            <div className="flex items-center gap-4">
+              <StepBadge number="1" />
+              <div>
+                <p className="section-kicker">Preferred Path</p>
+                <h2 className="mt-1 text-2xl font-semibold text-txt-primary">Scan Lease</h2>
+              </div>
+            </div>
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-txt-muted">
+              Upload a raw lease PDF and extract the rent schedule draft through OCR.
+              The system pre-fills the review flow, but human confirmation is still required before processing.
+            </p>
           </div>
 
-          <div
-            className={`border-2 border-dashed rounded-lg p-6 cursor-pointer transition-colors ${
-              dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
-            }`}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => !isExtracting && pdfRef.current?.click()}
-          >
-            <input
-              ref={pdfRef}
-              type="file"
-              accept=".pdf"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            <div className="text-center">
-              {isExtracting ? (
-                <p className="text-sm text-blue-600 font-medium animate-pulse">Extracting via OCR...</p>
-              ) : (
-                <>
-                  <p className="text-sm font-medium text-gray-700">Drop PDF here or click to browse</p>
-                  <p className="text-xs text-gray-400 mt-1">Accepts: .pdf</p>
-                </>
-              )}
+          <div className="px-6 py-6">
+            <div className="rounded-3xl border border-status-warn-border bg-status-warn-bg/75 p-4">
+              <p className="font-display text-sm font-semibold text-status-warn-title">
+                Reduced extraction reliability for:
+              </p>
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-status-warn-text">
+                {OCR_NOTICES.map((notice) => (
+                  <li key={notice}>{notice}</li>
+                ))}
+              </ul>
+              <p className="mt-3 text-xs uppercase tracking-[0.2em] text-status-warn-title/80">
+                Manual review remains recommended.
+              </p>
+            </div>
+
+            <div
+              className={`mt-5 rounded-[2rem] border border-dashed px-6 py-12 transition-all ${
+                dragOver
+                  ? 'border-accent bg-accent/10 shadow-accent'
+                  : 'border-app-border-strong bg-app-chrome/70 hover:border-accent/45 hover:bg-app-panel-strong'
+              }`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => !isExtracting && pdfRef.current?.click()}
+            >
+              <input
+                ref={pdfRef}
+                type="file"
+                accept=".pdf"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              <div className="mx-auto max-w-md text-center">
+                <p className="section-kicker">{isExtracting ? 'OCR in Progress' : 'Drop Zone'}</p>
+                <p className="mt-3 font-display text-2xl font-semibold text-txt-primary">
+                  {isExtracting ? 'Extracting lease structure...' : 'Drop PDF here or click to browse'}
+                </p>
+                <p className="mt-3 text-sm text-txt-muted">
+                  Accepts PDF lease files. OCR only prepares the draft; review happens in the next steps.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Option 2 — Input Schedule */}
-        <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-600 text-white text-sm font-bold">2</span>
-            <h2 className="text-lg font-semibold text-gray-800">Input Schedule</h2>
-          </div>
-          <p className="text-sm text-gray-600">
-            Type, paste, or upload a rent schedule directly. Supports Quick Entry (4 fields),
-            bulk paste from a lease document, or structured file upload (CSV/XLSX).
-          </p>
-          <button
-            type="button"
-            onClick={onManualEntry}
-            className="w-full rounded-lg border-2 border-dashed border-emerald-300 hover:border-emerald-500 hover:bg-emerald-50 p-4 transition-colors text-center"
-          >
-            <p className="text-sm font-medium text-gray-700">Open schedule editor</p>
-            <p className="text-xs text-gray-400 mt-1">Quick Entry, manual rows, bulk paste, or file upload</p>
-          </button>
-        </div>
+        <div className="space-y-5">
+          <section className="surface-panel px-6 py-6">
+            <div className="flex items-center gap-4">
+              <StepBadge number="2" />
+              <div>
+                <p className="section-kicker">Direct Entry</p>
+                <h2 className="mt-1 text-xl font-semibold text-txt-primary">Input Schedule</h2>
+              </div>
+            </div>
+            <p className="mt-4 text-sm leading-6 text-txt-muted">
+              Type, paste, or generate the rent schedule directly. Supports quick entry, bulk paste,
+              and structured uploads with the same downstream results.
+            </p>
+            <button
+              type="button"
+              onClick={onManualEntry}
+              className="btn-secondary mt-5 w-full"
+            >
+              Open Schedule Editor
+            </button>
+          </section>
 
-        {/* Option 3 — Download Blank Template */}
-        <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-500 text-white text-sm font-bold">3</span>
-            <h2 className="text-lg font-semibold text-gray-800">Download Blank Excel Template</h2>
-          </div>
-          <p className="text-sm text-gray-600">
-            Download an empty template with the correct sheet structure, headers, and assumptions block.
-            Fill it out offline in Excel or Google Sheets.
-          </p>
-          <a
-            href="/deodate-lease-template.xlsx"
-            download
-            className="inline-block rounded-md bg-gray-100 border border-gray-300 text-gray-700 px-4 py-2 text-sm font-semibold hover:bg-gray-200 transition-colors"
-          >
-            Download Template (.xlsx)
-          </a>
+          <section className="surface-panel px-6 py-6">
+            <div className="flex items-center gap-4">
+              <StepBadge number="3" muted />
+              <div>
+                <p className="section-kicker">Offline Prep</p>
+                <h2 className="mt-1 text-xl font-semibold text-txt-primary">Download Blank Template</h2>
+              </div>
+            </div>
+            <p className="mt-4 text-sm leading-6 text-txt-muted">
+              Download the blank workbook with the correct sheet structure and assumptions block,
+              then complete it offline in Excel or Google Sheets.
+            </p>
+            <a
+              href="/deodate-lease-template.xlsx"
+              download
+              className="btn-ghost mt-5 w-full"
+            >
+              Download Template (.xlsx)
+            </a>
+          </section>
         </div>
       </div>
     </div>

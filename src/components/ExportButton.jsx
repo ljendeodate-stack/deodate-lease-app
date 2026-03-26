@@ -42,35 +42,35 @@ export default function ExportButton({
   }
 
   return (
-    <div className="flex items-center gap-3 flex-wrap">
-      <span className="text-sm text-gray-600 font-medium">Export:</span>
+    <div className="flex flex-wrap items-center gap-3">
+      <span className="section-kicker !tracking-[0.22em]">Export</span>
 
       <button
         onClick={() => void exportToXLSX(rows, params, filename)}
-        className="rounded-md bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-700 transition-colors"
-        title="3-sheet workbook: Lease Schedule (assumptions block + live formulas), Annual Summary (SUMIF formulas), Audit Trail. Opens in Excel and Google Sheets."
+        className="btn-primary"
+        title="3-sheet workbook: Lease Schedule, Annual Summary, and Audit Trail."
       >
-        ↓ Excel / Google Sheets
+        Excel / Google Sheets
       </button>
 
       <button
         onClick={() => exportToCSV(rows, params, filename)}
-        className="rounded-md bg-gray-500 text-white px-4 py-2 text-sm font-semibold hover:bg-gray-600 transition-colors"
-        title="Plain CSV — standard columns only, raw numeric values."
+        className="btn-secondary"
+        title="Plain CSV with standard columns and raw numeric values."
       >
-        ↓ CSV
+        CSV
       </button>
 
       <button
         onClick={() => void handleLeaseDoc()}
-        className="rounded-md bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700 transition-colors"
-        title="Word document with lease overview, key terms, idiosyncrasies, assumptions, warnings, and Excel workbook guidance."
+        className="btn-ghost"
+        title="Word document with lease overview, assumptions, warnings, and workbook guidance."
       >
-        ↓ Lease Review Doc
+        Lease Review Doc
       </button>
 
-      <span className="text-xs text-gray-400">
-        Excel file opens in Google Sheets — upload to Google Drive or use File → Import
+      <span className="text-xs text-txt-dim">
+        Excel can be opened in Google Sheets after upload to Drive or via File &gt; Import.
       </span>
     </div>
   );

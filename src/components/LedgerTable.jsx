@@ -4,12 +4,11 @@
  * Dynamic charge columns from row.chargeAmounts / row.chargeDetails.
  */
 
-import { useState, useMemo } from 'react';
+import { Fragment, useState, useMemo } from 'react';
 import TracePanel from './TracePanel.jsx';
 import {
   formatDollar,
   formatDollarPerSF,
-  formatPercent,
   formatFactor,
 } from '../utils/formatUtils.js';
 import { formatDateMDY } from '../utils/dateUtils.js';
@@ -18,7 +17,7 @@ const PAGE_SIZE = 25;
 
 function Th({ children, className = '' }) {
   return (
-    <th className={`px-2 py-2 text-left text-xs font-semibold text-gray-600 whitespace-nowrap bg-gray-100 sticky top-0 ${className}`}>
+    <th className={`bg-app-panel-strong px-3 py-3 text-left text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-txt-dim whitespace-nowrap sticky top-0 border-b border-app-border ${className}`}>
       {children}
     </th>
   );
@@ -26,7 +25,7 @@ function Th({ children, className = '' }) {
 
 function Td({ children, className = '' }) {
   return (
-    <td className={`px-2 py-1.5 text-xs whitespace-nowrap ${className}`}>
+    <td className={`px-3 py-2 text-xs whitespace-nowrap text-txt-primary ${className}`}>
       {children}
     </td>
   );
@@ -34,7 +33,7 @@ function Td({ children, className = '' }) {
 
 function UnresolvedFlag() {
   return (
-    <span className="inline-flex items-center px-1 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+    <span className="status-chip border-status-err-border bg-status-err-bg text-status-err-text">
       unresolved
     </span>
   );
@@ -43,19 +42,19 @@ function UnresolvedFlag() {
 function Paginator({ page, totalPages, onPage }) {
   if (totalPages <= 1) return null;
   return (
-    <div className="flex items-center justify-between px-2 py-2 border-t border-gray-200 text-xs text-gray-600">
+    <div className="flex items-center justify-between border-t border-app-border bg-app-panel px-3 py-3 text-xs text-txt-muted">
       <button
         onClick={() => onPage(page - 1)}
         disabled={page === 0}
-        className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+        className="btn-ghost !px-3 !py-1.5 !text-xs disabled:opacity-40"
       >
         Prev
       </button>
-      <span>Page {page + 1} of {totalPages}</span>
+      <span className="font-mono">Page {page + 1} of {totalPages}</span>
       <button
         onClick={() => onPage(page + 1)}
         disabled={page === totalPages - 1}
-        className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+        className="btn-ghost !px-3 !py-1.5 !text-xs disabled:opacity-40"
       >
         Next
       </button>
@@ -63,10 +62,6 @@ function Paginator({ page, totalPages, onPage }) {
   );
 }
 
-/**
- * Derive charge column definitions from the first row's chargeDetails.
- * Falls back to legacy hardcoded columns if chargeDetails is not present.
- */
 function deriveChargeColumns(rows) {
   const firstRow = rows[0];
   if (firstRow?.chargeDetails && typeof firstRow.chargeDetails === 'object') {
@@ -75,7 +70,6 @@ function deriveChargeColumns(rows) {
       label: detail.displayLabel || key,
     }));
   }
-  // Legacy fallback
   return [
     { key: 'cams', label: 'CAMS' },
     { key: 'insurance', label: 'Insurance' },
@@ -90,8 +84,7 @@ export default function LedgerTable({ rows = [] }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
 
   const chargeColumns = useMemo(() => deriveChargeColumns(rows), [rows]);
-  const totalColSpan = 10 + chargeColumns.length + 7; // expand/dates/year/month/rent/applied/abatement + charges + nnn/ot/othercharges/total/sf/remaining*3
-
+  const totalColSpan = 10 + chargeColumns.length + 7;
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
@@ -102,26 +95,26 @@ export default function LedgerTable({ rows = [] }) {
   if (!rows.length) return null;
 
   return (
-    <div className="rounded-lg border border-gray-200 overflow-hidden">
-      <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+    <div className="overflow-hidden rounded-[1.25rem] border border-app-border bg-app-panel shadow-panel">
+      <div className="max-h-[600px] overflow-x-auto overflow-y-auto">
         <table className="min-w-full border-separate border-spacing-0">
           <thead>
             <tr>
-              <Th></Th>
+              <Th />
               <Th>Period Start</Th>
               <Th>Period End</Th>
-              <Th>Year #</Th>
-              <Th>Month #</Th>
-              <Th>Scheduled Base Rent</Th>
-              <Th>Base Rent Applied</Th>
+              <Th>Year</Th>
+              <Th>Month</Th>
+              <Th>Scheduled Base</Th>
+              <Th>Applied Base</Th>
               <Th>Abatement</Th>
-              <Th>Proration Factor</Th>
-              {chargeColumns.map((ch) => (
-                <Th key={ch.key}>{ch.label} ($)</Th>
+              <Th>Proration</Th>
+              {chargeColumns.map((charge) => (
+                <Th key={charge.key}>{charge.label}</Th>
               ))}
               <Th>Total NNN</Th>
-              <Th>One-Time ($)</Th>
-              <Th>Other Charges ($)</Th>
+              <Th>One-Time</Th>
+              <Th>Other Charges</Th>
               <Th>Total Monthly</Th>
               <Th>$/SF</Th>
               <Th>Total Remaining</Th>
@@ -132,45 +125,45 @@ export default function LedgerTable({ rows = [] }) {
           <tbody>
             {pageRows.map((row, localIdx) => {
               const absIdx = page * PAGE_SIZE + localIdx;
-              const isAbatement = row.isAbatementRow;
               const isExpanded = expandedIdx === absIdx;
-              const rowBg = isAbatement
-                ? 'bg-amber-50 hover:bg-amber-100'
-                : 'bg-white hover:bg-gray-50';
+              const rowTone = row.isAbatementRow
+                ? 'bg-status-warn-bg/55 hover:bg-status-warn-bg/80'
+                : absIdx % 2 === 0
+                ? 'bg-app-chrome hover:bg-app-surface'
+                : 'bg-app-surface/70 hover:bg-app-panel-strong';
 
               return (
-                <>
+                <Fragment key={absIdx}>
                   <tr
                     key={absIdx}
-                    className={`${rowBg} cursor-pointer border-b border-gray-100 transition-colors`}
+                    className={`${rowTone} cursor-pointer border-b border-app-border transition-colors`}
                     onClick={() => toggleRow(absIdx)}
                   >
-                    <Td className="text-gray-400 select-none">
-                      {isExpanded ? String.fromCharCode(9660) : String.fromCharCode(9654)}
-                    </Td>
+                    <Td className="text-txt-dim">{isExpanded ? 'v' : '>'}</Td>
                     <Td>{formatDateMDY(row.periodStart)}</Td>
                     <Td>{formatDateMDY(row.periodEnd)}</Td>
-                    <Td>{row.leaseYear}</Td>
-                    <Td>{row.leaseMonth}</Td>
+                    <Td className="font-mono text-txt-muted">{row.leaseYear}</Td>
+                    <Td className="font-mono text-txt-muted">{row.leaseMonth}</Td>
                     <Td>{row.scheduledBaseRent != null ? formatDollar(row.scheduledBaseRent) : <UnresolvedFlag />}</Td>
                     <Td>
-                      {isAbatement && (
-                        <span className="mr-1 text-amber-700 font-semibold text-xs">[ABATED]</span>
+                      {row.isAbatementRow && (
+                        <span className="mr-2 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-status-warn-title">
+                          Abated
+                        </span>
                       )}
                       {row.baseRentApplied != null ? formatDollar(row.baseRentApplied) : <UnresolvedFlag />}
                     </Td>
                     <Td>{formatDollar(row.abatementAmount ?? 0)}</Td>
-                    <Td className="font-mono text-gray-500">{formatFactor(row.baseRentProrationFactor)}</Td>
+                    <Td className="font-mono text-txt-muted">{formatFactor(row.baseRentProrationFactor)}</Td>
 
-                    {/* Dynamic charge columns */}
-                    {chargeColumns.map((ch) => {
-                      const detail = row.chargeDetails?.[ch.key];
-                      const amount = row.chargeAmounts?.[ch.key] ?? row[`${ch.key}Amount`] ?? 0;
-                      const active = detail?.active ?? row[`${ch.key}Active`];
+                    {chargeColumns.map((charge) => {
+                      const detail = row.chargeDetails?.[charge.key];
+                      const amount = row.chargeAmounts?.[charge.key] ?? row[`${charge.key}Amount`] ?? 0;
+                      const active = detail?.active ?? row[`${charge.key}Active`];
                       return (
-                        <Td key={ch.key}>
+                        <Td key={charge.key}>
                           {active === false
-                            ? <span className="text-gray-400 italic text-xs">inactive</span>
+                            ? <span className="text-txt-faint italic">inactive</span>
                             : formatDollar(amount)}
                         </Td>
                       );
@@ -178,34 +171,35 @@ export default function LedgerTable({ rows = [] }) {
 
                     <Td>{formatDollar(row.totalNNNAmount ?? 0)}</Td>
                     <Td>
-                      {row.oneTimeChargesAmount
-                        ? <span
-                            className={`cursor-help ${row.oneTimeChargesAmount < 0 ? 'text-green-700' : ''}`}
-                            title={Object.entries(row.oneTimeItemAmounts ?? {})
-                              .filter(([, v]) => v !== 0)
-                              .map(([label, amt]) => `${label}: ${amt.toLocaleString()}`)
-                              .join('\n') || 'One-time charge'}
-                          >
-                            {formatDollar(row.oneTimeChargesAmount)}
-                          </span>
-                        : <span className="text-gray-300">-</span>
-                      }
+                      {row.oneTimeChargesAmount ? (
+                        <span
+                          className={row.oneTimeChargesAmount < 0 ? 'text-status-ok-text' : ''}
+                          title={Object.entries(row.oneTimeItemAmounts ?? {})
+                            .filter(([, value]) => value !== 0)
+                            .map(([label, value]) => `${label}: ${value.toLocaleString()}`)
+                            .join('\n') || 'One-time charge'}
+                        >
+                          {formatDollar(row.oneTimeChargesAmount)}
+                        </span>
+                      ) : (
+                        <span className="text-txt-faint">-</span>
+                      )}
                     </Td>
                     <Td>{formatDollar(row.totalOtherChargesAmount)}</Td>
-                    <Td className="font-semibold">{formatDollar(row.totalMonthlyObligation)}</Td>
+                    <Td className="font-semibold text-txt-primary">{formatDollar(row.totalMonthlyObligation)}</Td>
                     <Td>{formatDollarPerSF(row.effectivePerSF)}</Td>
                     <Td>{formatDollar(row.totalObligationRemaining)}</Td>
                     <Td>{formatDollar(row.totalNNNRemaining)}</Td>
                     <Td>{formatDollar(row.totalBaseRentRemaining)}</Td>
                   </tr>
                   {isExpanded && (
-                    <tr key={`trace-${absIdx}`}>
+                    <tr>
                       <td colSpan={totalColSpan} className="p-0">
                         <TracePanel row={row} />
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </tbody>

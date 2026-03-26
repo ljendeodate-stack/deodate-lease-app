@@ -536,20 +536,25 @@ export default function App() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-3">
-        <div className="max-w-screen-xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-blue-700 font-bold text-lg tracking-tight">DEODATE</span>
-            <span className="text-gray-300">|</span>
-            <span className="text-gray-600 text-sm">Lease Schedule Engine</span>
+    <div className="min-h-screen bg-hero-radial text-txt-primary">
+      <header className="sticky top-0 z-10 border-b border-app-border/80 bg-app-surface/72 px-6 py-4 backdrop-blur-xl">
+        <div className="max-w-screen-xl mx-auto flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div>
+              <p className="section-kicker">Decision-Grade Output</p>
+              <div className="mt-1 flex items-center gap-3">
+                <span className="font-display text-xl font-semibold tracking-[0.1em] text-accent">DEODATE</span>
+                <span className="text-txt-faint">/</span>
+                <span className="text-sm text-txt-muted">Lease Schedule Engine</span>
+              </div>
+            </div>
           </div>
           {showWorkflowMenu && (
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setMenuOpen((open) => !open)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-gray-800"
+                className="btn-ghost h-11 w-11 !rounded-full !p-0"
                 aria-label="Open navigation menu"
               >
                 <span className="flex flex-col gap-1">
@@ -559,47 +564,47 @@ export default function App() {
                 </span>
               </button>
               {menuOpen && (
-                <div className="absolute right-0 z-20 mt-2 w-56 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
+                <div className="absolute right-0 z-20 mt-3 w-60 rounded-[1.2rem] border border-app-border bg-app-panel/95 p-3 shadow-glass backdrop-blur-xl">
                   <button
                     type="button"
                     onClick={() => navigateToStep(STEP.UPLOAD)}
-                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-txt-primary hover:bg-app-surface"
                   >
                     <span>Upload</span>
-                    {step === STEP.UPLOAD && <span className="text-xs text-blue-600">Current</span>}
+                    {step === STEP.UPLOAD && <span className="status-chip border-accent/30 bg-accent/10 text-accent-soft">Current</span>}
                   </button>
                   <button
                     type="button"
                     onClick={() => navigateToStep(STEP.SCHEDULE)}
                     disabled={!canVisitSchedule}
-                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-white"
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-txt-primary hover:bg-app-surface disabled:cursor-not-allowed disabled:text-txt-dim disabled:hover:bg-transparent"
                   >
                     <span>Schedule</span>
-                    {step === STEP.SCHEDULE && <span className="text-xs text-blue-600">Current</span>}
+                    {step === STEP.SCHEDULE && <span className="status-chip border-accent/30 bg-accent/10 text-accent-soft">Current</span>}
                   </button>
                   <button
                     type="button"
                     onClick={() => navigateToStep(STEP.FORM)}
                     disabled={!canVisitForm}
-                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-white"
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-txt-primary hover:bg-app-surface disabled:cursor-not-allowed disabled:text-txt-dim disabled:hover:bg-transparent"
                   >
                     <span>Assumptions</span>
-                    {step === STEP.FORM && <span className="text-xs text-blue-600">Current</span>}
+                    {step === STEP.FORM && <span className="status-chip border-accent/30 bg-accent/10 text-accent-soft">Current</span>}
                   </button>
                   <button
                     type="button"
                     onClick={() => navigateToStep(STEP.RESULTS)}
                     disabled={!canVisitResults}
-                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-white"
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-txt-primary hover:bg-app-surface disabled:cursor-not-allowed disabled:text-txt-dim disabled:hover:bg-transparent"
                   >
                     <span>Results</span>
-                    {step === STEP.RESULTS && <span className="text-xs text-blue-600">Current</span>}
+                    {step === STEP.RESULTS && <span className="status-chip border-accent/30 bg-accent/10 text-accent-soft">Current</span>}
                   </button>
-                  <div className="my-2 border-t border-gray-200" />
+                  <div className="my-2 border-t border-app-border" />
                   <button
                     type="button"
                     onClick={resetWorkflow}
-                    className="w-full rounded-md px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                    className="w-full rounded-xl px-3 py-2 text-left text-sm text-status-err-text hover:bg-status-err-bg"
                   >
                     Start over
                   </button>
@@ -613,7 +618,7 @@ export default function App() {
       <main className="max-w-screen-xl mx-auto px-6 py-8 space-y-8">
         {/* Global error */}
         {globalError && (
-          <div className="rounded-md bg-red-50 border border-red-300 p-4 text-sm text-red-700">
+          <div className="rounded-[1.15rem] border border-status-err-border bg-status-err-bg/92 p-4 text-sm text-status-err-text shadow-panel">
             {globalError}
           </div>
         )}
@@ -633,15 +638,15 @@ export default function App() {
           <div className="space-y-4">
             {/* Fallback banner — shown when routing from failed/weak extraction */}
             {scheduleNotice && (
-              <div className="rounded-md bg-amber-50 border border-amber-300 p-4 space-y-2">
-                <p className="text-sm font-semibold text-amber-800">
+              <div className="rounded-[1.15rem] border border-status-warn-border bg-status-warn-bg/92 p-4 space-y-2 shadow-panel">
+                <p className="text-sm font-semibold text-status-warn-title">
                   {scheduleNotice.title}
                 </p>
-                <p className="text-sm text-amber-700">
+                <p className="text-sm text-status-warn-text">
                   {scheduleNotice.message}
                 </p>
                 {scheduleNotice.detail && (
-                  <p className="text-xs text-amber-600">
+                  <p className="text-xs text-status-warn-text">
                     {scheduleNotice.detail}
                   </p>
                 )}
@@ -661,39 +666,39 @@ export default function App() {
           <div className="space-y-4">
             {/* Confidence summary (PDF path) */}
             {confidenceResult && (
-              <div className={`rounded-md border p-3 space-y-1 ${
-                confidenceResult.level === 'high' ? 'bg-green-50 border-green-200' :
-                confidenceResult.level === 'medium' ? 'bg-amber-50 border-amber-200' :
-                'bg-red-50 border-red-200'
+              <div className={`rounded-[1.15rem] border p-4 space-y-1 shadow-panel ${
+                confidenceResult.level === 'high' ? 'bg-status-ok-bg border-status-ok-border' :
+                confidenceResult.level === 'medium' ? 'bg-status-warn-bg border-status-warn-border' :
+                'bg-status-err-bg border-status-err-border'
               }`}>
                 <p className={`text-sm font-semibold ${
-                  confidenceResult.level === 'high' ? 'text-green-800' :
-                  confidenceResult.level === 'medium' ? 'text-amber-800' :
-                  'text-red-800'
+                  confidenceResult.level === 'high' ? 'text-status-ok-title' :
+                  confidenceResult.level === 'medium' ? 'text-status-warn-title' :
+                  'text-status-err-title'
                 }`}>
                   Extraction confidence: {(confidenceResult.overall * 100).toFixed(0)}% ({confidenceResult.level})
                 </p>
                 {confidenceResult.reasons.map((r, i) => (
-                  <p key={i} className="text-xs text-gray-600">{r}</p>
+                  <p key={i} className="text-xs text-txt-muted">{r}</p>
                 ))}
               </div>
             )}
 
             {/* Parse warnings */}
             {parseWarnings.length > 0 && (
-              <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-1">
+              <div className="rounded-[1.15rem] border border-status-warn-border bg-status-warn-bg/92 p-4 space-y-1 shadow-panel">
                 {parseWarnings.map((w, i) => (
-                  <p key={i} className="text-sm text-amber-800">{w}</p>
+                  <p key={i} className="text-sm text-status-warn-text">{w}</p>
                 ))}
               </div>
             )}
 
             {/* Plausibility warnings */}
             {plausibilityIssues.length > 0 && (
-              <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-1">
-                <p className="text-sm font-semibold text-amber-800">Schedule plausibility checks:</p>
+              <div className="rounded-[1.15rem] border border-status-warn-border bg-status-warn-bg/92 p-4 space-y-1 shadow-panel">
+                <p className="text-sm font-semibold text-status-warn-title">Schedule plausibility checks:</p>
                 {plausibilityIssues.map((issue, i) => (
-                  <p key={i} className={`text-sm ${issue.severity === 'error' ? 'text-red-700' : 'text-amber-700'}`}>
+                  <p key={i} className={`text-sm ${issue.severity === 'error' ? 'text-status-err-text' : 'text-status-warn-text'}`}>
                     {issue.message}
                   </p>
                 ))}
@@ -702,28 +707,28 @@ export default function App() {
 
             {/* Validation warnings (non-blocking) */}
             {validationWarnings.length > 0 && (
-              <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-1">
+              <div className="rounded-[1.15rem] border border-status-warn-border bg-status-warn-bg/92 p-4 space-y-1 shadow-panel">
                 {validationWarnings.map((w, i) => (
-                  <p key={i} className="text-sm text-amber-700">{w.message}</p>
+                  <p key={i} className="text-sm text-status-warn-text">{w.message}</p>
                 ))}
               </div>
             )}
 
             {/* Duplicate date warning (Flaw 5 fix) */}
             {duplicateDates.length > 0 && !dupConfirmed && (
-              <div className="rounded-md bg-red-50 border border-red-300 p-4 space-y-2">
-                <p className="text-sm font-semibold text-red-800">
+              <div className="rounded-[1.15rem] border border-status-err-border bg-status-err-bg/92 p-4 space-y-2 shadow-panel">
+                <p className="text-sm font-semibold text-status-err-title">
                   Duplicate period start dates detected in the uploaded schedule:
                 </p>
-                <ul className="list-disc list-inside text-sm text-red-700">
+                <ul className="list-disc list-inside text-sm text-status-err-text">
                   {duplicateDates.map((d) => <li key={d}>{d}</li>)}
                 </ul>
-                <p className="text-sm text-red-700">
+                <p className="text-sm text-status-err-text">
                   The later row for each duplicate date will be used. Confirm to proceed.
                 </p>
                 <button
                   onClick={() => setDupConfirmed(true)}
-                  className="rounded-md bg-red-600 text-white px-4 py-1.5 text-sm font-semibold hover:bg-red-700"
+                  className="btn-secondary"
                 >
                   I understand — proceed with de-duplicated schedule
                 </button>
@@ -736,7 +741,7 @@ export default function App() {
                 onClick={() => {
                   navigateToStep(STEP.SCHEDULE);
                 }}
-                className="text-xs text-blue-600 hover:text-blue-800 underline"
+                className="btn-link"
               >
                 Edit rent schedule manually
               </button>
@@ -764,8 +769,11 @@ export default function App() {
         {/* Step: Results */}
         {step === STEP.RESULTS && (
           <div className="space-y-8">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">Lease Schedule — {fileName}</h2>
+            <div className="flex items-end justify-between gap-4 flex-wrap">
+              <div>
+                <p className="section-kicker">Processed Output</p>
+                <h2 className="mt-2 text-2xl font-semibold text-txt-primary">Lease Schedule - {fileName}</h2>
+              </div>
               <ExportButton
                 rows={processedRows}
                 params={processedParams}
@@ -786,11 +794,11 @@ export default function App() {
             </div>
 
             {/* Back navigation row */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={() => navigateToStep(STEP.FORM)}
-                className="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                className="btn-secondary !px-4 !py-2 !text-xs"
               >
                 Back to assumptions
               </button>
@@ -798,7 +806,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => navigateToStep(STEP.SCHEDULE)}
-                  className="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                  className="btn-ghost !px-4 !py-2 !text-xs"
                 >
                   Back to schedule
                 </button>
@@ -806,7 +814,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={resetWorkflow}
-                className="rounded border border-red-200 bg-white px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
+                className="btn-ghost !border-status-err-border !px-4 !py-2 !text-xs !text-status-err-text hover:!bg-status-err-bg"
               >
                 Start over
               </button>
@@ -814,15 +822,15 @@ export default function App() {
 
             {/* Confidence / plausibility summary on results page */}
             {(confidenceResult?.level === 'low' || plausibilityIssues.some((i) => i.severity === 'warning')) && (
-              <div className="rounded-md bg-amber-50 border border-amber-200 p-3 space-y-1">
-                <p className="text-sm font-semibold text-amber-800">Review recommended</p>
+              <div className="rounded-[1.15rem] border border-status-warn-border bg-status-warn-bg/92 p-4 space-y-1 shadow-panel">
+                <p className="text-sm font-semibold text-status-warn-title">Review recommended</p>
                 {confidenceResult?.level === 'low' && (
-                  <p className="text-sm text-amber-700">
+                  <p className="text-sm text-status-warn-text">
                     Extraction confidence was low ({(confidenceResult.overall * 100).toFixed(0)}%). Verify all values before relying on this output.
                   </p>
                 )}
                 {plausibilityIssues.filter((i) => i.severity === 'warning').map((issue, i) => (
-                  <p key={i} className="text-sm text-amber-700">{issue.message}</p>
+                  <p key={i} className="text-sm text-status-warn-text">{issue.message}</p>
                 ))}
               </div>
             )}
@@ -830,10 +838,11 @@ export default function App() {
             <SummaryPanel rows={processedRows} />
 
             <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-3">Monthly Ledger</h3>
-              <p className="text-xs text-gray-500 mb-2">
+              <p className="section-kicker">Detailed Ledger</p>
+              <h3 className="mt-2 mb-3 text-xl font-semibold text-txt-primary">Monthly Ledger</h3>
+              <p className="text-xs text-txt-muted mb-2">
                 Click any row to expand its calculation trace.
-                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-xs">amber rows = abatement period</span>
+                <span className="status-chip ml-2 border-status-warn-border bg-status-warn-bg text-status-warn-text">Abatement rows</span>
               </p>
               <LedgerTable rows={processedRows} />
             </div>

@@ -1,15 +1,11 @@
 /**
  * TracePanel
- * Expandable per-row calculation trace (Section 4, Row-Level Trace Panel).
- * Flaw 2 fix: surfaces period factor, proration factor derivation,
- * escalation year index per charge, and charge gate status.
+ * Expandable per-row calculation trace.
  */
 
-import { formatFactor, formatPercent } from '../utils/formatUtils.js';
+import { formatFactor } from '../utils/formatUtils.js';
 import { NNN_BUCKET_KEYS, EXPENSE_CATEGORY_DEFS } from '../engine/labelClassifier.js';
-import { CANONICAL_TYPES } from '../engine/chargeTypes.js';
 
-// Build categories from row.chargeDetails if available, else fall back to legacy
 function getCategories(row) {
   if (row.chargeDetails && typeof row.chargeDetails === 'object') {
     return Object.entries(row.chargeDetails).map(([key, detail]) => ({
@@ -18,73 +14,68 @@ function getCategories(row) {
       ...detail,
     }));
   }
-  // Legacy fallback
-  return NNN_BUCKET_KEYS.map((k) => ({
-    key: k,
-    label: EXPENSE_CATEGORY_DEFS[k].displayLabel,
-    active: row[`${k}Active`],
-    escYears: row[`${k}EscYears`],
-    escPct: row[`${k}EscPct`],
+  return NNN_BUCKET_KEYS.map((key) => ({
+    key,
+    label: EXPENSE_CATEGORY_DEFS[key].displayLabel,
+    active: row[`${key}Active`],
+    escYears: row[`${key}EscYears`],
+    escPct: row[`${key}EscPct`],
   }));
 }
 
 function TraceRow({ label, value, detail }) {
   return (
-    <tr className="text-xs">
-      <td className="py-0.5 pr-4 font-medium text-gray-600 whitespace-nowrap">{label}</td>
-      <td className="py-0.5 pr-4 font-mono text-gray-900">{value}</td>
-      {detail && <td className="py-0.5 text-gray-500 italic">{detail}</td>}
+    <tr className="text-xs align-top">
+      <td className="py-1 pr-5 font-medium text-txt-muted whitespace-nowrap">{label}</td>
+      <td className="py-1 pr-5 font-mono text-txt-primary">{value}</td>
+      {detail && <td className="py-1 text-txt-dim">{detail}</td>}
     </tr>
   );
 }
 
-/**
- * Render one row of a classification trace table.
- * Only shown when a row carries `labelClassifications` metadata.
- */
 function ClassificationTraceSection({ labelClassifications }) {
   if (!labelClassifications || typeof labelClassifications !== 'object') return null;
-  const entries = Object.entries(labelClassifications).filter(([, v]) => v);
+  const entries = Object.entries(labelClassifications).filter(([, value]) => value);
   if (!entries.length) return null;
 
   return (
     <>
       <tr>
-        <td colSpan={3} className="pt-3 pb-0.5">
-          <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
-            Label Classification Trace
-          </span>
+        <td colSpan={3} className="pt-4 pb-1">
+          <span className="section-kicker">Label Classification Trace</span>
         </td>
       </tr>
-      {entries.map(([bucket, c]) => (
+      {entries.map(([bucket, classification]) => (
         <tr key={bucket} className="text-xs align-top">
-          <td className="py-0.5 pr-4 font-medium text-gray-600 whitespace-nowrap">
+          <td className="py-1 pr-5 font-medium text-txt-muted whitespace-nowrap">
             {EXPENSE_CATEGORY_DEFS[bucket]?.displayLabel ?? bucket}
           </td>
-          <td className="py-0.5 pr-4 font-mono text-gray-900">
-            <span className={`inline-block px-1 rounded text-xs mr-1 ${
-              c.confidence >= 0.9 ? 'bg-green-100 text-green-800'
-              : c.confidence >= 0.7 ? 'bg-amber-100 text-amber-800'
-              : 'bg-red-100 text-red-800'
+          <td className="py-1 pr-5 font-mono text-txt-primary">
+            <span className={`inline-flex rounded-full border px-2 py-1 text-[0.68rem] font-semibold ${
+              classification.confidence >= 0.9
+                ? 'border-status-ok-border bg-status-ok-bg text-status-ok-title'
+                : classification.confidence >= 0.7
+                ? 'border-status-warn-border bg-status-warn-bg text-status-warn-title'
+                : 'border-status-err-border bg-status-err-bg text-status-err-title'
             }`}>
-              {(c.confidence * 100).toFixed(0)}%
+              {(classification.confidence * 100).toFixed(0)}%
             </span>
-            <span className="text-gray-500">{c.matchType}</span>
-            {c.matchedCanonical && (
-              <span className="ml-1 text-gray-400">→ "{c.matchedCanonical}"</span>
+            <span className="ml-2 text-txt-muted">{classification.matchType}</span>
+            {classification.matchedCanonical && (
+              <span className="ml-2 text-txt-dim">-&gt; "{classification.matchedCanonical}"</span>
             )}
           </td>
-          <td className="py-0.5 text-gray-500 italic">
-            {c.semanticSubtype && (
-              <span className="mr-2 text-blue-600">{c.semanticSubtype}</span>
+          <td className="py-1 text-txt-dim">
+            {classification.semanticSubtype && (
+              <span className="mr-3 font-medium text-accent-soft">{classification.semanticSubtype}</span>
             )}
-            {c.normalizedLabel && c.normalizedLabel !== c.rawLabel?.toLowerCase() && (
-              <span className="text-gray-400">
-                raw: "{c.rawLabel}" → "{c.normalizedLabel}"
+            {classification.normalizedLabel && classification.normalizedLabel !== classification.rawLabel?.toLowerCase() && (
+              <span>
+                raw: "{classification.rawLabel}" -&gt; "{classification.normalizedLabel}"
               </span>
             )}
-            {c.warnings?.length > 0 && (
-              <span className="block text-amber-700">⚠ {c.warnings[0]}</span>
+            {classification.warnings?.length > 0 && (
+              <span className="mt-1 block text-status-warn-text">{classification.warnings[0]}</span>
             )}
           </td>
         </tr>
@@ -97,28 +88,28 @@ export default function TracePanel({ row }) {
   if (!row) return null;
 
   const prorationDetail = (() => {
-    if (row.prorationBasis === 'full') return 'Full anchor month — no proration';
+    if (row.prorationBasis === 'full') return 'Full anchor month; no proration.';
     if (row.prorationBasis === 'abatement-boundary') {
-      return `Abatement boundary blend: ${row.abatementDays} abated day(s) + ${row.fullRentDays} full-rent day(s) over ${row.totalDays} total day(s)`;
+      return `Abatement boundary blend: ${row.abatementDays} abated day(s) + ${row.fullRentDays} full-rent day(s) over ${row.totalDays} total day(s).`;
     }
     if (row.prorationBasis === 'final-month') {
-      return `Final partial month: ${row.actualDays} actual day(s) ÷ ${row.calMonthDays} calendar day(s) in expiry month`;
+      return `Final partial month: ${row.actualDays} actual day(s) / ${row.calMonthDays} calendar day(s) in expiry month.`;
     }
-    return '—';
+    return '-';
   })();
 
   return (
-    <div className="bg-gray-50 border-t border-gray-200 px-4 py-3">
-      <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-2">Calculation Trace</h4>
-      <table className="w-full">
+    <div className="border-t border-app-border bg-app-shell px-5 py-4">
+      <p className="section-kicker">Calculation Trace</p>
+      <table className="mt-3 w-full">
         <tbody>
           <TraceRow
             label="Period Factor"
             value={formatFactor(row.periodFactor)}
             detail={
               row.periodFactor === 1
-                ? 'Full anchor month'
-                : `Final partial month proration (${row.actualDays} days ÷ ${row.calMonthDays} calendar days)`
+                ? 'Full anchor month.'
+                : `Final partial month proration (${row.actualDays} days / ${row.calMonthDays} calendar days).`
             }
           />
           <TraceRow
@@ -127,10 +118,14 @@ export default function TracePanel({ row }) {
             detail={prorationDetail}
           />
 
-          <tr><td colSpan={3} className="pt-2 pb-0.5"><span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Charges</span></td></tr>
+          <tr>
+            <td colSpan={3} className="pt-4 pb-1">
+              <span className="section-kicker !text-txt-dim">Charges</span>
+            </td>
+          </tr>
 
-          {getCategories(row).map((cat) => {
-            const { key, label, active, escYears, escPct } = cat;
+          {getCategories(row).map((category) => {
+            const { key, label, active, escYears, escPct } = category;
             return (
               <TraceRow
                 key={key}
@@ -138,14 +133,14 @@ export default function TracePanel({ row }) {
                 value={
                   active === false
                     ? 'INACTIVE'
-                    : `Year index: ${escYears ?? '—'} → x(1 + ${escPct ?? 0}%)^${escYears ?? 0}`
+                    : `Year index: ${escYears ?? '-'} -> x(1 + ${escPct ?? 0}%)^${escYears ?? 0}`
                 }
                 detail={
                   active === false
-                    ? `Charge gated: billing start date not yet reached for this row`
+                    ? 'Charge gated: billing start date not yet reached for this row.'
                     : escYears === null
-                    ? 'Escalation anchored to lease Year # (no explicit escalation start date)'
-                    : `Escalation anchored to explicit escStart date`
+                    ? 'Escalation anchored to lease year with no explicit escalation start date.'
+                    : 'Escalation anchored to explicit escStart date.'
                 }
               />
             );
