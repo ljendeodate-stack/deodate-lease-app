@@ -21,7 +21,6 @@ import SummaryPanel from './components/SummaryPanel.jsx';
 import ExportButton from './components/ExportButton.jsx';
 
 import { parseFile } from './engine/parser.js';
-import { defaultChargesForm } from './engine/chargeTypes.js';
 import { expandPeriods } from './engine/expander.js';
 import { calculateAllCharges } from './engine/calculator.js';
 import { validateParams, validateSchedule } from './engine/validator.js';
@@ -30,6 +29,7 @@ import { parseMDYStrict, parseExcelDate } from './engine/yearMonth.js';
 import { classifyExpenseLabel, NNN_BUCKET_KEYS } from './engine/labelClassifier.js';
 import { scoreExtraction, categorizeFields } from './engine/confidenceScorer.js';
 import { checkSchedulePlausibility } from './engine/plausibility.js';
+import { buildChargesFromOCR, hasDetectedNNNCharges } from './ocr/chargeNormalizer.js';
 
 // ---------------------------------------------------------------------------
 // Step constants
@@ -62,16 +62,6 @@ function mapChargeFormToParams(form, key) {
   };
 }
 
-function buildInitialCharges(result, nnnToForm) {
-  return defaultChargesForm().map((charge) => {
-    const initialValues = nnnToForm(result[charge.key]);
-    return {
-      ...charge,
-      ...initialValues,
-      displayLabel: initialValues.displayLabel || charge.displayLabel,
-    };
-  });
-}
 
 export function formToCalculatorParams(form) {
   // Free Rent takes precedence over Abatement when set.
@@ -294,30 +284,52 @@ export default function App() {
 
   /**
    * Pre-populate form state from an OCR extraction result.
+   *
+   * Charge prefill strategy (in priority order):
+   * 1. result.recurringCharges[] → buildChargesFromOCR() (lease-native labels preserved)
+   * 2. Legacy fixed buckets (result.cams, result.insurance, etc.) when #1 is absent
+   * 3. estimatedNNNMonthly → aggregate mode when no named charges detected at all
    */
   function prepopulateFormFromOCR(result) {
-    const nnnToForm = (cat) => ({
-      year1: cat?.year1 != null ? String(cat.year1) : '',
-      escPct: cat?.escPct != null ? String(cat.escPct) : '',
-      chargeStart: cat?.chargeStart ?? '',
-      escStart: cat?.escStart ?? '',
-    });
+    // ── Charges: prefer recurringCharges[] over legacy fixed buckets ──────────
+    const {
+      charges: builtCharges,
+      confidenceFlags: chargeFlags,
+      notices: chargeNotices,
+    } = buildChargesFromOCR(result);
 
-    let allConfidenceFlags = [...(result.confidenceFlags ?? [])];
-
-    const hasIndividualNNN = result.cams?.year1 != null ||
+    // ── NNN mode ──────────────────────────────────────────────────────────────
+    // Stay in individual mode when recurringCharges[] has NNN-type entries.
+    // Fall back to aggregate only when neither recurringCharges[] nor fixed buckets
+    // provide any NNN data and an estimatedNNNMonthly aggregate is present.
+    const hasNNNFromRecurring = hasDetectedNNNCharges(result);
+    const hasIndividualNNN =
+      result.cams?.year1 != null ||
       result.insurance?.year1 != null ||
       result.taxes?.year1 != null;
 
     let nnnMode = 'individual';
     let nnnAggregateForm = { year1: '', escPct: '' };
 
-    if (result.estimatedNNNMonthly != null && !hasIndividualNNN) {
+    if (
+      result.estimatedNNNMonthly != null &&
+      !hasIndividualNNN &&
+      !hasNNNFromRecurring
+    ) {
       nnnMode = 'aggregate';
       nnnAggregateForm = { year1: String(result.estimatedNNNMonthly), escPct: '' };
+    }
+
+    // ── Confidence flags ──────────────────────────────────────────────────────
+    let allConfidenceFlags = [
+      ...(result.confidenceFlags ?? []),
+      ...chargeFlags,
+    ];
+    if (nnnMode === 'aggregate') {
       allConfidenceFlags = [...allConfidenceFlags, 'nnnAggregate.year1'];
     }
 
+    // ── One-time items ────────────────────────────────────────────────────────
     let depositOTC;
     if (Array.isArray(result.oneTimeCharges) && result.oneTimeCharges.length > 0) {
       depositOTC = result.oneTimeCharges.map((c) => ({
@@ -335,14 +347,18 @@ export default function App() {
       depositOTC = [];
     }
 
+    // ── Notices ───────────────────────────────────────────────────────────────
+    const allNotices = [...(result.notices ?? []), ...chargeNotices];
+
+    // ── Assemble form state ───────────────────────────────────────────────────
     const nextFormState = {
       leaseName:        result.leaseName ?? '',
       squareFootage:    result.squareFootage != null ? String(result.squareFootage) : '',
       abatementEndDate: result.abatementEndDate ?? '',
-      abatementPct: result.abatementPct != null ? String(result.abatementPct) : '',
+      abatementPct:     result.abatementPct != null ? String(result.abatementPct) : '',
       nnnMode,
       nnnAggregate: nnnAggregateForm,
-      charges: buildInitialCharges(result, nnnToForm),
+      charges: builtCharges,
       oneTimeItems: (result.oneTimeItems?.length ? result.oneTimeItems : depositOTC).map((item) => ({
         label:  item.label ?? item.name ?? '',
         date:   item.dueDate ?? item.date ?? '',
@@ -354,12 +370,11 @@ export default function App() {
 
     setFormInitialValues(nextFormState);
     setFormDraftValues(nextFormState);
-
     setOcrConfidenceFlags(allConfidenceFlags);
-    setOcrNotices(result.notices ?? []);
+    setOcrNotices(allNotices);
     setSfRequired(result.sfRequired ?? false);
 
-    // Classification trace
+    // Classification trace (legacy — uses fixed bucket keys for audit)
     const classifications = {};
     for (const key of NNN_BUCKET_KEYS) {
       const fieldValue = result[key];

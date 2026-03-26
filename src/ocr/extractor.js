@@ -117,10 +117,68 @@ JSON SCHEMA:
     { "label": "string", "amount": number, "dueDate": "MM/DD/YYYY" | null, "sign": 1 | -1 }
   ],
   "confidenceFlags": ["field.path", ...],
-  "notices": ["string", ...]
+  "notices": ["string", ...],
+  "recurringCharges": [
+    {
+      "label": "string",
+      "year1": "number | null (MONTHLY — divide annual by 12 first)",
+      "amountBasis": "monthly | annual | unknown",
+      "escPct": "number | null (whole number, e.g. 3 for 3%)",
+      "chargeStart": "MM/DD/YYYY | null",
+      "escStart": "MM/DD/YYYY | null",
+      "canonicalType": "nnn | other",
+      "bucketKey": "cams | insurance | taxes | security | otherItems | null",
+      "confidence": "number 0–1",
+      "evidenceText": "string (short verbatim excerpt)",
+      "sourceKind": "line_item | combined_estimate | narrative_obligation"
+    }
+  ]
 }
 
-12. securityDeposit (legacy) must only be set for the one-time security deposit if it also appears in oneTimeCharges. It must never include recurring charges.`;
+12. securityDeposit (legacy) must only be set for the one-time security deposit if it also appears in oneTimeCharges. It must never include recurring charges.
+13. RECURRING CHARGES ARRAY (recurringCharges — REQUIRED even if empty):
+    Scan the ENTIRE lease for ALL recurring charge obligations beyond base rent and return them here.
+    This array is the authoritative structured charge output. Include every recurring charge:
+    Operating Expenses, Op Ex, OpEx, Common Area Maintenance, CAM, CAMS, Additional Rent,
+    Triple Net, NNN, Insurance, Real Estate Taxes, Security services (ongoing recurring),
+    Management Fees, Administrative Fees, Service Fees, Service Charges, and any other
+    recurring obligation labeled as additional rent or operating charges.
+
+    PRESERVE the exact lease-native label in "label" (e.g. if the lease says
+    "Estimated Operating Expenses", use that — not "CAM" or "CAMS").
+
+    For YEAR1: return the MONTHLY dollar amount. If the document gives an ANNUAL figure,
+    divide by 12 before returning. Do NOT return the raw annual total as year1.
+    Examples: "$150,000/year" → year1 = 12500; "$1,500/month" → year1 = 1500.
+
+    ROUTING (canonicalType and bucketKey):
+    - Operating Expenses / CAMS / Common Area / NNN composite / Triple Net → canonicalType: "nnn", bucketKey: "cams"
+    - Insurance / Property Insurance / Hazard Insurance → canonicalType: "nnn", bucketKey: "insurance"
+    - Real Estate Taxes / Property Taxes → canonicalType: "nnn", bucketKey: "taxes"
+    - Security guard / patrol (recurring service) → canonicalType: "other", bucketKey: "security"
+    - Management Fee / Administrative Fee / Service Fee / Service Charge → canonicalType: "other", bucketKey: "otherItems"
+    - Unfamiliar but clearly recurring → canonicalType: "other", bucketKey: null
+
+    RULES:
+    a. COMBINED ESTIMATE (e.g. "Estimated First Year Operating Expenses: $150,000 annually"):
+       → ONE entry: label = lease-native wording (e.g. "Operating Expenses"), year1 = 12500,
+         amountBasis = "annual", canonicalType = "nnn", bucketKey = "cams",
+         sourceKind = "combined_estimate".
+       → Do NOT invent separate CAM / Insurance / Tax sub-entries from a combined amount.
+    b. INDIVIDUALLY BROKEN OUT: if CAMS, Insurance, Taxes are separately listed with separate
+       amounts, return them as separate entries with their respective bucketKeys.
+    c. COMMISSION / COMMISSIONS: one-time by default → put in oneTimeCharges, NOT here.
+       Exception: if the lease explicitly states commissions recur monthly, annually, or as
+       ongoing additional rent, include them here.
+    d. MISSING AMOUNT: if a recurring charge is mentioned by name but no dollar amount is given,
+       include it here with year1 = null, confidence = 0.4–0.5, sourceKind = "narrative_obligation".
+       Do NOT omit it.
+    e. DEDUPLICATION: if the same charge appears in multiple sections, return ONE entry with the
+       most specific evidence (prefer a section with an explicit dollar amount).
+    f. UNFAMILIAR LABELS: preserve the lease-native label. Route to canonicalType = "other",
+       bucketKey = null if uncertain. Do not drop it.
+    g. OCR-CORRUPTED text: if a label looks like "Operatlng Expens5s", include it with the
+       best-effort corrected label and note the uncertainty in evidenceText.`;
 
 /**
  * Detect whether a PDF is likely scanned/image-based rather than digitally generated.
@@ -184,6 +242,7 @@ function emptyExtractionResult(notices = []) {
     notices,
     sfRequired: false,
     overallConfidence: 'low',
+    recurringCharges: [],
   };
 }
 
@@ -227,9 +286,10 @@ export async function extractFromPDF(pdfBuffer) {
   }
 
   // Ensure required arrays/objects exist
-  result.confidenceFlags = result.confidenceFlags ?? [];
-  result.notices = result.notices ?? [];
-  result.rentSchedule = result.rentSchedule ?? [];
+  result.confidenceFlags  = result.confidenceFlags  ?? [];
+  result.notices          = result.notices          ?? [];
+  result.rentSchedule     = result.rentSchedule     ?? [];
+  result.recurringCharges = Array.isArray(result.recurringCharges) ? result.recurringCharges : [];
 
   if (fallbackReason) {
     result.notices.unshift(`OCR fallback used: ${providerUsed}. ${fallbackReason}`);

@@ -54,7 +54,7 @@ export default function ExportButton({
       </button>
 
       <button
-        onClick={() => exportToCSV(rows, filename)}
+        onClick={() => exportToCSV(rows, params, filename)}
         className="rounded-md bg-gray-500 text-white px-4 py-2 text-sm font-semibold hover:bg-gray-600 transition-colors"
         title="Plain CSV — standard columns only, raw numeric values."
       >
