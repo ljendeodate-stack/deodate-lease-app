@@ -1,0 +1,104 @@
+{
+  "rentSchedule": [
+    {
+      "periodStart": "07/01/2027",
+      "periodEnd": "06/30/2028",
+      "monthlyRent": 40000
+    },
+    {
+      "periodStart": "07/01/2028",
+      "periodEnd": "06/30/2029",
+      "monthlyRent": 41200
+    },
+    {
+      "periodStart": "07/01/2029",
+      "periodEnd": "06/30/2030",
+      "monthlyRent": 42433.33
+    }
+  ],
+  "leaseName": "Cedar Market Hall",
+  "squareFootage": 20000,
+  "abatementEndDate": null,
+  "abatementPct": null,
+  "sfRequired": false,
+  "cams": {
+    "year1": null,
+    "escPct": null,
+    "chargeStart": null,
+    "escStart": null
+  },
+  "insurance": {
+    "year1": 650,
+    "escPct": 2,
+    "chargeStart": "07/01/2027",
+    "escStart": "07/01/2028"
+  },
+  "taxes": {
+    "year1": 3200,
+    "escPct": 3,
+    "chargeStart": "07/01/2027",
+    "escStart": "07/01/2028"
+  },
+  "security": {
+    "year1": null,
+    "escPct": null,
+    "chargeStart": null,
+    "escStart": null
+  },
+  "otherItems": {
+    "year1": null,
+    "escPct": null,
+    "chargeStart": null,
+    "escStart": null
+  },
+  "oneTimeItems": [
+    {
+      "label": "Tenant Improvement Allowance (TIA)",
+      "amount": 50000,
+      "dueDate": null,
+      "sign": -1
+    },
+    {
+      "label": "Security Deposit",
+      "amount": 0,
+      "dueDate": null,
+      "sign": 1
+    }
+  ],
+  "confidenceFlags": [
+    "oneTimeItems[0].dueDate"
+  ],
+  "notices": [
+    "No security deposit is required per the lease.",
+    "Tenant Improvement Allowance of $50,000.00 is payable by landlord within 30 days after substantial completion; exact date unknown, dueDate set to null.",
+    "Rent schedule derived by multiplying $/SF/year by 20,000 SF and dividing by 12."
+  ],
+  "recurringCharges": [
+    {
+      "label": "Property Taxes",
+      "year1": 3200,
+      "amountBasis": "monthly",
+      "escPct": 3,
+      "chargeStart": "07/01/2027",
+      "escStart": "07/01/2028",
+      "canonicalType": "nnn",
+      "bucketKey": "taxes",
+      "confidence": 1,
+      "evidenceText": "Property Taxes: $3,200.00 per month during Lease Year 1. Property Taxes shall increase three percent (3%) on each July 1 beginning July 1, 2028.",
+      "sourceKind": "line_item"
+    },
+    {
+      "label": "Property Insurance",
+      "year1": 650,
+      "amountBasis": "monthly",
+      "escPct": 2,
+      "chargeStart": "07/01/2027",
+      "escStart": "07/01/2028",
+      "canonicalType": "nnn",
+      "bucketKey": "insurance",
+      "confidence": 1,
+      "evidenceText": "Property Insurance: $650.00 per month during Lease Year 1. Property Insurance shall increase two percent (2%) on each July 1 beginning July 1, 2028.",
+      "sourceKind": "line_item"
+    }
+  ]
+}

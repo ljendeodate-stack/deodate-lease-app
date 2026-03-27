@@ -25,7 +25,6 @@ import { expandPeriods } from './engine/expander.js';
 import { calculateAllCharges } from './engine/calculator.js';
 import { validateParams, validateSchedule } from './engine/validator.js';
 import { extractFromPDF } from './ocr/extractor.js';
-import { parseMDYStrict, parseExcelDate } from './engine/yearMonth.js';
 import { classifyExpenseLabel, NNN_BUCKET_KEYS } from './engine/labelClassifier.js';
 import { scoreExtraction, categorizeFields } from './engine/confidenceScorer.js';
 import { checkSchedulePlausibility } from './engine/plausibility.js';
@@ -35,6 +34,7 @@ import {
   buildLegacyConcessionEventsFromOCR,
   normalizeFormToCalculatorParams,
 } from './engine/leaseTerms.js';
+import { ocrScheduleToPeriodRows } from './ocr/ocrPipeline.js';
 
 // ---------------------------------------------------------------------------
 // Step constants
@@ -46,44 +46,8 @@ const STEP = {
   RESULTS: 'results',
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function getChargeFormByKey(form, key) {
-  if (Array.isArray(form.charges) && form.charges.length > 0) {
-    return form.charges.find((charge) => charge.key === key) ?? {};
-  }
-  return form[key] ?? {};
-}
-
-function mapChargeFormToParams(form, key) {
-  const charge = getChargeFormByKey(form, key);
-  return {
-    year1: Number(charge.year1) || 0,
-    escPct: Number(charge.escPct) || 0,
-    escStart: parseMDYStrict(charge.escStart),
-    chargeStart: parseMDYStrict(charge.chargeStart),
-  };
-}
-
-
 export function formToCalculatorParams(form, rows = []) {
   return normalizeFormToCalculatorParams(form, rows);
-}
-
-/**
- * Convert the rentSchedule array from the OCR result into canonical period rows.
- */
-function ocrScheduleToPeriodRows(rentSchedule) {
-  if (!Array.isArray(rentSchedule)) return [];
-  return rentSchedule
-    .map(({ periodStart, periodEnd, monthlyRent }) => ({
-      periodStart: parseMDYStrict(periodStart) ?? parseExcelDate(periodStart),
-      periodEnd:   parseMDYStrict(periodEnd)   ?? parseExcelDate(periodEnd),
-      monthlyRent: Number(monthlyRent),
-    }))
-    .filter((r) => r.periodStart && r.periodEnd && !isNaN(r.monthlyRent));
 }
 
 // ---------------------------------------------------------------------------

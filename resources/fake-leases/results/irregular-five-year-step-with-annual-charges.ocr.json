@@ -1,0 +1,100 @@
+{
+  "rentSchedule": [
+    {
+      "periodStart": "01/20/2028",
+      "periodEnd": "01/19/2033",
+      "monthlyRent": 12500
+    },
+    {
+      "periodStart": "01/20/2033",
+      "periodEnd": "01/19/2038",
+      "monthlyRent": 15000
+    }
+  ],
+  "leaseName": "Mesquite Tool Annex",
+  "squareFootage": 15000,
+  "abatementEndDate": null,
+  "abatementPct": null,
+  "sfRequired": false,
+  "cams": {
+    "year1": 1800,
+    "escPct": 3,
+    "chargeStart": "01/20/2028",
+    "escStart": "01/20/2029"
+  },
+  "insurance": {
+    "year1": 550,
+    "escPct": 2,
+    "chargeStart": "01/20/2028",
+    "escStart": "01/20/2029"
+  },
+  "taxes": {
+    "year1": null,
+    "escPct": null,
+    "chargeStart": null,
+    "escStart": null
+  },
+  "security": {
+    "year1": null,
+    "escPct": null,
+    "chargeStart": null,
+    "escStart": null
+  },
+  "otherItems": {
+    "year1": 175,
+    "escPct": 2,
+    "chargeStart": "01/20/2028",
+    "escStart": "01/20/2029"
+  },
+  "oneTimeItems": [],
+  "confidenceFlags": [
+    "taxes.year1",
+    "security.year1"
+  ],
+  "notices": [
+    "No free rent or abatement is provided per the lease.",
+    "No taxes line item found in the lease document.",
+    "No one-time charges (security deposit, TIA, commissions, etc.) are mentioned in this lease amendment."
+  ],
+  "recurringCharges": [
+    {
+      "label": "Common Area Maintenance",
+      "year1": 1800,
+      "amountBasis": "monthly",
+      "escPct": 3,
+      "chargeStart": "01/20/2028",
+      "escStart": "01/20/2029",
+      "canonicalType": "nnn",
+      "bucketKey": "cams",
+      "confidence": 1,
+      "evidenceText": "Common Area Maintenance: $1,800.00 per month during the first Lease Year. Common Area Maintenance shall increase three percent (3%) on each January 20 beginning January 20, 2029.",
+      "sourceKind": "line_item"
+    },
+    {
+      "label": "Management Charge",
+      "year1": 175,
+      "amountBasis": "monthly",
+      "escPct": 2,
+      "chargeStart": "01/20/2028",
+      "escStart": "01/20/2029",
+      "canonicalType": "other",
+      "bucketKey": "otherItems",
+      "confidence": 1,
+      "evidenceText": "Management Charge: $175.00 per month during the first Lease Year. Management Charge shall increase two percent (2%) on each January 20 beginning January 20, 2029.",
+      "sourceKind": "line_item"
+    },
+    {
+      "label": "Insurance",
+      "year1": 550,
+      "amountBasis": "monthly",
+      "escPct": 2,
+      "chargeStart": "01/20/2028",
+      "escStart": "01/20/2029",
+      "canonicalType": "nnn",
+      "bucketKey": "insurance",
+      "confidence": 1,
+      "evidenceText": "Insurance: $550.00 per month during the first Lease Year. Insurance shall increase two percent (2%) on each January 20 beginning January 20, 2029.",
+      "sourceKind": "line_item"
+    }
+  ]
+}

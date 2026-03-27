@@ -1,0 +1,105 @@
+{
+  "rentSchedule": [
+    {
+      "periodStart": "01/01/2027",
+      "periodEnd": "12/31/2027",
+      "monthlyRent": 10000
+    },
+    {
+      "periodStart": "01/01/2028",
+      "periodEnd": "12/31/2028",
+      "monthlyRent": 10300
+    },
+    {
+      "periodStart": "01/01/2029",
+      "periodEnd": "12/31/2029",
+      "monthlyRent": 10609
+    }
+  ],
+  "leaseName": "Harbor Supply Co.",
+  "squareFootage": 10000,
+  "abatementEndDate": null,
+  "abatementPct": null,
+  "sfRequired": false,
+  "cams": {
+    "year1": 2500,
+    "escPct": 3,
+    "chargeStart": "01/01/2027",
+    "escStart": "01/01/2028"
+  },
+  "insurance": {
+    "year1": 400,
+    "escPct": 2,
+    "chargeStart": "01/01/2027",
+    "escStart": "01/01/2028"
+  },
+  "taxes": {
+    "year1": 900,
+    "escPct": 4,
+    "chargeStart": "01/01/2027",
+    "escStart": "01/01/2028"
+  },
+  "security": {
+    "year1": null,
+    "escPct": null,
+    "chargeStart": null,
+    "escStart": null
+  },
+  "otherItems": {
+    "year1": null,
+    "escPct": null,
+    "chargeStart": null,
+    "escStart": null
+  },
+  "oneTimeItems": [
+    {
+      "label": "Security Deposit",
+      "amount": 15000,
+      "dueDate": null,
+      "sign": 1
+    }
+  ],
+  "confidenceFlags": [],
+  "notices": [],
+  "recurringCharges": [
+    {
+      "label": "Operating Expenses",
+      "year1": 2500,
+      "amountBasis": "monthly",
+      "escPct": 3,
+      "chargeStart": "01/01/2027",
+      "escStart": "01/01/2028",
+      "canonicalType": "nnn",
+      "bucketKey": "cams",
+      "confidence": 1,
+      "evidenceText": "Operating Expenses: $2,500.00 per month during Lease Year 1. Operating Expenses shall increase three percent (3%) on each January 1 beginning January 1, 2028.",
+      "sourceKind": "line_item"
+    },
+    {
+      "label": "Insurance",
+      "year1": 400,
+      "amountBasis": "monthly",
+      "escPct": 2,
+      "chargeStart": "01/01/2027",
+      "escStart": "01/01/2028",
+      "canonicalType": "nnn",
+      "bucketKey": "insurance",
+      "confidence": 1,
+      "evidenceText": "Insurance: $400.00 per month during Lease Year 1. Insurance shall increase two percent (2%) on each January 1 beginning January 1, 2028.",
+      "sourceKind": "line_item"
+    },
+    {
+      "label": "Real Estate Taxes",
+      "year1": 900,
+      "amountBasis": "monthly",
+      "escPct": 4,
+      "chargeStart": "01/01/2027",
+      "escStart": "01/01/2028",
+      "canonicalType": "nnn",
+      "bucketKey": "taxes",
+      "confidence": 1,
+      "evidenceText": "Real Estate Taxes: $900.00 per month during Lease Year 1. Real Estate Taxes shall increase four percent (4%) on each January 1 beginning January 1, 2028.",
+      "sourceKind": "line_item"
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "leaseName": "Maple Fitness Lab",
+  "squareFootage": 8500,
+  "abatementEndDate": null,
+  "abatementPct": null,
+  "sfRequired": false,
+  "rentSchedule": [
+    {
+      "periodStart": "04/01/2027",
+      "periodEnd": "03/31/2028",
+      "monthlyRent": 12000
+    },
+    {
+      "periodStart": "04/01/2028",
+      "periodEnd": "03/31/2029",
+      "monthlyRent": 12360
+    },
+    {
+      "periodStart": "04/01/2029",
+      "periodEnd": "03/31/2030",
+      "monthlyRent": 12730.8
+    }
+  ],
+  "cams": {
+    "year1": null,
+    "escPct": null,
+    "chargeStart": null,
+    "escStart": null
+  },
+  "insurance": {
+    "year1": null,
+    "escPct": null,
+    "chargeStart": null,
+    "escStart": null
+  },
+  "taxes": {
+    "year1": null,
+    "escPct": null,
+    "chargeStart": null,
+    "escStart": null
+  },
+  "security": {
+    "year1": null,
+    "escPct": null,
+    "chargeStart": null,
+    "escStart": null
+  },
+  "otherItems": {
+    "year1": 250,
+    "escPct": 2,
+    "chargeStart": "04/01/2027",
+    "escStart": "04/01/2028"
+  },
+  "oneTimeItems": [
+    {
+      "label": "Security Deposit",
+      "amount": 20000,
+      "dueDate": null,
+      "sign": 1
+    }
+  ],
+  "confidenceFlags": [
+    "oneTimeItems[0].dueDate"
+  ],
+  "notices": [
+    "Estimated NNN total of $144,000.00 annually found — individual breakdown unavailable, distributed evenly across CAMS/Insurance/Taxes.",
+    "Security deposit due date stated as 'date this Lease is executed' — no specific date provided; returned null.",
+    "Operating Expenses are presented as a combined annual estimate ($144,000); individual CAM/Insurance/Tax breakdown not available."
+  ],
+  "recurringCharges": [
+    {
+      "label": "Estimated Operating Expenses",
+      "year1": 12000,
+      "amountBasis": "annual",
+      "escPct": 3,
+      "chargeStart": "04/01/2027",
+      "escStart": "04/01/2028",
+      "canonicalType": "nnn",
+      "bucketKey": "cams",
+      "confidence": 0.9,
+      "evidenceText": "Estimated Operating Expenses for Lease Year 1 are $144,000.00 annually. Estimated Operating Expenses shall increase by three percent (3%) on each anniversary of the Rent Commencement Date.",
+      "sourceKind": "combined_estimate"
+    },
+    {
+      "label": "Administrative Fee",
+      "year1": 250,
+      "amountBasis": "monthly",
+      "escPct": 2,
+      "chargeStart": "04/01/2027",
+      "escStart": "04/01/2028",
+      "canonicalType": "other",
+      "bucketKey": "otherItems",
+      "confidence": 0.95,
+      "evidenceText": "Administrative Fee shall be $250.00 per month during Lease Year 1. Administrative Fee shall increase by two percent (2%) on each anniversary beginning April 1, 2028.",
+      "sourceKind": "line_item"
+    }
+  ]
+}

@@ -211,6 +211,101 @@ function bufferToBase64(buffer) {
   return btoa(binary);
 }
 
+function normalizeSearchText(value) {
+  return String(value ?? '')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[^\S\r\n]+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function pushUnique(list, value) {
+  if (!Array.isArray(list) || !value) return;
+  if (!list.includes(value)) list.push(value);
+}
+
+export function documentIndicatesSfBasedRent(documentText) {
+  const normalized = normalizeSearchText(documentText);
+  if (!normalized) return false;
+
+  const lines = normalized
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const windows = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    windows.push(lines[i]);
+    if (i < lines.length - 1) windows.push(`${lines[i]} ${lines[i + 1]}`);
+    if (i < lines.length - 2) windows.push(`${lines[i]} ${lines[i + 1]} ${lines[i + 2]}`);
+  }
+
+  const baseRentPattern = /\b(base rent|minimum rent|annual base rent|monthly base rent)\b/;
+  const sfUnitPattern = /\b(?:rentable|usable|gross|leasable)?\s*(?:square foot|square feet|sq\.?\s*ft\.?|sf|rsf|usf)\b/;
+  const ratePattern = /\$\s*\d[\d,]*(?:\.\d+)?\s*(?:\/|\bper\b)\s*(?:rentable|usable|gross|leasable)?\s*(?:square foot|square feet|sq\.?\s*ft\.?|sf|rsf|usf)\b/;
+  const timePattern = /\b(?:(?:per|\/)\s*(?:year|yr|annum|month|mo)|annual(?:ly)?|monthly)\b/;
+
+  return windows.some((windowText) =>
+    baseRentPattern.test(windowText) &&
+    sfUnitPattern.test(windowText) &&
+    (ratePattern.test(windowText) || timePattern.test(windowText)),
+  );
+}
+
+export function repairSfBasedRentSemantics(result, documentText) {
+  const repaired = {
+    ...result,
+    confidenceFlags: Array.isArray(result?.confidenceFlags) ? [...result.confidenceFlags] : [],
+    notices: Array.isArray(result?.notices) ? [...result.notices] : [],
+  };
+
+  if (!documentIndicatesSfBasedRent(documentText)) {
+    return repaired;
+  }
+
+  repaired.sfRequired = true;
+
+  const squareFootage = Number(repaired.squareFootage);
+  if (!Number.isFinite(squareFootage) || squareFootage <= 0) {
+    pushUnique(repaired.confidenceFlags, 'squareFootage');
+  }
+
+  return repaired;
+}
+
+async function extractPdfPlainText(buffer) {
+  try {
+    const pdfjsLib = await import('pdfjs-dist');
+    const loadingTask = pdfjsLib.getDocument({ data: buffer });
+    const pdf = await loadingTask.promise;
+    const lines = [];
+
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const itemsByY = new Map();
+
+      for (const item of textContent.items) {
+        const y = Math.round(item.transform[5]);
+        if (!itemsByY.has(y)) itemsByY.set(y, []);
+        itemsByY.get(y).push(item);
+      }
+
+      const sortedYs = Array.from(itemsByY.keys()).sort((a, b) => b - a);
+      for (const y of sortedYs) {
+        const lineItems = itemsByY.get(y).sort((a, b) => a.transform[4] - b.transform[4]);
+        const lineText = lineItems.map((item) => item.str.trim()).filter(Boolean).join(' ');
+        if (lineText) lines.push(lineText);
+      }
+    }
+
+    return lines.join('\n');
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Extract lease parameters from a PDF using the configured OCR provider.
  * Implements Path A (Section 1) of the application spec.
@@ -251,13 +346,18 @@ export async function extractFromPDF(pdfBuffer) {
   let rawText;
   let providerUsed;
   let fallbackReason;
+  let documentText = '';
 
   try {
     const base64PDF = bufferToBase64(pdfBuffer);
-    const ocrResult = await extractOCRText(base64PDF);
+    const [ocrResult, extractedPdfText] = await Promise.all([
+      extractOCRText(base64PDF),
+      extractPdfPlainText(pdfBuffer),
+    ]);
     rawText = ocrResult.rawText;
     providerUsed = ocrResult.providerUsed;
     fallbackReason = ocrResult.fallbackReason;
+    documentText = extractedPdfText;
   } catch (ocrError) {
     // OCR completely failed — return empty result with notice instead of throwing
     return {
@@ -290,6 +390,7 @@ export async function extractFromPDF(pdfBuffer) {
   result.notices          = result.notices          ?? [];
   result.rentSchedule     = result.rentSchedule     ?? [];
   result.recurringCharges = Array.isArray(result.recurringCharges) ? result.recurringCharges : [];
+  result = repairSfBasedRentSemantics(result, documentText);
 
   if (fallbackReason) {
     result.notices.unshift(`OCR fallback used: ${providerUsed}. ${fallbackReason}`);
