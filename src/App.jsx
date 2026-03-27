@@ -33,7 +33,8 @@ import {
   buildOCRConcessionForms,
   normalizeFormToCalculatorParams,
 } from './engine/leaseTerms.js';
-import { ocrScheduleToPeriodRows } from './ocr/ocrPipeline.js';
+import { materializeScheduleSemantics } from './engine/scheduleSemantics.js';
+import { buildPrepopulatedFormFromOCR, ocrScheduleToPeriodRows } from './ocr/ocrPipeline.js';
 
 // ---------------------------------------------------------------------------
 // Step constants
@@ -65,6 +66,8 @@ export default function App() {
   const [parseWarnings, setParseWarnings] = useState([]);
   const [duplicateDates, setDuplicateDates] = useState([]);
   const [dupConfirmed, setDupConfirmed] = useState(false);
+  const [scheduleSemantics, setScheduleSemantics] = useState(null);
+  const [scheduleMaterializationMode, setScheduleMaterializationMode] = useState(null);
 
   // Form state
   const [formInitialValues, setFormInitialValues] = useState(null);
@@ -100,6 +103,8 @@ export default function App() {
     setParseWarnings([]);
     setDuplicateDates([]);
     setDupConfirmed(false);
+    setScheduleSemantics(null);
+    setScheduleMaterializationMode(null);
     setFormInitialValues(null);
     setFormDraftValues(null);
     setOcrConfidenceFlags([]);
@@ -126,7 +131,10 @@ export default function App() {
 
   const showWorkflowMenu = inputPath !== null || schedulePeriodRows.length > 0 || expandedRows.length > 0 || processedRows.length > 0;
   const canVisitSchedule = step === STEP.SCHEDULE || schedulePeriodRows.length > 0 || inputPath !== null;
-  const canVisitForm = step === STEP.FORM || step === STEP.RESULTS || expandedRows.length > 0;
+  const canVisitForm = step === STEP.FORM
+    || step === STEP.RESULTS
+    || expandedRows.length > 0
+    || Boolean(scheduleSemantics?.candidates?.length);
   const canVisitResults = processedRows.length > 0;
 
   // ---------------------------------------------------------------------------
@@ -147,16 +155,23 @@ export default function App() {
         parseFile(file),
       ]);
 
-      // Prefer structured file parser; fall back to OCR schedule
-      const usingOcrSchedule = parsedFile.rows.length === 0 && result.rentSchedule?.length > 0;
-      const periodRows = usingOcrSchedule
+      const semanticNormalization = result.scheduleNormalization ?? null;
+      const usingSemanticSchedule = parsedFile.rows.length === 0 && Boolean(semanticNormalization?.usedAsRentSchedule);
+      const usingOcrSchedule = parsedFile.rows.length === 0 && !usingSemanticSchedule && result.rentSchedule?.length > 0;
+      const periodRows = usingOcrSchedule || usingSemanticSchedule
         ? ocrScheduleToPeriodRows(result.rentSchedule)
         : parsedFile.rows;
+      const nextScheduleMode = usingSemanticSchedule || (periodRows.length === 0 && semanticNormalization?.candidates?.length > 0)
+        ? 'semantic'
+        : 'explicit';
 
       const scheduleWarnings = [
         ...parsedFile.warnings,
         ...(usingOcrSchedule
           ? ['Rent schedule loaded from OCR extraction. Verify all periods and amounts before confirming.']
+          : []),
+        ...(usingSemanticSchedule
+          ? ['Rent schedule was materialized from semantic lease language. Verify the anchor date, month buckets, and derived dated periods before confirming.']
           : []),
       ];
 
@@ -169,23 +184,41 @@ export default function App() {
       const plausibility = checkSchedulePlausibility(periodRows);
       setPlausibilityIssues(plausibility);
 
-      const { rows: previewRows } = expandPeriods(periodRows);
-      prepopulateFormFromOCR(result, previewRows);
+      const { rows: previewRows } = periodRows.length > 0 ? expandPeriods(periodRows) : { rows: [] };
+      applyPrepopulatedFormState(result, previewRows);
+      setScheduleSemantics(semanticNormalization);
+      setScheduleMaterializationMode(nextScheduleMode);
       setSchedulePeriodRows(periodRows);
       setParseWarnings(scheduleWarnings);
-      setScheduleNotice({
-        tone: confidence.level === 'low' ? 'warning' : 'info',
-        title: periodRows.length > 0 ? 'Review OCR schedule before assumptions' : 'Manual schedule entry needed',
-        message: periodRows.length > 0
-          ? 'OCR extracted a draft rent schedule. Review and edit the schedule preview below before continuing to lease assumptions.'
-          : 'OCR extracted assumptions, but a usable rent schedule was not identified. Enter or paste the rent schedule below before continuing.',
-        detail: `Extraction confidence: ${(confidence.overall * 100).toFixed(0)}% (${confidence.level})${confidence.reasons.length > 0 ? ` - ${confidence.reasons[0]}` : ''}`,
-      });
-      setStep(STEP.SCHEDULE);
+
+      if (periodRows.length > 0) {
+        setScheduleNotice({
+          tone: confidence.level === 'low' ? 'warning' : 'info',
+          title: 'Review OCR schedule before assumptions',
+          message: usingSemanticSchedule
+            ? 'The app materialized a dated base-rent schedule from detected semantic lease language. Review the derived periods below before continuing to lease assumptions.'
+            : 'OCR extracted a draft rent schedule. Review and edit the schedule preview below before continuing to lease assumptions.',
+          detail: `Extraction confidence: ${(confidence.overall * 100).toFixed(0)}% (${confidence.level})${confidence.reasons.length > 0 ? ` - ${confidence.reasons[0]}` : ''}`,
+        });
+        setStep(STEP.SCHEDULE);
+      } else if (semanticNormalization?.candidates?.length > 0) {
+        setScheduleNotice(null);
+        setStep(STEP.FORM);
+      } else {
+        setScheduleNotice({
+          tone: 'warning',
+          title: 'Manual schedule entry needed',
+          message: 'OCR extracted assumptions, but a usable rent schedule was not identified. Enter or paste the rent schedule below before continuing.',
+          detail: `Extraction confidence: ${(confidence.overall * 100).toFixed(0)}% (${confidence.level})${confidence.reasons.length > 0 ? ` - ${confidence.reasons[0]}` : ''}`,
+        });
+        setStep(STEP.SCHEDULE);
+      }
     } catch (err) {
       // Even if everything fails, don't dead-end — route to manual
       setGlobalError(`Extraction encountered issues: ${err.message}. You can enter the schedule manually below.`);
       setSchedulePeriodRows([]);
+      setScheduleSemantics(null);
+      setScheduleMaterializationMode(null);
       setScheduleNotice({
         tone: 'warning',
         title: 'Manual schedule entry needed',
@@ -303,6 +336,16 @@ export default function App() {
     setLabelClassifications(Object.keys(classifications).length ? classifications : null);
   }
 
+  function applyPrepopulatedFormState(result, rows = []) {
+    const prepopulated = buildPrepopulatedFormFromOCR(result, rows);
+    setFormInitialValues(prepopulated.formState);
+    setFormDraftValues(prepopulated.formState);
+    setOcrConfidenceFlags(prepopulated.confidenceFlags);
+    setOcrNotices(prepopulated.notices);
+    setSfRequired(prepopulated.sfRequired);
+    setLabelClassifications(prepopulated.labelClassifications);
+  }
+
   const handleFileUpload = useCallback(async (file) => {
     setGlobalError(null);
     setInputPath('file');
@@ -311,6 +354,8 @@ export default function App() {
 
     try {
       const { rows: periodRows, warnings } = await parseFile(file);
+      setScheduleSemantics(null);
+      setScheduleMaterializationMode('explicit');
       setSchedulePeriodRows(periodRows);
 
       // Run plausibility checks
@@ -349,6 +394,8 @@ export default function App() {
       // Don't dead-end — route to manual
       setGlobalError(`File parsing encountered issues: ${err.message}. You can enter the schedule manually.`);
       setSchedulePeriodRows([]);
+      setScheduleSemantics(null);
+      setScheduleMaterializationMode(null);
       setScheduleNotice({
         tone: 'warning',
         title: 'Manual schedule entry needed',
@@ -366,6 +413,8 @@ export default function App() {
     setMenuOpen(false);
     setExpandedRows([]);
     setSchedulePeriodRows([]);
+    setScheduleSemantics(null);
+    setScheduleMaterializationMode('explicit');
     setParseWarnings([]);
     setDuplicateDates([]);
     setDupConfirmed(true);
@@ -386,6 +435,7 @@ export default function App() {
   const handleScheduleConfirm = useCallback((periodRows, warnings) => {
     setGlobalError(null);
     try {
+      setScheduleMaterializationMode('explicit');
       setSchedulePeriodRows(periodRows);
       const { rows, duplicateDates: dups, warnings: expandWarnings } = expandPeriods(periodRows);
       setExpandedRows(rows);
@@ -409,17 +459,67 @@ export default function App() {
   const handleFormSubmit = useCallback((form) => {
     setGlobalError(null);
 
-    // Require duplicate confirmation before processing
-    if (duplicateDates.length > 0 && !dupConfirmed) {
-      setGlobalError('Please confirm the duplicate date warning before processing.');
-      return;
+    let activePeriodRows = schedulePeriodRows;
+    let activeExpandedRows = expandedRows;
+    let activeDuplicateDates = duplicateDates;
+
+    if (scheduleMaterializationMode === 'semantic' && scheduleSemantics?.candidates?.length > 0) {
+      const rematerialized = materializeScheduleSemantics(scheduleSemantics, {
+        base_rent_start_date: form.rentCommencementDate,
+        rent_commencement_date: form.rentCommencementDate,
+      });
+      setScheduleSemantics(rematerialized);
+
+      if (rematerialized?.preferredPeriodRows?.length > 0) {
+        const expandedFromSemantic = expandPeriods(rematerialized.preferredPeriodRows);
+        activePeriodRows = rematerialized.preferredPeriodRows;
+        activeExpandedRows = expandedFromSemantic.rows;
+        activeDuplicateDates = expandedFromSemantic.duplicateDates;
+
+        setSchedulePeriodRows(rematerialized.preferredPeriodRows);
+        setExpandedRows(expandedFromSemantic.rows);
+        setDuplicateDates(expandedFromSemantic.duplicateDates);
+        setDupConfirmed(expandedFromSemantic.duplicateDates.length === 0);
+        setPlausibilityIssues(checkSchedulePlausibility(rematerialized.preferredPeriodRows));
+
+        const semanticWarnings = [
+          ...parseWarnings,
+          ...expandedFromSemantic.warnings,
+        ];
+        if (!semanticWarnings.includes('Base-rent schedule was re-anchored from semantic lease language using the current Rent Commencement Date.')) {
+          semanticWarnings.push('Base-rent schedule was re-anchored from semantic lease language using the current Rent Commencement Date.');
+        }
+        setParseWarnings(semanticWarnings);
+      } else if (expandedRows.length === 0) {
+        const materializationMessage = rematerialized?.userGuidance
+          ?? 'Rent Commencement Date is required to materialize the detected semantic rent schedule.';
+        setValidationErrors([{
+          field: 'rentCommencementDate',
+          message: materializationMessage,
+          severity: 'error',
+        }]);
+        setValidationWarnings([]);
+        setGlobalError(materializationMessage);
+        return;
+      }
+    }
+
+    if (activeDuplicateDates.length > 0) {
+      const duplicateSetUnchanged = activeDuplicateDates.length === duplicateDates.length
+        && activeDuplicateDates.every((value, index) => value === duplicateDates[index]);
+      if (!(duplicateSetUnchanged && dupConfirmed)) {
+        setDuplicateDates(activeDuplicateDates);
+        setDupConfirmed(false);
+        setGlobalError('Please confirm the duplicate date warning before processing.');
+        return;
+      }
     }
 
     // Validate — now returns { errors, warnings }
-    const scheduleResult = validateSchedule(expandedRows);
+    const scheduleResult = validateSchedule(activeExpandedRows);
     const paramResult = validateParams(
       { ...form, sfRequired },
-      expandedRows
+      activeExpandedRows
     );
 
     const allErrors = [...scheduleResult.errors, ...paramResult.errors];
@@ -434,8 +534,8 @@ export default function App() {
     setIsProcessing(true);
     try {
       setFormDraftValues(form);
-      const params = formToCalculatorParams(form, expandedRows);
-      const rows = calculateAllCharges(expandedRows, params);
+      const params = formToCalculatorParams(form, activeExpandedRows);
+      const rows = calculateAllCharges(activeExpandedRows, params);
       const annotatedRows = labelClassifications
         ? rows.map((r) => ({ ...r, labelClassifications }))
         : rows;
@@ -447,7 +547,17 @@ export default function App() {
     } finally {
       setIsProcessing(false);
     }
-  }, [expandedRows, duplicateDates, dupConfirmed, sfRequired, labelClassifications]);
+  }, [
+    expandedRows,
+    schedulePeriodRows,
+    duplicateDates,
+    dupConfirmed,
+    sfRequired,
+    labelClassifications,
+    scheduleSemantics,
+    scheduleMaterializationMode,
+    parseWarnings,
+  ]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -575,6 +685,8 @@ export default function App() {
               onBack={() => navigateToStep(STEP.UPLOAD)}
               initialPeriodRows={schedulePeriodRows}
               initialEntryMode={schedulePeriodRows.length > 0 || inputPath === 'pdf' ? 'manual' : 'quick'}
+              semanticSchedule={scheduleSemantics}
+              scheduleMaterializationMode={scheduleMaterializationMode}
             />
           </div>
         )}
@@ -677,6 +789,8 @@ export default function App() {
               schedulePeriodRows={schedulePeriodRows}
               scheduledBaseRent={expandedRows.length > 0 ? expandedRows[0].monthlyRent : null}
               expandedRowCount={expandedRows.length}
+              semanticSchedule={scheduleSemantics}
+              scheduleMaterializationMode={scheduleMaterializationMode}
               onSubmit={handleFormSubmit}
               onBack={() => navigateToStep(STEP.UPLOAD)}
               onBackToSchedule={() => navigateToStep(STEP.SCHEDULE)}
@@ -709,6 +823,14 @@ export default function App() {
                   parseWarnings,
                   validationWarnings,
                   duplicateDatesConfirmed: dupConfirmed,
+                  scheduleSemantics: scheduleSemantics
+                    ? {
+                        representationType: scheduleSemantics.preferredRepresentationType,
+                        materializationStatus: scheduleSemantics.materializationStatus,
+                        summaryLines: scheduleSemantics.summaryLines,
+                        startRuleSummaries: scheduleSemantics.startRuleSummaries,
+                      }
+                    : null,
                 }}
               />
             </div>

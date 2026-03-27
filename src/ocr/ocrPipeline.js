@@ -148,6 +148,9 @@ export function buildPrepopulatedFormFromOCR(result, rows = []) {
   const formState = {
     leaseName: result.leaseName ?? '',
     squareFootage: result.squareFootage != null ? String(result.squareFootage) : '',
+    rentCommencementDate: result.rentCommencementDate
+      ?? result.scheduleNormalization?.preferredAnchorDate
+      ?? '',
     nnnMode,
     nnnAggregate: nnnAggregateForm,
     charges: builtCharges,

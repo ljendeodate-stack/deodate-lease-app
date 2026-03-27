@@ -180,6 +180,51 @@ describe('synthetic OCR pipeline', () => {
     expect(totalMonthlyStep.f).toBeDefined();
   });
 
+  it('materializes semantic month-bucket OCR schedules and carries the anchor date into the assumption form', () => {
+    const semanticResult = {
+      leaseName: 'Synthetic Semantic Lease',
+      sfRequired: false,
+      squareFootage: 15000,
+      confidenceFlags: [],
+      notices: [],
+      rentSchedule: [],
+      recurringCharges: [],
+      oneTimeCharges: [],
+    };
+
+    const {
+      repaired,
+      periodRows,
+      expandedRows,
+      prepopulated,
+      processedRows,
+    } = runSyntheticOcrFlow(
+      semanticResult,
+      [
+        'Commencement Date shall be January 15, 2030.',
+        'Minimum Annual Rent shall commence on the first full calendar month after the Commencement Date.',
+        'Months 1-60: $37,187.50 monthly',
+        'Months 61-120: $40,906.25 monthly',
+      ].join('\n'),
+      'synthetic-semantic',
+    );
+
+    expect(repaired.scheduleNormalization).toMatchObject({
+      materializationStatus: 'resolved',
+      preferredRepresentationType: 'relative_month_ranges',
+      preferredAnchorDate: '02/01/2030',
+    });
+    expect(repaired.rentSchedule).toEqual([
+      { periodStart: '02/01/2030', periodEnd: '01/31/2035', monthlyRent: 37187.5 },
+      { periodStart: '02/01/2035', periodEnd: '01/31/2040', monthlyRent: 40906.25 },
+    ]);
+    expect(prepopulated.formState.rentCommencementDate).toBe('02/01/2030');
+    expect(periodRows).toHaveLength(2);
+    expect(expandedRows).toHaveLength(120);
+    expect(processedRows[0].scheduledBaseRent).toBe(37187.5);
+    expect(processedRows[60].scheduledBaseRent).toBe(40906.25);
+  });
+
   it('converts OCR-detected irregular recurring charge steps into override-driven preview and workbook values without interrupting annual base-rent formulas', () => {
     const irregularRecurringResult = {
       leaseName: 'Synthetic Irregular Recurring Charges',

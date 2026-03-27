@@ -112,6 +112,8 @@ export default function ScheduleEditor({
   onBack,
   initialPeriodRows,
   initialEntryMode = null,
+  semanticSchedule = null,
+  scheduleMaterializationMode = null,
 }) {
   const hasInitialRows = Array.isArray(initialPeriodRows) && initialPeriodRows.length > 0;
 
@@ -283,6 +285,24 @@ export default function ScheduleEditor({
           Manual Entry
         </button>
       </div>
+
+      {semanticSchedule?.summaryLines?.length > 0 && (
+        <div className="rounded-[1rem] border border-app-border bg-app-panel px-4 py-4 space-y-2">
+          <p className="text-sm font-semibold text-txt-primary">Detected rent schedule semantics</p>
+          {semanticSchedule.summaryLines.map((line, index) => (
+            <p key={`${line}-${index}`} className="text-sm text-txt-muted">{line}</p>
+          ))}
+          {(semanticSchedule.startRuleSummaries ?? []).map((line, index) => (
+            <p key={`rule-${index}`} className="text-xs text-txt-dim">{line}</p>
+          ))}
+          {semanticSchedule.userGuidance && (
+            <p className="text-xs text-txt-dim">
+              {semanticSchedule.userGuidance}
+              {scheduleMaterializationMode === 'semantic' && hasInitialRows ? ' The rows below are derived from these semantic terms.' : ''}
+            </p>
+          )}
+        </div>
+      )}
 
       {entryMode === 'quick' && (
         <div className="space-y-5">

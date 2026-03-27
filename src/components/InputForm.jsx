@@ -178,6 +178,8 @@ export default function InputForm({
   schedulePeriodRows = [],
   scheduledBaseRent,
   expandedRowCount,
+  semanticSchedule = null,
+  scheduleMaterializationMode = null,
   onSubmit,
   onBack,
   onBackToSchedule,
@@ -343,6 +345,24 @@ export default function InputForm({
         </div>
       )}
 
+      {semanticSchedule?.summaryLines?.length > 0 && (
+        <div className="rounded-[1.1rem] border border-app-border bg-app-panel px-4 py-4 space-y-2">
+          <p className="text-sm font-semibold text-txt-primary">Detected rent schedule semantics</p>
+          {semanticSchedule.summaryLines.map((line, index) => (
+            <p key={`${line}-${index}`} className="text-sm text-txt-muted">{line}</p>
+          ))}
+          {(semanticSchedule.startRuleSummaries ?? []).map((line, index) => (
+            <p key={`rule-${index}`} className="text-xs text-txt-dim">{line}</p>
+          ))}
+          {semanticSchedule.userGuidance && (
+            <p className="text-xs text-txt-dim">
+              {semanticSchedule.userGuidance}
+              {scheduleMaterializationMode === 'semantic' && expandedRowCount > 0 ? ' The dated rows below are derived from these semantics.' : ''}
+            </p>
+          )}
+        </div>
+      )}
+
       {notices?.length > 0 && (
         <div className="rounded-[1.1rem] border border-status-warn-border bg-status-warn-bg/92 p-4 space-y-1">
           {notices.map((notice, i) => (
@@ -394,11 +414,13 @@ export default function InputForm({
             <FieldRow
               label="Rent Commencement Date"
               hint="If rent obligations begin on a date different from lease commencement, enter it here."
+              error={fieldErrors['rentCommencementDate']}
             >
               <TextInput
                 value={form.rentCommencementDate}
                 onChange={(value) => setTop('rentCommencementDate', value)}
                 placeholder="MM/DD/YYYY (optional)"
+                error={fieldErrors['rentCommencementDate']}
               />
             </FieldRow>
 

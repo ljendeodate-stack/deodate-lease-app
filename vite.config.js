@@ -6,6 +6,11 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'node',
+    exclude: [
+      '**/.codex/**',
+      '**/.claude/**',
+      '**/dist/**',
+    ],
   },
   optimizeDeps: {
     // pdfjs-dist needs to be excluded from pre-bundling to avoid worker issues

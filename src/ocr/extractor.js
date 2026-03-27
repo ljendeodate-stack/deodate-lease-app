@@ -12,6 +12,8 @@
  * must gate processing on explicit user confirmation of all extracted fields.
  */
 
+import { analyzeScheduleSemantics } from '../engine/scheduleSemantics.js';
+
 const OCR_PROVIDER = (import.meta.env.VITE_OCR_PROVIDER || 'anthropic').toLowerCase();
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
@@ -67,6 +69,8 @@ const OPENAI_MODEL = import.meta.env.VITE_OPENAI_OCR_MODEL || 'gpt-4o';
  * @property {string[]}             notices            - Non-blocking extraction notices.
  * @property {boolean}              sfRequired         - True if rent is expressed as $/SF and SF is needed.
  * @property {'high'|'medium'|'low'} overallConfidence
+ * @property {string|null}          rentCommencementDate - MM/DD/YYYY or null when directly resolved.
+ * @property {Object|null}          scheduleNormalization - Semantic schedule analysis and materialization state.
  */
 
 const EXTRACTION_PROMPT = `You are a commercial real estate lease analyst. Extract structured lease parameters from the document provided and return them as a single JSON object matching the schema below.
@@ -127,6 +131,7 @@ JSON SCHEMA:
   ],
   "leaseName": "string" | null,
   "squareFootage": number | null,
+  "rentCommencementDate": "MM/DD/YYYY" | null,
   "freeRentEvents": [
     { "monthNumber": number | null, "value": null, "valueMode": null, "date": "MM/DD/YYYY" | null, "label": "string" | null, "rawText": "string" | null, "assumptionNote": "string" | null }
   ],
@@ -560,10 +565,67 @@ export function repairRecurringChargeOverrideSemantics(result, documentText) {
 }
 
 export function repairExtractionSemantics(result, documentText) {
-  return repairRecurringChargeOverrideSemantics(
-    repairSfBasedRentSemantics(result, documentText),
+  return repairScheduleSemantics(
+    repairRecurringChargeOverrideSemantics(
+      repairSfBasedRentSemantics(result, documentText),
+      documentText,
+    ),
     documentText,
   );
+}
+
+export function repairScheduleSemantics(result, documentText) {
+  const repaired = {
+    ...result,
+    confidenceFlags: Array.isArray(result?.confidenceFlags) ? [...result.confidenceFlags] : [],
+    notices: Array.isArray(result?.notices) ? [...result.notices] : [],
+    rentSchedule: Array.isArray(result?.rentSchedule)
+      ? result.rentSchedule.map((row) => ({ ...row }))
+      : [],
+  };
+
+  const scheduleNormalization = analyzeScheduleSemantics({
+    documentText,
+    existingRentSchedule: repaired.rentSchedule,
+    extractedEventDates: {
+      rent_commencement_date: repaired.rentCommencementDate,
+    },
+  });
+
+  const usedSemanticSchedule = repaired.rentSchedule.length === 0 && scheduleNormalization.derivedRentSchedule.length > 0;
+  repaired.scheduleNormalization = {
+    ...scheduleNormalization,
+    usedAsRentSchedule: usedSemanticSchedule,
+  };
+  repaired.scheduleStartRules = scheduleNormalization.startRules;
+  repaired.scheduleCandidates = scheduleNormalization.candidates;
+
+  const preferredAnchorDate = scheduleNormalization.preferredAnchorDate
+    ?? scheduleNormalization.resolvedEventDates?.rent_commencement_date
+    ?? null;
+  if (!repaired.rentCommencementDate && preferredAnchorDate) {
+    repaired.rentCommencementDate = preferredAnchorDate;
+  }
+
+  if (usedSemanticSchedule) {
+    repaired.rentSchedule = scheduleNormalization.derivedRentSchedule;
+    pushUnique(
+      repaired.notices,
+      'Base-rent schedule was materialized from detected semantic schedule language. Review the anchor date and derived periods before confirming.',
+    );
+  } else if (
+    repaired.rentSchedule.length === 0 &&
+    scheduleNormalization.materializationStatus === 'needs_anchor' &&
+    scheduleNormalization.summaryLines.length > 0
+  ) {
+    pushUnique(
+      repaired.notices,
+      scheduleNormalization.userGuidance
+        ?? 'A semantic rent schedule was detected, but an anchor date is still needed before dated periods can be derived.',
+    );
+  }
+
+  return repaired;
 }
 
 async function extractPdfPlainText(buffer) {
@@ -632,6 +694,8 @@ function emptyExtractionResult(notices = []) {
     sfRequired: false,
     overallConfidence: 'low',
     recurringCharges: [],
+    rentCommencementDate: null,
+    scheduleNormalization: null,
   };
 }
 
@@ -683,6 +747,7 @@ export async function extractFromPDF(pdfBuffer) {
   result.confidenceFlags  = result.confidenceFlags  ?? [];
   result.notices          = result.notices          ?? [];
   result.rentSchedule     = result.rentSchedule     ?? [];
+  result.rentCommencementDate = result.rentCommencementDate ?? null;
   result.freeRentEvents   = Array.isArray(result.freeRentEvents) ? result.freeRentEvents : [];
   result.abatementEvents  = Array.isArray(result.abatementEvents) ? result.abatementEvents : [];
   result.recurringCharges = Array.isArray(result.recurringCharges) ? result.recurringCharges : [];

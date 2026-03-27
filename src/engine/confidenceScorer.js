@@ -26,11 +26,21 @@
 export function scoreExtraction(extractionResult, parsedSchedule) {
   const reasons = [];
   const fieldScores = {};
+  const semanticSchedule = extractionResult?.scheduleNormalization ?? null;
+  const semanticRows = semanticSchedule?.preferredPeriodRows ?? [];
+  const semanticCandidates = semanticSchedule?.candidates ?? [];
 
   // 1. Schedule completeness
-  const scheduleRows = extractionResult?.rentSchedule ?? parsedSchedule ?? [];
+  const scheduleRows = extractionResult?.rentSchedule?.length
+    ? extractionResult.rentSchedule
+    : parsedSchedule?.length
+      ? parsedSchedule
+      : semanticRows;
   if (scheduleRows.length >= 3) {
     fieldScores.schedule = 1.0;
+  } else if (semanticCandidates.length > 0 && semanticSchedule?.materializationStatus === 'needs_anchor') {
+    fieldScores.schedule = 0.6;
+    reasons.push('Semantic rent schedule detected, but an anchor date is still needed to derive dated periods.');
   } else if (scheduleRows.length > 0) {
     fieldScores.schedule = 0.5;
     reasons.push(`Only ${scheduleRows.length} rent period(s) extracted — typical leases have 3+.`);
@@ -90,10 +100,14 @@ export function scoreExtraction(extractionResult, parsedSchedule) {
   );
   fieldScores.dateValidity = parsedSchedule && parsedSchedule.length > 0
     ? validDates.length / parsedSchedule.length
+    : semanticCandidates.length > 0 && semanticSchedule?.materializationStatus === 'needs_anchor'
+      ? 0.6
     : scheduleRows.length > 0 ? 0.5 : 0;
   if (fieldScores.dateValidity < 1.0 && parsedSchedule && parsedSchedule.length > 0) {
     const badCount = parsedSchedule.length - validDates.length;
     reasons.push(`${badCount} period row(s) have invalid or unparseable dates.`);
+  } else if (semanticCandidates.length > 0 && semanticSchedule?.materializationStatus === 'needs_anchor') {
+    reasons.push('Schedule dates depend on a rent-start anchor that still needs user confirmation.');
   }
 
   // Compute overall as weighted average
@@ -151,9 +165,15 @@ export function categorizeFields(extractionResult, confidence) {
 
   // Schedule
   if (confidence.fieldScores.schedule >= 0.8) {
-    reliable.push(`Rent schedule (${(extractionResult?.rentSchedule ?? []).length} periods)`);
+    const scheduleLength = (extractionResult?.rentSchedule ?? []).length
+      || (extractionResult?.scheduleNormalization?.summaryLines ?? []).length;
+    reliable.push(`Rent schedule (${scheduleLength} periods)`);
   } else if (confidence.fieldScores.schedule > 0) {
-    uncertain.push('Rent schedule (incomplete or may have issues)');
+    uncertain.push(
+      extractionResult?.scheduleNormalization?.materializationStatus === 'needs_anchor'
+        ? 'Rent schedule (semantic schedule detected; anchor date still needs review)'
+        : 'Rent schedule (incomplete or may have issues)',
+    );
   } else {
     missing.push('Rent schedule');
   }
