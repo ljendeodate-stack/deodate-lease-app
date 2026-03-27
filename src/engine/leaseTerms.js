@@ -22,12 +22,12 @@ export const RECURRING_OVERRIDE_TARGETS = {
 };
 
 export function emptyFreeRentEventForm() {
-  return { date: '', label: '' };
+  return { monthNumber: '', label: '' };
 }
 
 export function emptyAbatementEventForm() {
   return {
-    date: '',
+    monthNumber: '',
     value: '',
     valueMode: CONCESSION_VALUE_MODES.PERCENT,
     label: '',
@@ -60,6 +60,26 @@ function parseFormDate(value) {
     return parsed;
   }
   return parseMDYStrict(value);
+}
+
+function normalizeMonthNumber(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const monthNumber = Number(value);
+  if (!Number.isInteger(monthNumber) || monthNumber <= 0) return null;
+  return monthNumber;
+}
+
+function resolveDateFromMonthNumber(rows = [], monthNumber) {
+  if (!monthNumber || rows.length === 0) return null;
+  const row = rows[monthNumber - 1];
+  if (!row) return null;
+  return parseISODate(row.date ?? row.periodStart);
+}
+
+function resolveMonthNumberFromDate(rows = [], targetDate) {
+  if (!targetDate || rows.length === 0) return null;
+  const rowIndex = resolveMonthlyRowIndex(rows, targetDate);
+  return rowIndex >= 0 ? rowIndex + 1 : null;
 }
 
 function buildFallbackChargeForms(form) {
@@ -103,13 +123,19 @@ export function buildLegacyChargeMap(charges) {
   };
 }
 
-function normalizeExplicitFreeRentEvent(event, index) {
-  const effectiveDate = parseFormDate(event?.date);
-  if (!effectiveDate) return null;
+function normalizeExplicitFreeRentEvent(event, index, rows = []) {
+  const explicitMonthNumber = normalizeMonthNumber(event?.monthNumber);
+  const datedMonthNumber = explicitMonthNumber == null
+    ? resolveMonthNumberFromDate(rows, parseFormDate(event?.date))
+    : null;
+  const monthNumber = explicitMonthNumber ?? datedMonthNumber;
+  const effectiveDate = resolveDateFromMonthNumber(rows, monthNumber) ?? parseFormDate(event?.date);
+  if (!effectiveDate || !monthNumber) return null;
   return {
     id: event.id ?? `free_rent_${index + 1}`,
     type: CONCESSION_TYPES.FREE_RENT,
     scope: CONCESSION_SCOPES.MONTHLY_ROW,
+    monthNumber,
     effectiveDate,
     startDate: null,
     endDate: null,
@@ -123,9 +149,14 @@ function normalizeExplicitFreeRentEvent(event, index) {
   };
 }
 
-function normalizeExplicitAbatementEvent(event, index) {
-  const effectiveDate = parseFormDate(event?.date);
-  if (!effectiveDate) return null;
+function normalizeExplicitAbatementEvent(event, index, rows = []) {
+  const explicitMonthNumber = normalizeMonthNumber(event?.monthNumber);
+  const datedMonthNumber = explicitMonthNumber == null
+    ? resolveMonthNumberFromDate(rows, parseFormDate(event?.date))
+    : null;
+  const monthNumber = explicitMonthNumber ?? datedMonthNumber;
+  const effectiveDate = resolveDateFromMonthNumber(rows, monthNumber) ?? parseFormDate(event?.date);
+  if (!effectiveDate || !monthNumber) return null;
   const valueMode = event?.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT
     ? CONCESSION_VALUE_MODES.FIXED_AMOUNT
     : CONCESSION_VALUE_MODES.PERCENT;
@@ -135,6 +166,7 @@ function normalizeExplicitAbatementEvent(event, index) {
     id: event.id ?? `abatement_${index + 1}`,
     type: CONCESSION_TYPES.ABATEMENT,
     scope: CONCESSION_SCOPES.MONTHLY_ROW,
+    monthNumber,
     effectiveDate,
     startDate: null,
     endDate: null,
@@ -169,7 +201,7 @@ function buildLegacyHelperConcession(form) {
   }];
 }
 
-function normalizeLegacyConcessionEvent(event, index, leaseStartDate) {
+function normalizeLegacyConcessionEvent(event, index, leaseStartDate, rows = []) {
   const scope = event?.scope === CONCESSION_SCOPES.MONTHLY_ROW
     ? CONCESSION_SCOPES.MONTHLY_ROW
     : CONCESSION_SCOPES.LEGACY_WINDOW;
@@ -185,11 +217,13 @@ function normalizeLegacyConcessionEvent(event, index, leaseStartDate) {
 
   if (scope === CONCESSION_SCOPES.MONTHLY_ROW) {
     const effectiveDate = parseFormDate(event?.effectiveDate ?? event?.date);
-    if (!effectiveDate) return null;
+    const monthNumber = normalizeMonthNumber(event?.monthNumber) ?? resolveMonthNumberFromDate(rows ?? [], effectiveDate);
+    if (!effectiveDate || !monthNumber) return null;
     return {
       id: event.id ?? `legacy_event_${index + 1}`,
       type,
       scope,
+      monthNumber,
       effectiveDate,
       startDate: null,
       endDate: null,
@@ -234,15 +268,15 @@ export function normalizeConcessionEvents(form, rows = []) {
     : buildLegacyHelperConcession(form);
 
   const legacyEvents = legacyInputs
-    .map((event, index) => normalizeLegacyConcessionEvent(event, index, leaseStartDate))
+    .map((event, index) => normalizeLegacyConcessionEvent(event, index, leaseStartDate, rows))
     .filter((event) => event && (event.type === CONCESSION_TYPES.FREE_RENT || event.value > 0));
 
   const freeRentEvents = (form?.freeRentEvents ?? [])
-    .map((event, index) => normalizeExplicitFreeRentEvent(event, index))
+    .map((event, index) => normalizeExplicitFreeRentEvent(event, index, rows))
     .filter(Boolean);
 
   const abatementEvents = (form?.abatementEvents ?? [])
-    .map((event, index) => normalizeExplicitAbatementEvent(event, index))
+    .map((event, index) => normalizeExplicitAbatementEvent(event, index, rows))
     .filter((event) => event && event.value > 0);
 
   return [...legacyEvents, ...freeRentEvents, ...abatementEvents];
@@ -339,6 +373,51 @@ function fmtDate(date) {
   return `${mm}/${dd}/${yyyy}`;
 }
 
+function toFormMonthNumber(rows = [], event) {
+  const explicitMonthNumber = normalizeMonthNumber(event?.monthNumber);
+  if (explicitMonthNumber != null) return explicitMonthNumber;
+  const eventDate = parseFormDate(event?.effectiveDate ?? event?.date);
+  return resolveMonthNumberFromDate(rows, eventDate);
+}
+
+function toDetectedFreeRentFormEvent(event, rows = [], index = 0) {
+  const monthNumber = toFormMonthNumber(rows, event);
+  const resolvedDate = resolveDateFromMonthNumber(rows, monthNumber) ?? parseFormDate(event?.effectiveDate ?? event?.date);
+  if (!monthNumber || !resolvedDate) return null;
+  return {
+    id: event?.id ?? `ocr_free_rent_${index + 1}`,
+    monthNumber: String(monthNumber),
+    label: event?.label ?? 'Imported Free Rent',
+    source: event?.source ?? 'ocr',
+    confidence: event?.confidence ?? 'medium',
+    assumptionNote: event?.assumptionNote ?? '',
+    rawText: event?.rawText ?? '',
+    date: fmtDate(resolvedDate),
+  };
+}
+
+function toDetectedAbatementFormEvent(event, rows = [], index = 0) {
+  const monthNumber = toFormMonthNumber(rows, event);
+  const resolvedDate = resolveDateFromMonthNumber(rows, monthNumber) ?? parseFormDate(event?.effectiveDate ?? event?.date);
+  if (!monthNumber || !resolvedDate) return null;
+  const value = Number(event?.value);
+  if (!Number.isFinite(value)) return null;
+  return {
+    id: event?.id ?? `ocr_abatement_${index + 1}`,
+    monthNumber: String(monthNumber),
+    value: String(value),
+    valueMode: event?.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT
+      ? CONCESSION_VALUE_MODES.FIXED_AMOUNT
+      : CONCESSION_VALUE_MODES.PERCENT,
+    label: event?.label ?? 'Imported Abatement',
+    source: event?.source ?? 'ocr',
+    confidence: event?.confidence ?? 'medium',
+    assumptionNote: event?.assumptionNote ?? '',
+    rawText: event?.rawText ?? '',
+    date: fmtDate(resolvedDate),
+  };
+}
+
 function getOCRLegacyWindow(result, rows = []) {
   const abatementEndDate = parseFormDate(result?.abatementEndDate);
   const abatementPct = Number(result?.abatementPct) || 0;
@@ -406,6 +485,25 @@ export function resolveMonthlyRowIndex(rows = [], targetDate) {
 }
 
 export function buildOCRConcessionForms(result, rows = []) {
+  const explicitFreeRentEvents = Array.isArray(result?.freeRentEvents)
+    ? result.freeRentEvents
+        .map((event, index) => toDetectedFreeRentFormEvent(event, rows, index))
+        .filter(Boolean)
+    : [];
+  const explicitAbatementEvents = Array.isArray(result?.abatementEvents)
+    ? result.abatementEvents
+        .map((event, index) => toDetectedAbatementFormEvent(event, rows, index))
+        .filter(Boolean)
+    : [];
+
+  if (explicitFreeRentEvents.length > 0 || explicitAbatementEvents.length > 0) {
+    return {
+      freeRentEvents: explicitFreeRentEvents,
+      abatementEvents: explicitAbatementEvents,
+      notices: [],
+    };
+  }
+
   const legacyWindow = getOCRLegacyWindow(result, rows);
   if (!legacyWindow) {
     return { freeRentEvents: [], abatementEvents: [], notices: [] };
@@ -436,6 +534,7 @@ export function buildOCRConcessionForms(result, rows = []) {
       freeRentEvents.push({
         ...baseEvent,
         id: `ocr_free_rent_${index + 1}`,
+        monthNumber: String(index + 1),
         date: triggerDate,
         label: 'Imported Free Rent',
       });
@@ -445,6 +544,7 @@ export function buildOCRConcessionForms(result, rows = []) {
     abatementEvents.push({
       ...baseEvent,
       id: `ocr_abatement_${index + 1}`,
+      monthNumber: String(index + 1),
       date: triggerDate,
       value: String(legacyWindow.pct),
       valueMode: CONCESSION_VALUE_MODES.PERCENT,
@@ -460,23 +560,7 @@ export function buildOCRConcessionForms(result, rows = []) {
 }
 
 export function buildLegacyConcessionEventsFromOCR(result, rows = []) {
-  const legacyWindow = getOCRLegacyWindow(result, rows);
-  if (!legacyWindow) return [];
-
-  return [{
-    id: 'ocr_legacy_concession_1',
-    type: legacyWindow.pct === 100 ? CONCESSION_TYPES.FREE_RENT : CONCESSION_TYPES.ABATEMENT,
-    scope: CONCESSION_SCOPES.LEGACY_WINDOW,
-    startDate: fmtDate(legacyWindow.startDate),
-    endDate: fmtDate(legacyWindow.endDate),
-    valueMode: CONCESSION_VALUE_MODES.PERCENT,
-    value: String(legacyWindow.pct),
-    source: legacyWindow.source,
-    confidence: legacyWindow.confidence,
-    assumptionNote: legacyWindow.assumptionNote,
-    label: legacyWindow.pct === 100 ? 'Imported Free Rent Window' : 'Imported Abatement Window',
-    rawText: '',
-  }];
+  return [];
 }
 
 export function describeLegacyConcessionEvent(event) {

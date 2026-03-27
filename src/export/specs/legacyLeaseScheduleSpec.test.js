@@ -73,8 +73,8 @@ describe('buildLegacyLeaseScheduleSpec', () => {
     const marchRow = layout.firstDataRow + 2;
     const aprilRow = layout.firstDataRow + 3;
 
-    expect(model.assumptions.freeRentStart).toBeNull();
-    expect(model.assumptions.freeRentEndDate).toBeNull();
+    expect(model.assumptions.freeRentConcessions[0]).toMatchObject({ monthNumber: 2, amount: 9000 });
+    expect(model.assumptions.freeRentConcessions[1]).toMatchObject({ monthNumber: 4, amount: 9000 });
     expect(worksheet[`F${februaryRow}`].f).toBeUndefined();
     expect(worksheet[`F${februaryRow}`].v).toBe(0);
     expect(worksheet[`F${marchRow}`].f).toContain(`${layout.colByKey.scheduledBaseRent.letter}${marchRow}`);

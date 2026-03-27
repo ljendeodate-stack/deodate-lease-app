@@ -36,10 +36,23 @@ const OPENAI_MODEL = import.meta.env.VITE_OPENAI_OCR_MODEL || 'gpt-4o';
  */
 
 /**
+ * @typedef {Object} ConcessionExtraction
+ * @property {number|null} monthNumber
+ * @property {number|null} value
+ * @property {'percent'|'fixed_amount'|null} valueMode
+ * @property {string|null} date
+ * @property {string|null} label
+ * @property {string|null} rawText
+ * @property {string|null} assumptionNote
+ */
+
+/**
  * @typedef {Object} ExtractionResult
  * @property {RentTierExtraction[]} rentSchedule
  * @property {string|null}          leaseName          - Primary tenant or property name for display.
  * @property {number|null}          squareFootage
+ * @property {ConcessionExtraction[]} freeRentEvents
+ * @property {ConcessionExtraction[]} abatementEvents
  * @property {string|null}          abatementEndDate   - MM/DD/YYYY or null.
  * @property {number|null}          abatementPct       - 0–100.
  * @property {NNNChargeExtraction}  cams
@@ -98,6 +111,15 @@ RULES:
    - Do NOT include recurring monthly NNN charges here; those go in cams/insurance/taxes/security/otherItems.
    - "securityDeposit" / "securityDepositDate" are deprecated but still returned for backwards compatibility.
 
+FREE RENT / ABATEMENT EXTRACTION:
+- Prefer explicit month-number concessions whenever the lease states them.
+- Example mappings:
+  "month 1 free" -> freeRentEvents: [{ monthNumber: 1 }]
+  "months 1 and 13 free" -> freeRentEvents: [{ monthNumber: 1 }, { monthNumber: 13 }]
+  "50% abatement in month 4" -> abatementEvents: [{ monthNumber: 4, value: 50, valueMode: "percent" }]
+- If only dated concession language is available, still populate freeRentEvents / abatementEvents with the best-supported date, label, rawText, and assumptionNote fields. The app will map those dated concessions onto resolved lease months before preview.
+- Keep abatementEndDate / abatementPct only as backward-compatible fallbacks when a contiguous dated window is the only clear expression in the lease.
+
 JSON SCHEMA:
 {
   "rentSchedule": [
@@ -105,6 +127,12 @@ JSON SCHEMA:
   ],
   "leaseName": "string" | null,
   "squareFootage": number | null,
+  "freeRentEvents": [
+    { "monthNumber": number | null, "value": null, "valueMode": null, "date": "MM/DD/YYYY" | null, "label": "string" | null, "rawText": "string" | null, "assumptionNote": "string" | null }
+  ],
+  "abatementEvents": [
+    { "monthNumber": number | null, "value": number | null, "valueMode": "percent" | "fixed_amount" | null, "date": "MM/DD/YYYY" | null, "label": "string" | null, "rawText": "string" | null, "assumptionNote": "string" | null }
+  ],
   "abatementEndDate": "MM/DD/YYYY" | null,
   "abatementPct": number | null,
   "sfRequired": boolean,
@@ -225,6 +253,206 @@ function pushUnique(list, value) {
   if (!list.includes(value)) list.push(value);
 }
 
+const MONTH_NAME_TO_NUMBER = {
+  january: '01',
+  february: '02',
+  march: '03',
+  april: '04',
+  may: '05',
+  june: '06',
+  july: '07',
+  august: '08',
+  september: '09',
+  october: '10',
+  november: '11',
+  december: '12',
+};
+
+const NAMED_DATE_CAPTURE = '(January|February|March|April|May|June|July|August|September|October|November|December)\\s+(\\d{1,2}),\\s*(\\d{4})';
+const DATE_LED_LINE = new RegExp(`^\\s*${NAMED_DATE_CAPTURE}\\s+through\\s+${NAMED_DATE_CAPTURE}\\s*[:,-]?\\s*\\$\\s*([\\d,]+(?:\\.\\d{1,2})?)`, 'i');
+const FROM_THROUGH_LINE = new RegExp(`\\$\\s*([\\d,]+(?:\\.\\d{1,2})?).*?\\bfrom\\s+${NAMED_DATE_CAPTURE}\\s+through\\s+${NAMED_DATE_CAPTURE}`, 'i');
+const BEGINNING_AMOUNT_LINE = new RegExp(`\\bbeginning\\s+${NAMED_DATE_CAPTURE},?.*?\\$\\s*([\\d,]+(?:\\.\\d{1,2})?)`, 'i');
+const DATE_LED_START = new RegExp(`^\\s*${NAMED_DATE_CAPTURE}`, 'i');
+
+function escapeRegex(value) {
+  return String(value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function moneyToNumber(value) {
+  const amount = Number(String(value ?? '').replace(/[^\d.]/g, ''));
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function toMDY(monthName, day, year) {
+  const month = MONTH_NAME_TO_NUMBER[String(monthName ?? '').toLowerCase()];
+  if (!month) return null;
+  return `${month}/${String(day).padStart(2, '0')}/${year}`;
+}
+
+function mdyToTimestamp(value) {
+  const match = String(value ?? '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return Number.NaN;
+  return new Date(Number(match[3]), Number(match[1]) - 1, Number(match[2])).getTime();
+}
+
+function buildRecurringChargeSearchTerms(charge) {
+  const terms = new Set();
+  const label = normalizeSearchText(charge?.label);
+  if (label) terms.add(label);
+
+  switch (charge?.bucketKey) {
+    case 'cams':
+      terms.add('common area maintenance');
+      terms.add('cams');
+      terms.add('cam');
+      terms.add('operating expenses');
+      terms.add('operating expense');
+      break;
+    case 'insurance':
+      terms.add('insurance');
+      terms.add('property insurance');
+      break;
+    case 'taxes':
+      terms.add('real estate taxes');
+      terms.add('property taxes');
+      terms.add('taxes');
+      break;
+    case 'security':
+      terms.add('security');
+      terms.add('security services');
+      terms.add('security patrol');
+      terms.add('security monitoring');
+      break;
+    default:
+      break;
+  }
+
+  return Array.from(terms).filter(Boolean);
+}
+
+function lineMentionsRecurringCharge(line, searchTerms) {
+  const normalizedLine = normalizeSearchText(line);
+  return searchTerms.some((term) => normalizedLine.includes(term));
+}
+
+function parseRecurringChargeStepLine(line) {
+  if (!line) return null;
+
+  let match = line.match(DATE_LED_LINE);
+  if (match) {
+    return {
+      startDate: toMDY(match[1], match[2], match[3]),
+      amount: moneyToNumber(match[7]),
+      evidenceText: line.trim(),
+    };
+  }
+
+  match = line.match(FROM_THROUGH_LINE);
+  if (match) {
+    return {
+      startDate: toMDY(match[2], match[3], match[4]),
+      amount: moneyToNumber(match[1]),
+      evidenceText: line.trim(),
+    };
+  }
+
+  match = line.match(BEGINNING_AMOUNT_LINE);
+  if (match) {
+    return {
+      startDate: toMDY(match[1], match[2], match[3]),
+      amount: moneyToNumber(match[4]),
+      evidenceText: line.trim(),
+    };
+  }
+
+  return null;
+}
+
+function extractRecurringChargeSteps(documentText, charge) {
+  const lines = String(documentText ?? '')
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const searchTerms = buildRecurringChargeSearchTerms(charge);
+  const steps = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const mentionsCharge = lineMentionsRecurringCharge(line, searchTerms);
+    if (!mentionsCharge) continue;
+
+    const parsedInline = parseRecurringChargeStepLine(line);
+    if (parsedInline?.startDate && parsedInline?.amount != null) {
+      steps.push(parsedInline);
+    }
+
+    // Block-style schedules often use a charge heading followed by dated amount rows.
+    if (/:\s*$/.test(line) || (!/\$\s*[\d,]/.test(line) && !parsedInline)) {
+      for (let j = i + 1; j < Math.min(i + 8, lines.length); j += 1) {
+        const candidate = lines[j];
+        const parsedCandidate = parseRecurringChargeStepLine(candidate);
+        if (parsedCandidate?.startDate && parsedCandidate?.amount != null) {
+          steps.push(parsedCandidate);
+          continue;
+        }
+
+        if (/:\s*$/.test(candidate) || (!DATE_LED_START.test(candidate) && !lineMentionsRecurringCharge(candidate, searchTerms))) {
+          break;
+        }
+      }
+    }
+  }
+
+  const deduped = [];
+  const seen = new Set();
+
+  for (const step of steps) {
+    if (!step?.startDate || step.amount == null) continue;
+    const key = `${step.startDate}:${step.amount}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(step);
+  }
+
+  deduped.sort((a, b) => mdyToTimestamp(a.startDate) - mdyToTimestamp(b.startDate));
+
+  const collapsed = [];
+  for (const step of deduped) {
+    if (collapsed.length === 0 || collapsed[collapsed.length - 1].amount !== step.amount) {
+      collapsed.push(step);
+    }
+  }
+
+  return collapsed;
+}
+
+export function detectRecurringChargeIrregularities(documentText, recurringCharges = []) {
+  return (Array.isArray(recurringCharges) ? recurringCharges : [])
+    .map((charge) => {
+      const steps = extractRecurringChargeSteps(documentText, charge);
+      if (steps.length < 2) return null;
+
+      return {
+        label: charge?.label ?? '',
+        bucketKey: charge?.bucketKey ?? null,
+        firstStep: steps[0],
+        overrideHints: steps.slice(1).map((step, index) => ({
+          id: `ocr_recurring_override_${normalizeSearchText(charge?.label || charge?.bucketKey || 'charge').replace(/[^a-z0-9]+/g, '_')}_${index + 1}`,
+          bucketKey: charge?.bucketKey ?? null,
+          label: charge?.label ?? '',
+          date: step.startDate,
+          amount: step.amount,
+          source: 'ocr',
+          confidence: Number(charge?.confidence) >= 0.8 ? 'high' : 'medium',
+          assumptionNote: 'Generated from an OCR-detected non-annual recurring charge step. Review the date and amount before processing.',
+          rawText: step.evidenceText,
+        })),
+      };
+    })
+    .filter(Boolean);
+}
+
 export function documentIndicatesSfBasedRent(documentText) {
   const normalized = normalizeSearchText(documentText);
   if (!normalized) return false;
@@ -272,6 +500,70 @@ export function repairSfBasedRentSemantics(result, documentText) {
   }
 
   return repaired;
+}
+
+export function repairRecurringChargeOverrideSemantics(result, documentText) {
+  const repaired = {
+    ...result,
+    notices: Array.isArray(result?.notices) ? [...result.notices] : [],
+    recurringCharges: Array.isArray(result?.recurringCharges)
+      ? result.recurringCharges.map((charge) => ({ ...charge }))
+      : [],
+    recurringOverrideHints: Array.isArray(result?.recurringOverrideHints)
+      ? result.recurringOverrideHints.map((hint) => ({ ...hint }))
+      : [],
+  };
+
+  const irregularities = detectRecurringChargeIrregularities(documentText, repaired.recurringCharges);
+  if (irregularities.length === 0) {
+    return repaired;
+  }
+
+  const overrideHints = irregularities.flatMap((entry) => entry.overrideHints);
+  const irregularKeys = new Set(
+    irregularities.map((entry) => `${entry.bucketKey ?? ''}::${normalizeSearchText(entry.label)}`),
+  );
+
+  repaired.recurringCharges = repaired.recurringCharges.map((charge) => {
+    const irregularKey = `${charge?.bucketKey ?? ''}::${normalizeSearchText(charge?.label)}`;
+    if (!irregularKeys.has(irregularKey)) return charge;
+
+    const irregularity = irregularities.find((entry) =>
+      entry.bucketKey === charge?.bucketKey && normalizeSearchText(entry.label) === normalizeSearchText(charge?.label),
+    );
+    if (!irregularity) return charge;
+
+    return {
+      ...charge,
+      year1: irregularity.firstStep.amount,
+      chargeStart: charge?.chargeStart ?? irregularity.firstStep.startDate,
+      escPct: null,
+      escStart: null,
+    };
+  });
+
+  const seenOverrideKeys = new Set(
+    repaired.recurringOverrideHints.map((hint) => `${hint.bucketKey ?? ''}:${hint.label ?? ''}:${hint.date}:${hint.amount}`),
+  );
+  for (const hint of overrideHints) {
+    const key = `${hint.bucketKey ?? ''}:${hint.label ?? ''}:${hint.date}:${hint.amount}`;
+    if (seenOverrideKeys.has(key)) continue;
+    seenOverrideKeys.add(key);
+    repaired.recurringOverrideHints.push(hint);
+  }
+
+  repaired.notices.push(
+    `${overrideHints.length} irregular recurring charge step${overrideHints.length === 1 ? '' : 's'} were converted from OCR into dated recurring overrides for review.`,
+  );
+
+  return repaired;
+}
+
+export function repairExtractionSemantics(result, documentText) {
+  return repairRecurringChargeOverrideSemantics(
+    repairSfBasedRentSemantics(result, documentText),
+    documentText,
+  );
 }
 
 async function extractPdfPlainText(buffer) {
@@ -323,6 +615,8 @@ function emptyExtractionResult(notices = []) {
     rentSchedule: [],
     leaseName: null,
     squareFootage: null,
+    freeRentEvents: [],
+    abatementEvents: [],
     abatementEndDate: null,
     abatementPct: null,
     cams: { year1: null, escPct: null, chargeStart: null, escStart: null },
@@ -389,8 +683,10 @@ export async function extractFromPDF(pdfBuffer) {
   result.confidenceFlags  = result.confidenceFlags  ?? [];
   result.notices          = result.notices          ?? [];
   result.rentSchedule     = result.rentSchedule     ?? [];
+  result.freeRentEvents   = Array.isArray(result.freeRentEvents) ? result.freeRentEvents : [];
+  result.abatementEvents  = Array.isArray(result.abatementEvents) ? result.abatementEvents : [];
   result.recurringCharges = Array.isArray(result.recurringCharges) ? result.recurringCharges : [];
-  result = repairSfBasedRentSemantics(result, documentText);
+  result = repairExtractionSemantics(result, documentText);
 
   if (fallbackReason) {
     result.notices.unshift(`OCR fallback used: ${providerUsed}. ${fallbackReason}`);

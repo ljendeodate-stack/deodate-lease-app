@@ -115,6 +115,32 @@ function fmtISO(isoStr) {
   return `${match[2]}/${match[3]}/${match[1]}`;
 }
 
+function normalizeMonthNumber(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function resolveConcessionRow(resolvedRows = [], monthNumber) {
+  const normalizedMonthNumber = normalizeMonthNumber(monthNumber);
+  if (!normalizedMonthNumber) return null;
+  return resolvedRows[normalizedMonthNumber - 1] ?? null;
+}
+
+function resolveConcessionDate(resolvedRows = [], monthNumber, fallbackDate = '') {
+  const row = resolveConcessionRow(resolvedRows, monthNumber);
+  return row ? fmtISO(row.date ?? row.periodStart) : (fallbackDate ?? '');
+}
+
+function resolveAbatementAmount(resolvedRows = [], event) {
+  const row = resolveConcessionRow(resolvedRows, event?.monthNumber);
+  const baseRent = Number(row?.scheduledBaseRent ?? row?.monthlyRent ?? row?.periodAdjustedBaseRent ?? 0);
+  const pct = Number(event?.value);
+  if (!row || !Number.isFinite(baseRent) || baseRent <= 0 || !Number.isFinite(pct)) return '';
+  return formatDollar(baseRent * (pct / 100));
+}
+
 export function emptyNNN() {
   return { year1: '', escPct: '', chargeStart: '', escStart: '' };
 }
@@ -148,6 +174,7 @@ export default function InputForm({
   sfRequired,
   leaseStartDate,
   leaseEndDate,
+  resolvedRows = [],
   schedulePeriodRows = [],
   scheduledBaseRent,
   expandedRowCount,
@@ -683,21 +710,44 @@ export default function InputForm({
 
         <SectionBox
           title="Free Rent & Abatement"
-          hint="Each dated event applies to the resolved monthly row containing that trigger date."
+          hint="Each concession row targets one resolved lease month by month number."
         >
           <div className="space-y-5">
-            {(form.legacyConcessionEvents ?? []).length > 0 && (
-              <div className="rounded-[1rem] border border-status-warn-border bg-status-warn-bg/90 p-3 space-y-1">
-                <p className="text-sm font-semibold text-status-warn-title">Imported legacy concession window preserved</p>
-                {(form.legacyConcessionEvents ?? []).map((event, index) => (
-                  <p key={event.id ?? index} className="text-xs text-status-warn-text">
-                    {describeLegacyConcessionEvent(event)}
+            {((form.freeRentEvents ?? []).some((event) => event?.source && event.source !== 'manual') ||
+              (form.abatementEvents ?? []).some((event) => event?.source && event.source !== 'manual') ||
+              (form.legacyConcessionEvents ?? []).length > 0) && (
+              <details
+                open
+                className="rounded-[1rem] border border-status-warn-border bg-status-warn-bg/90"
+              >
+                <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-status-warn-title">
+                  OCR-detected free rent / abatement review
+                </summary>
+                <div className="border-t border-status-warn-border px-4 py-3 space-y-2">
+                  {(form.freeRentEvents ?? [])
+                    .filter((event) => event?.source && event.source !== 'manual')
+                    .map((event, index) => (
+                      <p key={event.id ?? `detected-free-${index}`} className="text-xs text-status-warn-text">
+                        Free rent month {event.monthNumber || '?'}{resolveConcessionDate(resolvedRows, event.monthNumber, event.date) ? ` (${resolveConcessionDate(resolvedRows, event.monthNumber, event.date)})` : ''}{event.label ? ` - ${event.label}` : ''}
+                      </p>
+                    ))}
+                  {(form.abatementEvents ?? [])
+                    .filter((event) => event?.source && event.source !== 'manual')
+                    .map((event, index) => (
+                      <p key={event.id ?? `detected-abatement-${index}`} className="text-xs text-status-warn-text">
+                        Abatement month {event.monthNumber || '?'}{resolveConcessionDate(resolvedRows, event.monthNumber, event.date) ? ` (${resolveConcessionDate(resolvedRows, event.monthNumber, event.date)})` : ''} - {event.value || 0}%{event.label ? ` - ${event.label}` : ''}
+                      </p>
+                    ))}
+                  {(form.legacyConcessionEvents ?? []).map((event, index) => (
+                    <p key={event.id ?? index} className="text-xs text-status-warn-text">
+                      {describeLegacyConcessionEvent(event)}
+                    </p>
+                  ))}
+                  <p className="text-xs text-status-warn-text">
+                    Review the detected concession rows below before processing.
                   </p>
-                ))}
-                <p className="text-xs text-status-warn-text">
-                  Explicit dated events below override overlapping months from the imported legacy window.
-                </p>
-              </div>
+                </div>
+              </details>
             )}
 
             <div className="space-y-3">
@@ -712,22 +762,25 @@ export default function InputForm({
               </div>
 
               {(form.freeRentEvents ?? []).length === 0 ? (
-                <p className="text-xs text-txt-dim">No free-rent events. Add a dated event for any fully free month.</p>
+                <p className="text-xs text-txt-dim">No free-rent events. Add a lease month number for any fully free month.</p>
               ) : (
                 <>
-                  <div className="grid grid-cols-[160px_1fr_28px] gap-x-2">
-                    <ColumnHeader>Trigger Date</ColumnHeader>
+                  <div className="grid grid-cols-[120px_160px_1fr_28px] gap-x-2">
+                    <ColumnHeader>Month #</ColumnHeader>
+                    <ColumnHeader>Date</ColumnHeader>
                     <ColumnHeader>Label</ColumnHeader>
                     <span />
                   </div>
                   {(form.freeRentEvents ?? []).map((event, idx) => (
-                    <div key={event.id ?? `free-rent-${idx}`} className="grid grid-cols-[160px_1fr_28px] items-center gap-x-2">
+                    <div key={event.id ?? `free-rent-${idx}`} className="grid grid-cols-[120px_160px_1fr_28px] items-center gap-x-2">
                       <TextInput
-                        value={event.date ?? ''}
-                        onChange={(value) => updateFreeRentEvent(idx, 'date', value)}
-                        placeholder="MM/DD/YYYY"
-                        error={fieldErrors[`freeRentEvents.${idx}.date`]}
+                        type="number"
+                        value={event.monthNumber ?? ''}
+                        onChange={(value) => updateFreeRentEvent(idx, 'monthNumber', value)}
+                        placeholder="e.g. 1"
+                        error={fieldErrors[`freeRentEvents.${idx}.monthNumber`]}
                       />
+                      <DisplayField value={resolveConcessionDate(resolvedRows, event.monthNumber, event.date)} placeholder="Derived from month" />
                       <TextInput
                         value={event.label ?? ''}
                         onChange={(value) => updateFreeRentEvent(idx, 'label', value)}
@@ -759,23 +812,27 @@ export default function InputForm({
               </div>
 
               {(form.abatementEvents ?? []).length === 0 ? (
-                <p className="text-xs text-txt-dim">No abatement events. Add a dated event for any partial concession month.</p>
+                <p className="text-xs text-txt-dim">No abatement events. Add a lease month number for any partial concession month.</p>
               ) : (
                 <>
-                  <div className="grid grid-cols-[160px_120px_1fr_28px] gap-x-2">
-                    <ColumnHeader>Trigger Date</ColumnHeader>
+                  <div className="grid grid-cols-[120px_160px_120px_140px_1fr_28px] gap-x-2">
+                    <ColumnHeader>Month #</ColumnHeader>
+                    <ColumnHeader>Date</ColumnHeader>
                     <ColumnHeader>Abatement %</ColumnHeader>
+                    <ColumnHeader>Abatement ($)</ColumnHeader>
                     <ColumnHeader>Label</ColumnHeader>
                     <span />
                   </div>
                   {(form.abatementEvents ?? []).map((event, idx) => (
-                    <div key={event.id ?? `abatement-${idx}`} className="grid grid-cols-[160px_120px_1fr_28px] items-center gap-x-2">
+                    <div key={event.id ?? `abatement-${idx}`} className="grid grid-cols-[120px_160px_120px_140px_1fr_28px] items-center gap-x-2">
                       <TextInput
-                        value={event.date ?? ''}
-                        onChange={(value) => updateAbatementEvent(idx, 'date', value)}
-                        placeholder="MM/DD/YYYY"
-                        error={fieldErrors[`abatementEvents.${idx}.date`]}
+                        type="number"
+                        value={event.monthNumber ?? ''}
+                        onChange={(value) => updateAbatementEvent(idx, 'monthNumber', value)}
+                        placeholder="e.g. 2"
+                        error={fieldErrors[`abatementEvents.${idx}.monthNumber`]}
                       />
+                      <DisplayField value={resolveConcessionDate(resolvedRows, event.monthNumber, event.date)} placeholder="Derived from month" />
                       <TextInput
                         type="number"
                         value={event.value ?? ''}
@@ -783,6 +840,7 @@ export default function InputForm({
                         placeholder="e.g. 50"
                         error={fieldErrors[`abatementEvents.${idx}.value`]}
                       />
+                      <DisplayField value={resolveAbatementAmount(resolvedRows, event)} placeholder="Derived from % and base rent" />
                       <TextInput
                         value={event.label ?? ''}
                         onChange={(value) => updateAbatementEvent(idx, 'label', value)}
@@ -803,7 +861,7 @@ export default function InputForm({
             </div>
 
             <p className="text-xs text-txt-dim">
-              Free rent sets that monthly row to $0 base rent. Abatement reduces the resolved monthly row by the entered percentage.
+              Free rent sets the resolved lease month to $0 base rent. Abatement reduces the resolved lease month by the entered percentage.
             </p>
           </div>
         </SectionBox>

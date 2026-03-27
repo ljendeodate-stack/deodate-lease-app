@@ -4,6 +4,12 @@ import { parseISODate, toISOLocal } from '../../../engine/yearMonth.js';
 const FORMULA_ERROR_PATTERN = /#(?:REF|VALUE|NAME|DIV\/0|NUM|N\/A|NULL)!/i;
 const BLUE_FONT = '0000FF';
 
+function usesApproximateDateLookup(formula) {
+  if (!formula) return false;
+  return /XLOOKUP\(.+,-1\)/i.test(formula) ||
+    /LOOKUP\(\$I\$5,[^)]+,[^)]+\)/i.test(formula);
+}
+
 function parseExcelDateCell(cell) {
   if (!cell) return null;
   if (typeof cell.v === 'number') {
@@ -116,9 +122,9 @@ export function readScenarioAnalysisWorkbook(workbookBytes, processedRows) {
       exitRemainingObligation: readCell(scenarioSheet, 'F40'),
     },
     formulaSemantics: {
-      currentRemainingUsesApproximateLookup: /XLOOKUP\(.+,-1\)/i.test(readCell(scenarioSheet, 'F5').formula ?? ''),
-      snapshotBaseUsesApproximateLookup: /XLOOKUP\(.+,-1\)/i.test(readCell(scenarioSheet, 'F16').formula ?? ''),
-      snapshotAdditionalRentUsesApproximateLookup: /XLOOKUP\(.+,-1\)/i.test(readCell(scenarioSheet, 'F18').formula ?? ''),
+      currentRemainingUsesApproximateLookup: usesApproximateDateLookup(readCell(scenarioSheet, 'F5').formula ?? ''),
+      snapshotBaseUsesApproximateLookup: usesApproximateDateLookup(readCell(scenarioSheet, 'F16').formula ?? ''),
+      snapshotAdditionalRentUsesApproximateLookup: usesApproximateDateLookup(readCell(scenarioSheet, 'F18').formula ?? ''),
       additionalRentTargetsTotalNnn: /'Lease Schedule'!\$[A-Z]+\$\d+:\$[A-Z]+\$\d+/i.test(readCell(scenarioSheet, 'F18').formula ?? ''),
       analysisDateDefaultsToSchedule: /^'Lease Schedule'!\$C\$\d+$/i.test(effectiveDateCell.formula ?? ''),
       // Exit row 35: each column must apply its buyout % — =$F$16*(1-X34), not a flat copy of F35

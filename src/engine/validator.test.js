@@ -48,32 +48,32 @@ describe('validateParams', () => {
     expect(result.errors.map((error) => error.field)).toContain('nnnAggregate.escPct');
   });
 
-  it('blocks conflicting dated concession events landing in the same monthly row', () => {
+  it('blocks conflicting concession events landing in the same lease month', () => {
     const result = validateParams(
       {
         squareFootage: '1000',
         nnnMode: 'individual',
-        freeRentEvents: [{ date: '01/15/2026' }],
-        abatementEvents: [{ date: '01/25/2026', value: '50' }],
+        freeRentEvents: [{ monthNumber: '1' }],
+        abatementEvents: [{ monthNumber: '1', value: '50' }],
       },
       rows,
     );
 
-    expect(result.errors.map((error) => error.field)).toContain('abatementEvents.0.date');
+    expect(result.errors.map((error) => error.field)).toContain('abatementEvents.0.monthNumber');
   });
 
-  it('validates malformed concession dates and abatement percentages', () => {
+  it('validates malformed concession month numbers and abatement percentages', () => {
     const result = validateParams(
       {
         squareFootage: '1000',
         nnnMode: 'individual',
-        freeRentEvents: [{ date: '2026-99-99' }],
-        abatementEvents: [{ date: '01/20/2026', value: '150' }],
+        freeRentEvents: [{ monthNumber: 'abc' }],
+        abatementEvents: [{ monthNumber: '1', value: '150' }],
       },
       rows,
     );
 
-    expect(result.errors.map((error) => error.field)).toContain('freeRentEvents.0.date');
+    expect(result.errors.map((error) => error.field)).toContain('freeRentEvents.0.monthNumber');
     expect(result.errors.map((error) => error.field)).toContain('abatementEvents.0.value');
   });
 

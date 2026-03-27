@@ -51,17 +51,8 @@ describe('resolveLeaseScheduleLayout', () => {
     const model = buildExportModel(rows, params, 'spec-check');
     const layout = resolveLeaseScheduleLayout(model);
 
-    // Six-section assumptions block with 11 NRC slots:
-    // Section 1 (11): heading + leaseName + squareFootage + commencementDate + expirationDate +
-    //   rentCommencementDate + effectiveAnalysisDate + totalLeaseTerm + effectiveMonth +
-    //   monthsRemaining + monthsUntilNextEsc
-    // Section 2 (5): heading + nnnMode + year1BaseRent + cams_year1 + security_year1
-    // Section 3 (5): heading + annualEscRate + anniversaryMonth + cams_escRate + security_escRate
-    // Section 4 (8): heading + abatementStart + abatementEnd + abatementAmount + abatementMonths +
-    //   abatementPct + abatementPartialFactor + additionalAbatementFlag
-    // Section 5 (6): heading + freeRentStart + freeRentEnd + freeRentMonths + freeRentPct + additionalFreeRentFlag
-    // Section 6 (12): heading + 11 NRC items
-    // Total: 11 + 5 + 5 + 8 + 6 + 12 = 47
+    // Legacy left-side assumptions remain in place, and the layout now also
+    // exposes right-side concession tables for month-number inputs.
     expect(layout.assumptionEntries).toHaveLength(47);
     // Row positions: assumptionStartRow(5) + index
     expect(layout.cellMap.squareFootage).toBe('$C$7');           // index 2
@@ -76,17 +67,29 @@ describe('resolveLeaseScheduleLayout', () => {
     expect(layout.cellMap.security_year1).toBe('$C$20');         // index 15
     expect(layout.cellMap.security_escRate).toBe('$C$25');       // index 20
 
-    // Abatement section starts at index 21 (section heading) = row 26
-    expect(layout.cellMap.abatementStart).toBe('$C$27');         // index 22
-    expect(layout.cellMap.abatementEnd).toBe('$C$28');           // index 23
-    expect(layout.cellMap.abatementMonths).toBe('$C$30');        // index 25
-    expect(layout.cellMap.abatementPartialFactor).toBe('$C$32'); // index 27
+    expect(layout.abatementTable.headerRow).toBe(5);
+    expect(layout.abatementTable.dataStartRow).toBe(6);
+    expect(layout.abatementTable.dataEndRow).toBe(15);
+    expect(layout.abatementTable.totalRow).toBe(16);
+    expect(layout.abatementTable.monthRange).toBe('$H$6:$H$15');
+    expect(layout.abatementTable.amountRange).toBe('$I$6:$I$15');
+    expect(layout.abatementTable.pctRange).toBe('$J$6:$J$15');
+    expect(layout.abatementTable.totalAmountAddress).toBe('$I$16');
 
-    // Header row = assumptionStartRow(5) + 47 - 1 + 2 = 53
+    expect(layout.freeRentTable.headerRow).toBe(19);
+    expect(layout.freeRentTable.dataStartRow).toBe(20);
+    expect(layout.freeRentTable.dataEndRow).toBe(29);
+    expect(layout.freeRentTable.totalRow).toBe(30);
+    expect(layout.freeRentTable.monthRange).toBe('$H$20:$H$29');
+    expect(layout.freeRentTable.amountRange).toBe('$I$20:$I$29');
+    expect(layout.freeRentTable.totalAmountAddress).toBe('$I$30');
+
+    expect(layout.leftAssumptionLastRow).toBe(51);
+    expect(layout.assumptionLastRow).toBe(51);
     expect(layout.headerRow).toBe(53);
     expect(layout.firstDataRow).toBe(54);
-    expect(layout.totalsRow).toBe(56);    // lastDataRow(55) + 1 for 2 data rows
-    expect(layout.noteRow).toBe(58);      // totalsRow + 2
+    expect(layout.totalsRow).toBe(56);
+    expect(layout.noteRow).toBe(58);
 
     // NRC ranges should span the 11 OT entries
     expect(layout.nrcDateRange).toBeDefined();
@@ -135,7 +138,7 @@ describe('resolveLeaseScheduleLayout', () => {
     const model = buildExportModel(rows, params, 'aggregate-case');
     const layout = resolveLeaseScheduleLayout(model);
 
-    // Aggregate mode: 47-entry count (nnnAgg entries replace cams/insurance/taxes in sections 2/3)
+    // Aggregate mode keeps the legacy left-side footprint; concession inputs remain in the right-side tables.
     expect(layout.assumptionEntries).toHaveLength(47);
     expect(layout.cellMap.nnnAgg_year1).toBe('$C$19');    // index 14
     expect(layout.cellMap.nnnAgg_escRate).toBe('$C$24');  // index 19

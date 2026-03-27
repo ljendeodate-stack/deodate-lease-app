@@ -31,7 +31,6 @@ import { checkSchedulePlausibility } from './engine/plausibility.js';
 import { buildChargesFromOCR, hasDetectedNNNCharges } from './ocr/chargeNormalizer.js';
 import {
   buildOCRConcessionForms,
-  buildLegacyConcessionEventsFromOCR,
   normalizeFormToCalculatorParams,
 } from './engine/leaseTerms.js';
 import { ocrScheduleToPeriodRows } from './ocr/ocrPipeline.js';
@@ -277,10 +276,7 @@ export default function App() {
       charges: builtCharges,
       freeRentEvents: generatedConcessions.freeRentEvents,
       abatementEvents: generatedConcessions.abatementEvents,
-      legacyConcessionEvents:
-        generatedConcessions.freeRentEvents.length === 0 && generatedConcessions.abatementEvents.length === 0
-          ? buildLegacyConcessionEventsFromOCR(result, rows)
-          : [],
+      legacyConcessionEvents: [],
       oneTimeItems: (result.oneTimeItems?.length ? result.oneTimeItems : depositOTC).map((item) => ({
         label:  item.label ?? item.name ?? '',
         date:   item.dueDate ?? item.date ?? '',
@@ -677,6 +673,7 @@ export default function App() {
               sfRequired={sfRequired}
               leaseStartDate={expandedRows.length > 0 ? expandedRows[0].date : null}
               leaseEndDate={expandedRows.length > 0 ? expandedRows[expandedRows.length - 1].periodEnd : null}
+              resolvedRows={expandedRows}
               schedulePeriodRows={schedulePeriodRows}
               scheduledBaseRent={expandedRows.length > 0 ? expandedRows[0].monthlyRent : null}
               expandedRowCount={expandedRows.length}

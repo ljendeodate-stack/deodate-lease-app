@@ -3,23 +3,27 @@ import { describe, expect, it } from 'vitest';
 import { expandPeriods } from '../engine/expander.js';
 import { normalizeFormToCalculatorParams } from '../engine/leaseTerms.js';
 import { calculateAllCharges } from '../engine/calculator.js';
+import { renderLeaseScheduleWorksheet } from '../export/builders/renderLeaseScheduleWorksheet.js';
 import { buildExportModel } from '../export/model/buildExportModel.js';
-import { buildXLSXWorkbook } from '../utils/exportUtils.js';
-import { repairSfBasedRentSemantics } from './extractor.js';
+import { resolveLeaseScheduleLayout } from '../export/resolvers/resolveLeaseScheduleLayout.js';
+import { buildLegacyLeaseScheduleSpec } from '../export/specs/legacyLeaseScheduleSpec.js';
+import { repairExtractionSemantics } from './extractor.js';
 import {
   buildPrepopulatedFormFromOCR,
   ocrScheduleToPeriodRows,
 } from './ocrPipeline.js';
 
 function runSyntheticOcrFlow(rawResult, documentText, filename = 'synthetic-lease') {
-  const repaired = repairSfBasedRentSemantics(rawResult, documentText);
+  const repaired = repairExtractionSemantics(rawResult, documentText);
   const periodRows = ocrScheduleToPeriodRows(repaired.rentSchedule);
   const { rows: expandedRows } = expandPeriods(periodRows);
   const prepopulated = buildPrepopulatedFormFromOCR(repaired, expandedRows);
   const params = normalizeFormToCalculatorParams(prepopulated.formState, expandedRows);
   const processedRows = calculateAllCharges(expandedRows, params);
   const exportModel = buildExportModel(processedRows, params, filename);
-  const { workbook, firstDataRow } = buildXLSXWorkbook(processedRows, params, filename);
+  const leaseLayout = resolveLeaseScheduleLayout(exportModel);
+  const leaseSpec = buildLegacyLeaseScheduleSpec(exportModel, leaseLayout);
+  const worksheet = renderLeaseScheduleWorksheet(leaseSpec);
 
   return {
     repaired,
@@ -29,8 +33,8 @@ function runSyntheticOcrFlow(rawResult, documentText, filename = 'synthetic-leas
     params,
     processedRows,
     exportModel,
-    workbook,
-    firstDataRow,
+    worksheet,
+    firstDataRow: leaseLayout.firstDataRow,
   };
 }
 
@@ -76,7 +80,7 @@ describe('synthetic OCR pipeline', () => {
       prepopulated,
       processedRows,
       exportModel,
-      workbook,
+      worksheet,
       firstDataRow,
     } = runSyntheticOcrFlow(
       annualResult,
@@ -98,12 +102,11 @@ describe('synthetic OCR pipeline', () => {
     expect(processedRows[2].oneTimeItemAmounts['HVAC Allowance']).toBe(20000);
     expect(processedRows[12].chargeAmounts.cams).toBe(5150);
 
-    const sheet = workbook.Sheets['Lease Schedule'];
-    const scheduledBaseYear1 = getDataCell(sheet, exportModel, firstDataRow, 'scheduledBaseRent', 0);
-    const scheduledBaseYear2 = getDataCell(sheet, exportModel, firstDataRow, 'scheduledBaseRent', 12);
-    const camsYear1 = getDataCell(sheet, exportModel, firstDataRow, 'cams', 0);
-    const camsYear2 = getDataCell(sheet, exportModel, firstDataRow, 'cams', 12);
-    const effSfYear1 = getDataCell(sheet, exportModel, firstDataRow, 'effSF', 0);
+    const scheduledBaseYear1 = getDataCell(worksheet, exportModel, firstDataRow, 'scheduledBaseRent', 0);
+    const scheduledBaseYear2 = getDataCell(worksheet, exportModel, firstDataRow, 'scheduledBaseRent', 12);
+    const camsYear1 = getDataCell(worksheet, exportModel, firstDataRow, 'cams', 0);
+    const camsYear2 = getDataCell(worksheet, exportModel, firstDataRow, 'cams', 12);
+    const effSfYear1 = getDataCell(worksheet, exportModel, firstDataRow, 'effSF', 0);
 
     expect(scheduledBaseYear1.f).toBeDefined();
     expect(scheduledBaseYear1.v).toBe(40000);
@@ -146,7 +149,7 @@ describe('synthetic OCR pipeline', () => {
       prepopulated,
       processedRows,
       exportModel,
-      workbook,
+      worksheet,
       firstDataRow,
     } = runSyntheticOcrFlow(
       irregularResult,
@@ -164,11 +167,10 @@ describe('synthetic OCR pipeline', () => {
     expect(processedRows[60].isIrregularBaseRent).toBe(true);
     expect(processedRows[60].hasIrregularEscalation).toBe(true);
 
-    const sheet = workbook.Sheets['Lease Schedule'];
-    const scheduledBaseYear1 = getDataCell(sheet, exportModel, firstDataRow, 'scheduledBaseRent', 0);
-    const scheduledBaseStep = getDataCell(sheet, exportModel, firstDataRow, 'scheduledBaseRent', 60);
-    const appliedBaseStep = getDataCell(sheet, exportModel, firstDataRow, 'baseRentApplied', 60);
-    const totalMonthlyStep = getDataCell(sheet, exportModel, firstDataRow, 'totalMonthly', 60);
+    const scheduledBaseYear1 = getDataCell(worksheet, exportModel, firstDataRow, 'scheduledBaseRent', 0);
+    const scheduledBaseStep = getDataCell(worksheet, exportModel, firstDataRow, 'scheduledBaseRent', 60);
+    const appliedBaseStep = getDataCell(worksheet, exportModel, firstDataRow, 'baseRentApplied', 60);
+    const totalMonthlyStep = getDataCell(worksheet, exportModel, firstDataRow, 'totalMonthly', 60);
 
     expect(scheduledBaseYear1.f).toBeDefined();
     expect(scheduledBaseStep.f).toBeUndefined();
@@ -176,5 +178,86 @@ describe('synthetic OCR pipeline', () => {
     expect(appliedBaseStep.f).toBeUndefined();
     expect(appliedBaseStep.v).toBe(12500);
     expect(totalMonthlyStep.f).toBeDefined();
+  });
+
+  it('converts OCR-detected irregular recurring charge steps into override-driven preview and workbook values without interrupting annual base-rent formulas', () => {
+    const irregularRecurringResult = {
+      leaseName: 'Synthetic Irregular Recurring Charges',
+      sfRequired: false,
+      squareFootage: 24000,
+      confidenceFlags: [],
+      notices: [],
+      rentSchedule: [
+        { periodStart: '02/01/2027', periodEnd: '01/31/2028', monthlyRent: 32000 },
+        { periodStart: '02/01/2028', periodEnd: '01/31/2029', monthlyRent: 32960 },
+        { periodStart: '02/01/2029', periodEnd: '01/31/2030', monthlyRent: 33948.8 },
+      ],
+      recurringCharges: [
+        {
+          label: 'Common Area Maintenance',
+          bucketKey: 'cams',
+          canonicalType: 'nnn',
+          year1: 4800,
+          escPct: null,
+          chargeStart: '02/01/2027',
+          escStart: '02/01/2028',
+          confidence: 0.98,
+        },
+      ],
+    };
+
+    const {
+      repaired,
+      prepopulated,
+      processedRows,
+      exportModel,
+      worksheet,
+      firstDataRow,
+    } = runSyntheticOcrFlow(
+      irregularRecurringResult,
+      [
+        'Base Rent Schedule',
+        'February 1, 2027 through January 31, 2028: $32,000.00 per month',
+        'February 1, 2028 through January 31, 2029: $32,960.00 per month',
+        'February 1, 2029 through January 31, 2030: $33,948.80 per month',
+        'Common Area Maintenance:',
+        'February 1, 2027 through January 31, 2028: $4,800.00 per month',
+        'February 1, 2028 through January 31, 2029: $5,050.00 per month',
+        'February 1, 2029 through January 31, 2030: $5,600.00 per month',
+      ].join('\n'),
+      'synthetic-irregular-recurring',
+    );
+
+    expect(repaired.recurringOverrideHints).toEqual([
+      expect.objectContaining({ bucketKey: 'cams', date: '02/01/2028', amount: 5050 }),
+      expect.objectContaining({ bucketKey: 'cams', date: '02/01/2029', amount: 5600 }),
+    ]);
+    expect(prepopulated.formState.recurringOverrides).toEqual([
+      expect.objectContaining({ targetKey: 'cams', date: '02/01/2028', amount: '5050' }),
+      expect.objectContaining({ targetKey: 'cams', date: '02/01/2029', amount: '5600' }),
+    ]);
+    expect(prepopulated.formState.charges.find((charge) => charge.key === 'cams')).toMatchObject({
+      year1: '4800',
+      escPct: '',
+      escStart: '',
+    });
+
+    expect(processedRows[12].chargeAmounts.cams).toBe(5050);
+    expect(processedRows[12].chargeDetails.cams.overrideApplied).toBe(true);
+    expect(processedRows[12].hasIrregularEscalation).toBe(true);
+    expect(processedRows[24].chargeAmounts.cams).toBe(5600);
+    expect(processedRows[24].chargeDetails.cams.overrideApplied).toBe(true);
+
+    const baseRentYear2 = getDataCell(worksheet, exportModel, firstDataRow, 'scheduledBaseRent', 12);
+    const camsYear1 = getDataCell(worksheet, exportModel, firstDataRow, 'cams', 0);
+    const camsYear2 = getDataCell(worksheet, exportModel, firstDataRow, 'cams', 12);
+    const camsYear3 = getDataCell(worksheet, exportModel, firstDataRow, 'cams', 24);
+
+    expect(baseRentYear2.f).toBeDefined();
+    expect(camsYear1.f).toBeDefined();
+    expect(camsYear2.f).toBeUndefined();
+    expect(camsYear2.v).toBe(5050);
+    expect(camsYear3.f).toBeUndefined();
+    expect(camsYear3.v).toBe(5600);
   });
 });

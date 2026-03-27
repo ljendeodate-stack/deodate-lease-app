@@ -1,7 +1,16 @@
 import { parseMDYStrict, parseExcelDate } from '../engine/yearMonth.js';
 import { classifyExpenseLabel, NNN_BUCKET_KEYS } from '../engine/labelClassifier.js';
-import { buildOCRConcessionForms, buildLegacyConcessionEventsFromOCR } from '../engine/leaseTerms.js';
+import { buildOCRConcessionForms } from '../engine/leaseTerms.js';
 import { buildChargesFromOCR, hasDetectedNNNCharges } from './chargeNormalizer.js';
+
+function normalizeSearchText(value) {
+  return String(value ?? '')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[^\S\r\n]+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
 
 export function ocrScheduleToPeriodRows(rentSchedule) {
   if (!Array.isArray(rentSchedule)) return [];
@@ -47,6 +56,49 @@ function buildDetectedOneTimeItems(result) {
   return [];
 }
 
+function resolveRecurringOverrideTargetKey(overrideHint, builtCharges) {
+  if (overrideHint?.bucketKey) {
+    const byBucket = builtCharges.find((charge) => charge.key === overrideHint.bucketKey);
+    if (byBucket) return byBucket.key;
+  }
+
+  const hintLabel = normalizeSearchText(overrideHint?.label);
+  if (!hintLabel) return null;
+
+  const byLabel = builtCharges.find((charge) => normalizeSearchText(charge.displayLabel) === hintLabel);
+  return byLabel?.key ?? null;
+}
+
+function buildRecurringOverridesFromOCR(result, builtCharges) {
+  const hints = Array.isArray(result?.recurringOverrideHints) ? result.recurringOverrideHints : [];
+  const recurringOverrides = [];
+  const notices = [];
+
+  for (const hint of hints) {
+    const targetKey = resolveRecurringOverrideTargetKey(hint, builtCharges);
+    if (!targetKey) {
+      notices.push(
+        `OCR detected an irregular recurring step for "${hint.label || hint.bucketKey || 'a recurring charge'}", but the target charge row could not be resolved automatically.`,
+      );
+      continue;
+    }
+
+    recurringOverrides.push({
+      id: hint.id,
+      targetKey,
+      date: hint.date ?? '',
+      amount: hint.amount != null ? String(hint.amount) : '',
+      label: hint.label ?? '',
+      source: hint.source ?? 'ocr',
+      confidence: hint.confidence ?? 'medium',
+      assumptionNote: hint.assumptionNote ?? '',
+      rawText: hint.rawText ?? '',
+    });
+  }
+
+  return { recurringOverrides, notices };
+}
+
 export function buildPrepopulatedFormFromOCR(result, rows = []) {
   const {
     charges: builtCharges,
@@ -85,10 +137,12 @@ export function buildPrepopulatedFormFromOCR(result, rows = []) {
 
   const generatedConcessions = buildOCRConcessionForms(result, rows);
   const detectedOneTimeItems = buildDetectedOneTimeItems(result);
+  const generatedOverrides = buildRecurringOverridesFromOCR(result, builtCharges);
   const notices = [
     ...(result.notices ?? []),
     ...chargeNotices,
     ...generatedConcessions.notices,
+    ...generatedOverrides.notices,
   ];
 
   const formState = {
@@ -97,12 +151,10 @@ export function buildPrepopulatedFormFromOCR(result, rows = []) {
     nnnMode,
     nnnAggregate: nnnAggregateForm,
     charges: builtCharges,
+    recurringOverrides: generatedOverrides.recurringOverrides,
     freeRentEvents: generatedConcessions.freeRentEvents,
     abatementEvents: generatedConcessions.abatementEvents,
-    legacyConcessionEvents:
-      generatedConcessions.freeRentEvents.length === 0 && generatedConcessions.abatementEvents.length === 0
-        ? buildLegacyConcessionEventsFromOCR(result, rows)
-        : [],
+    legacyConcessionEvents: [],
     oneTimeItems: (result.oneTimeItems?.length ? result.oneTimeItems : detectedOneTimeItems).map((item) => ({
       label: item.label ?? item.name ?? '',
       date: item.dueDate ?? item.date ?? '',

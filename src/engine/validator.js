@@ -36,6 +36,24 @@ function pushIssue(list, field, message, severity) {
   list.push({ field, message, severity });
 }
 
+function normalizeMonthNumber(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const monthNumber = Number(value);
+  if (!Number.isInteger(monthNumber) || monthNumber <= 0) return null;
+  return monthNumber;
+}
+
+function resolveConcessionMonthNumber(event, rows) {
+  const explicitMonthNumber = normalizeMonthNumber(event?.monthNumber);
+  if (explicitMonthNumber != null) return explicitMonthNumber;
+
+  const date = parseLooseDate(event?.effectiveDate ?? event?.date);
+  if (!date) return null;
+
+  const rowIndex = resolveMonthlyRowIndex(rows, date);
+  return rowIndex >= 0 ? rowIndex + 1 : null;
+}
+
 function getLeaseBounds(rows) {
   if (!rows?.length) return { leaseStart: null, leaseEnd: null };
   return {
@@ -90,45 +108,41 @@ function getRecurringOverrideTargets(params) {
 }
 
 function validateConcessionEvents(params, rows, errors, warnings) {
-  const { leaseStart, leaseEnd } = getLeaseBounds(rows);
   const rowAssignments = new Map();
 
-  const validateDatedEvent = (event, index, type) => {
+  const validateMonthlyEvent = (event, index, type) => {
     const fieldBase = `${type}.${index}`;
     const label = type === 'freeRentEvents' ? 'Free-rent event' : 'Abatement event';
-    const date = parseLooseDate(event?.date);
+    const monthNumber = resolveConcessionMonthNumber(event, rows);
 
-    if (!event?.date || !String(event.date).trim()) {
-      pushIssue(errors, `${fieldBase}.date`, `${label} date is required.`, 'error');
+    if (event?.monthNumber === '' || event?.monthNumber === undefined || event?.monthNumber === null) {
+      pushIssue(errors, `${fieldBase}.monthNumber`, `${label} month number is required.`, 'error');
       return;
     }
-    if (!date) {
-      pushIssue(errors, `${fieldBase}.date`, `${label} date must be in MM/DD/YYYY format.`, 'error');
+    if (monthNumber == null) {
+      pushIssue(errors, `${fieldBase}.monthNumber`, `${label} month number must be a positive whole number.`, 'error');
       return;
     }
-
-    if (leaseStart && leaseEnd && (date < leaseStart || date > leaseEnd)) {
+    if (rows.length > 0 && monthNumber > rows.length) {
       pushIssue(
-        warnings,
-        `${fieldBase}.date`,
-        `${label} date falls outside the resolved lease term and will snap to the nearest schedule row.`,
-        'warning',
+        errors,
+        `${fieldBase}.monthNumber`,
+        `${label} month number must be within the resolved lease term (1-${rows.length}).`,
+        'error',
       );
+      return;
     }
 
-    const rowIndex = resolveMonthlyRowIndex(rows, date);
-    if (rowIndex >= 0) {
-      const existing = rowAssignments.get(rowIndex);
-      if (existing) {
-        pushIssue(
-          errors,
-          `${fieldBase}.date`,
-          `${label} resolves to the same monthly row as ${existing}. Use one concession event per monthly row.`,
-          'error',
-        );
-      } else {
-        rowAssignments.set(rowIndex, label.toLowerCase());
-      }
+    const existing = rowAssignments.get(monthNumber);
+    if (existing) {
+      pushIssue(
+        errors,
+        `${fieldBase}.monthNumber`,
+        `${label} targets lease month ${monthNumber}, which is already assigned to ${existing}. Use one concession event per lease month.`,
+        'error',
+      );
+    } else {
+      rowAssignments.set(monthNumber, type === 'freeRentEvents' ? 'a free-rent event' : 'an abatement event');
     }
 
     if (type !== 'abatementEvents') return;
@@ -152,8 +166,8 @@ function validateConcessionEvents(params, rows, errors, warnings) {
     }
   };
 
-  (params.freeRentEvents ?? []).forEach((event, index) => validateDatedEvent(event, index, 'freeRentEvents'));
-  (params.abatementEvents ?? []).forEach((event, index) => validateDatedEvent(event, index, 'abatementEvents'));
+  (params.freeRentEvents ?? []).forEach((event, index) => validateMonthlyEvent(event, index, 'freeRentEvents'));
+  (params.abatementEvents ?? []).forEach((event, index) => validateMonthlyEvent(event, index, 'abatementEvents'));
 
   (params.legacyConcessionEvents ?? []).forEach((event, index) => {
     const fieldBase = `legacyConcessionEvents.${index}`;
@@ -162,9 +176,9 @@ function validateConcessionEvents(params, rows, errors, warnings) {
       : CONCESSION_SCOPES.LEGACY_WINDOW;
 
     if (scope === CONCESSION_SCOPES.MONTHLY_ROW) {
-      const date = parseLooseDate(event?.effectiveDate ?? event?.date);
-      if (!date) {
-        pushIssue(errors, `${fieldBase}.effectiveDate`, 'Imported concession event date is invalid.', 'error');
+      const monthNumber = resolveConcessionMonthNumber(event, rows);
+      if (monthNumber == null) {
+        pushIssue(errors, `${fieldBase}.monthNumber`, 'Imported concession event month number is invalid.', 'error');
       }
       return;
     }

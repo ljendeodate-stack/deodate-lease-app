@@ -77,17 +77,32 @@ describe('formToCalculatorParams', () => {
     expect(params.cams.year1).toBe(0);
   });
 
-  it('normalizes dated free-rent and abatement events into one canonical concession array', () => {
+  it('normalizes month-number free-rent and abatement events into one canonical concession array', () => {
+    const rows = [
+      { periodStart: '2026-01-01' },
+      { periodStart: '2026-02-01' },
+      { periodStart: '2026-03-01' },
+    ];
     const params = formToCalculatorParams({
       nnnMode: 'individual',
-      freeRentEvents: [{ date: '01/15/2026', label: 'Launch month' }],
-      abatementEvents: [{ date: '03/20/2026', value: '50', label: 'Half rent' }],
+      freeRentEvents: [{ monthNumber: '1', label: 'Launch month' }],
+      abatementEvents: [{ monthNumber: '3', value: '50', label: 'Half rent' }],
       oneTimeItems: [],
-    });
+    }, rows);
 
     expect(params.concessionEvents).toHaveLength(2);
-    expect(params.concessionEvents[0]).toMatchObject({ type: 'free_rent', scope: 'monthly_row', value: 100 });
-    expect(params.concessionEvents[1]).toMatchObject({ type: 'abatement', scope: 'monthly_row', value: 50 });
+    expect(params.concessionEvents[0]).toMatchObject({
+      type: 'free_rent',
+      scope: 'monthly_row',
+      monthNumber: 1,
+      value: 100,
+    });
+    expect(params.concessionEvents[1]).toMatchObject({
+      type: 'abatement',
+      scope: 'monthly_row',
+      monthNumber: 3,
+      value: 50,
+    });
   });
 
   it('preserves rentCommencementDate and effectiveAnalysisDate in params', () => {

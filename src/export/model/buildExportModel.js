@@ -1,9 +1,8 @@
 import { getActiveCategories, buildColumnLayout } from '../../engine/chargeCategories.js';
 
-/** Number of NRC input slots always emitted in the assumptions block. */
 const NRC_SLOT_COUNT = 11;
+const CONCESSION_SLOT_COUNT = 10;
 
-/** Default NRC labels for empty slots — user can overwrite in the workbook. */
 const DEFAULT_NRC_LABELS = [
   'Tenant Improvement Allowance',
   'Landlord Work',
@@ -18,14 +17,13 @@ const DEFAULT_NRC_LABELS = [
   'Additional NRC 2',
 ];
 
-/** Pad oneTimeItems to exactly NRC_SLOT_COUNT entries. */
 function padNrcItems(items) {
-  const result = items.slice(0, NRC_SLOT_COUNT).map((i) => ({
-    label: i.label ?? '',
-    date: i.date ?? null,
-    amount: Number(i.amount) || 0,
+  const result = items.slice(0, NRC_SLOT_COUNT).map((item) => ({
+    label: item.label ?? '',
+    date: item.date ?? null,
+    amount: Number(item.amount) || 0,
   }));
-  const usedLabels = new Set(result.map((i) => i.label));
+  const usedLabels = new Set(result.map((item) => item.label));
   for (const defaultLabel of DEFAULT_NRC_LABELS) {
     if (result.length >= NRC_SLOT_COUNT) break;
     if (!usedLabels.has(defaultLabel)) {
@@ -38,41 +36,99 @@ function padNrcItems(items) {
   return result;
 }
 
-/** First day of the current month as ISO string (YYYY-MM-DD). */
 function currentMonthFirstDayISO() {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
 }
 
-/** Convert a Date object, ISO string (YYYY-MM-DD), or MM/DD/YYYY string to YYYY-MM-DD, or return null. */
-function dateToISO(d) {
-  if (!d) return null;
-  if (typeof d === 'string') {
-    const s = d.trim();
-    // Validate YYYY-MM-DD by checking dash positions (avoids false-positive on MM/DD/YYYY)
-    if (s.length === 10 && s[4] === '-' && s[7] === '-') return s;
-    // Accept MM/DD/YYYY or M/D/YYYY and normalise to ISO
-    const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+function dateToISO(value) {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    if (normalized.length === 10 && normalized[4] === '-' && normalized[7] === '-') return normalized;
+    const mdy = normalized.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (mdy) {
-      const [, m, day, yr] = mdy;
-      return `${yr}-${m.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      const [, month, day, year] = mdy;
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
     }
     return null;
   }
-  if (!(d instanceof Date) || isNaN(d.getTime())) return null;
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return null;
   const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
 }
 
-/**
- * Build the shared export model for the current workbook export.
- *
- * @param {object[]} rows
- * @param {object} params
- * @param {string} filename
- * @returns {import('../types.js').ExportModel}
- */
+function padConcessionItems(items, buildBlankItem) {
+  const result = items.slice(0, CONCESSION_SLOT_COUNT);
+  while (result.length < CONCESSION_SLOT_COUNT) {
+    result.push(buildBlankItem(result.length));
+  }
+  return result;
+}
+
+function getLeaseMonthNumber(row, index = 0) {
+  const monthNumber = Number(row?.leaseMonth ?? row?.['Month #'] ?? index + 1);
+  return Number.isInteger(monthNumber) && monthNumber > 0 ? monthNumber : null;
+}
+
+function buildFreeRentConcessionRows(rows = []) {
+  const concessionsByMonth = new Map();
+
+  rows.forEach((row, index) => {
+    if (row?.concessionScope !== 'monthly_row' || row?.concessionType !== 'free_rent') return;
+    const monthNumber = getLeaseMonthNumber(row, index);
+    if (!monthNumber || concessionsByMonth.has(monthNumber)) return;
+
+    concessionsByMonth.set(monthNumber, {
+      label: 'Free rent month',
+      monthNumber,
+      date: dateToISO(row.periodStart ?? row.date),
+      amount: Number(row.scheduledBaseRent ?? 0),
+    });
+  });
+
+  const items = Array.from(concessionsByMonth.values()).sort((left, right) => left.monthNumber - right.monthNumber);
+  return padConcessionItems(items, () => ({
+    label: 'Free rent month',
+    monthNumber: null,
+    date: null,
+    amount: null,
+  }));
+}
+
+function buildAbatementConcessionRows(rows = []) {
+  const concessionsByMonth = new Map();
+
+  rows.forEach((row, index) => {
+    if (row?.concessionScope !== 'monthly_row' || row?.concessionType !== 'abatement') return;
+    const monthNumber = getLeaseMonthNumber(row, index);
+    if (!monthNumber || concessionsByMonth.has(monthNumber)) return;
+
+    const scheduledBaseRent = Number(row.scheduledBaseRent ?? 0);
+    const derivedPct = row?.concessionValueMode === 'percent'
+      ? Number(row.concessionValue ?? 0)
+      : (scheduledBaseRent > 0 ? ((Number(row.abatementAmount ?? 0) / scheduledBaseRent) * 100) : 0);
+
+    concessionsByMonth.set(monthNumber, {
+      label: 'Abatement month',
+      monthNumber,
+      date: dateToISO(row.periodStart ?? row.date),
+      amount: Number(row.abatementAmount ?? 0),
+      pct: Number.isFinite(derivedPct) ? derivedPct / 100 : 0,
+    });
+  });
+
+  const items = Array.from(concessionsByMonth.values()).sort((left, right) => left.monthNumber - right.monthNumber);
+  return padConcessionItems(items, () => ({
+    label: 'Abatement month',
+    monthNumber: null,
+    date: null,
+    amount: null,
+    pct: null,
+  }));
+}
+
 export function buildExportModel(rows, params = {}, filename = 'lease-schedule') {
   const nnnMode = params.nnnMode ?? 'individual';
   const activeCategories = getActiveCategories(rows, params, nnnMode);
@@ -110,51 +166,31 @@ function deriveOneTimeLabels(rows) {
   return otLabels;
 }
 
-/**
- * Build the full six-section assumption entries list.
- *
- * Entry layout (all entries always present, even when values are absent):
- *   Section 1 — LEASE DRIVERS          (11 entries: heading + 6 fields + 4 computed)
- *   Section 2 — MONTHLY RENT BREAKDOWN (5 entries: heading + mode + year1BaseRent + [nnnAgg?] + per-category year1)
- *   Section 3 — ESCALATION ASSUMPTIONS (5 entries: heading + annualEscRate + anniversaryMonth + [nnnAgg?] + per-category escRate)
- *   Section 4 — ABATEMENT              (8 entries: heading + 7 fields)
- *   Section 5 — FREE RENT              (6 entries: heading + 5 fields)
- *   Section 6 — NON-RECURRING CHARGES  (1 heading + max(M, 1) items or "(none)")
- *
- * Formula cells (referenced by buildDataSection via cellMap):
- *   squareFootage          → always index 2  → row 7
- *   totalLeaseTerm         → always index 7  → row 12   (NEW: Section 1 computed)
- *   effectiveMonth         → always index 8  → row 13   (NEW: Section 1 computed)
- *   monthsRemaining        → always index 9  → row 14   (NEW: Section 1 computed)
- *   monthsUntilNextEsc     → always index 10 → row 15   (NEW: Section 1 computed)
- *   year1BaseRent          → always index 13 → row 18
- *   annualEscRate          → always index 17 → row 22
- *   abatementMonths        → always index 25 → row 30
- *   abatementPartialFactor → always index 27 → row 32
- *   {key}_year1     → index 14 + catIdx (individual) or 14 + nnnAggOffset + catIdx
- *   {key}_escRate   → index 19 + catIdx (individual) or 19 + nnnAggOffset + catIdx
- */
 function buildAssumptionEntries(assumptions, activeCategories) {
   const entries = [];
   const isAggregate = assumptions.nnnMode === 'aggregate';
 
-  // ── Section 1: Lease Drivers ────────────────────────────────────────────
-  entries.push({ id: 'section_leaseDrivers',   label: 'LEASE DRIVERS',              kind: 'heading' });
-  entries.push({ id: 'leaseName',              label: 'Lease Name',                  kind: 'text', format: 'text', value: assumptions.leaseName || '' });
-  entries.push({ id: 'squareFootage',          label: 'Rentable SF',                 kind: 'input', format: 'int', value: assumptions.squareFootage });
-  entries.push({ id: 'commencementDate',       label: 'Lease Commencement Date',     kind: 'date', format: 'date', value: assumptions.commencementDate });
-  entries.push({ id: 'expirationDate',         label: 'Lease Expiration Date',       kind: 'date', format: 'date', value: assumptions.expirationDate });
-  entries.push({ id: 'rentCommencementDate',   label: 'Rent Commencement Date',      kind: 'date', format: 'date', value: assumptions.rentCommencementDate ?? null });
-  entries.push({ id: 'effectiveAnalysisDate',  label: 'Effective Analysis Date',     kind: 'date', format: 'date', value: assumptions.effectiveAnalysisDate ?? null });
-  // Dependent/display fields — computed from the editable inputs above
+  entries.push({ id: 'section_leaseDrivers', label: 'LEASE DRIVERS', kind: 'heading' });
+  entries.push({ id: 'leaseName', label: 'Lease Name', kind: 'text', format: 'text', value: assumptions.leaseName || '' });
+  entries.push({ id: 'squareFootage', label: 'Rentable SF', kind: 'input', format: 'int', value: assumptions.squareFootage });
+  entries.push({ id: 'commencementDate', label: 'Lease Commencement Date', kind: 'date', format: 'date', value: assumptions.commencementDate });
+  entries.push({ id: 'expirationDate', label: 'Lease Expiration Date', kind: 'date', format: 'date', value: assumptions.expirationDate });
+  entries.push({ id: 'rentCommencementDate', label: 'Rent Commencement Date', kind: 'date', format: 'date', value: assumptions.rentCommencementDate ?? null });
+  entries.push({ id: 'effectiveAnalysisDate', label: 'Effective Analysis Date', kind: 'date', format: 'date', value: assumptions.effectiveAnalysisDate ?? null });
   entries.push({
-    id: 'totalLeaseTerm', label: 'Total Lease Term (Months)', kind: 'computed', format: 'int',
+    id: 'totalLeaseTerm',
+    label: 'Total Lease Term (Months)',
+    kind: 'computed',
+    format: 'int',
     value: assumptions.totalLeaseTerm ?? 0,
     formulaFn: (cellMap) =>
       `IF(AND(${cellMap.commencementDate}<>"",${cellMap.expirationDate}<>""),DATEDIF(${cellMap.commencementDate},${cellMap.expirationDate},"M")+1,0)`,
   });
   entries.push({
-    id: 'effectiveMonth', label: 'Effective Month', kind: 'computed', format: 'int',
+    id: 'effectiveMonth',
+    label: 'Effective Month',
+    kind: 'computed',
+    format: 'int',
     value: assumptions.effectiveMonth ?? 0,
     formulaFn: (cellMap, layout) => {
       if (!layout?.colByKey?.periodStart) return '0';
@@ -163,21 +199,25 @@ function buildAssumptionEntries(assumptions, activeCategories) {
     },
   });
   entries.push({
-    id: 'monthsRemaining', label: 'Months Remaining', kind: 'computed', format: 'int',
+    id: 'monthsRemaining',
+    label: 'Months Remaining',
+    kind: 'computed',
+    format: 'int',
     value: assumptions.monthsRemaining ?? 0,
     formulaFn: (cellMap) => `MAX(0,${cellMap.totalLeaseTerm}-${cellMap.effectiveMonth})`,
   });
   entries.push({
-    id: 'monthsUntilNextEsc', label: 'Months Until Next Base Rent Escalation', kind: 'computed', format: 'int',
+    id: 'monthsUntilNextEsc',
+    label: 'Months Until Next Base Rent Escalation',
+    kind: 'computed',
+    format: 'int',
     value: assumptions.monthsUntilNextEsc ?? 12,
-    formulaFn: (cellMap) =>
-      `IF(${cellMap.effectiveMonth}=0,12,12-MOD(${cellMap.effectiveMonth}-1,12))`,
+    formulaFn: (cellMap) => `IF(${cellMap.effectiveMonth}=0,12,12-MOD(${cellMap.effectiveMonth}-1,12))`,
   });
 
-  // ── Section 2: Monthly Rent Breakdown ───────────────────────────────────
-  entries.push({ id: 'section_monthlyRent',   label: 'MONTHLY RENT BREAKDOWN',      kind: 'heading' });
-  entries.push({ id: 'nnnMode',               label: 'NNN Mode',                    kind: 'text', format: 'text', value: isAggregate ? 'Aggregate' : 'Individual' });
-  entries.push({ id: 'year1BaseRent',         label: 'Year 1 Monthly Base Rent',    kind: 'input', format: 'currency', value: assumptions.year1BaseRent });
+  entries.push({ id: 'section_monthlyRent', label: 'MONTHLY RENT BREAKDOWN', kind: 'heading' });
+  entries.push({ id: 'nnnMode', label: 'NNN Mode', kind: 'text', format: 'text', value: isAggregate ? 'Aggregate' : 'Individual' });
+  entries.push({ id: 'year1BaseRent', label: 'Year 1 Monthly Base Rent', kind: 'input', format: 'currency', value: assumptions.year1BaseRent });
   if (isAggregate) {
     entries.push({ id: 'nnnAgg_year1', label: 'NNN Combined Year 1 Monthly Amount', kind: 'input', format: 'currency', value: assumptions.nnnAggYear1 ?? 0 });
   }
@@ -186,10 +226,9 @@ function buildAssumptionEntries(assumptions, activeCategories) {
     entries.push({ id: `${category.key}_year1`, label: category.assumptionLabels.year1, kind: 'input', format: 'currency', value: catData.year1 });
   }
 
-  // ── Section 3: Escalation Assumptions ───────────────────────────────────
-  entries.push({ id: 'section_escalations',   label: 'ESCALATION ASSUMPTIONS',      kind: 'heading' });
-  entries.push({ id: 'annualEscRate',         label: 'Annual Base Rent Escalation Rate (%)', kind: 'input', format: 'pct', value: assumptions.annualEscRate });
-  entries.push({ id: 'anniversaryMonth',      label: 'Lease Anniversary Month',     kind: 'input', format: 'int', value: assumptions.anniversaryMonth });
+  entries.push({ id: 'section_escalations', label: 'ESCALATION ASSUMPTIONS', kind: 'heading' });
+  entries.push({ id: 'annualEscRate', label: 'Annual Base Rent Escalation Rate (%)', kind: 'input', format: 'pct', value: assumptions.annualEscRate });
+  entries.push({ id: 'anniversaryMonth', label: 'Lease Anniversary Month', kind: 'input', format: 'int', value: assumptions.anniversaryMonth });
   if (isAggregate) {
     entries.push({ id: 'nnnAgg_escRate', label: 'NNN Combined Annual Escalation Rate (%)', kind: 'input', format: 'pct', value: assumptions.nnnAggEscRate ?? 0 });
   }
@@ -198,46 +237,33 @@ function buildAssumptionEntries(assumptions, activeCategories) {
     entries.push({ id: `${category.key}_escRate`, label: category.assumptionLabels.escRate, kind: 'input', format: 'pct', value: catData.escRate });
   }
 
-  // ── Section 4: Abatement ────────────────────────────────────────────────
-  entries.push({ id: 'section_abatement',         label: 'ABATEMENT',                                kind: 'heading' });
-  entries.push({ id: 'abatementStart',             label: 'First Abatement Event / Window Start',     kind: 'date',     format: 'date',     value: assumptions.abatementStart ?? null });
-  entries.push({ id: 'abatementEnd',               label: 'Last Abatement Event / Window End',        kind: 'date',     format: 'date',     value: assumptions.abatementEndDate ?? null });
-  entries.push({ id: 'abatementAmount',            label: 'Illustrative Abatement Amount (Monthly, $)', kind: 'input',  format: 'currency', value: assumptions.abatementAmount });
-  entries.push({
-    id: 'abatementMonths', label: 'Rows with Full Base Rent Relief', kind: 'computed', format: 'int', value: assumptions.fullAbatementMonths,
-    formulaFn: (cellMap) => `IF(AND(${cellMap.abatementStart}<>"",${cellMap.abatementEnd}<>""),DATEDIF(${cellMap.abatementStart},${cellMap.abatementEnd},"M")+1,0)`,
-  });
-  entries.push({
-    id: 'abatementPct', label: 'Illustrative Abatement % of Full Rent', kind: 'computed', format: 'pct', value: (assumptions.abatementPct ?? 0) / 100,
-    formulaFn: (cellMap) => `IF(${cellMap.year1BaseRent}=0,0,${cellMap.abatementAmount}/${cellMap.year1BaseRent})`,
-  });
-  entries.push({ id: 'abatementPartialFactor',     label: 'Abatement Partial-Month Proration Factor',                                kind: 'input', format: 'factor', value: assumptions.abatementPartialFactor });
-  entries.push({ id: 'additionalAbatementFlag',    label: 'Additional abatement later in lease? (If yes, hardcode schedule values)', kind: 'text',  format: 'text',   value: assumptions.additionalAbatementFlag });
+  entries.push({ id: 'section_abatement', label: 'ABATEMENT', kind: 'heading' });
+  entries.push({ id: 'abatementStart', label: 'Abatement Start Date', kind: 'date', format: 'date', value: assumptions.abatementStart ?? null });
+  entries.push({ id: 'abatementEnd', label: 'Abatement End Date', kind: 'date', format: 'date', value: assumptions.abatementEndDate ?? null });
+  entries.push({ id: 'abatementAmount', label: 'Monthly Abatement Amount', kind: 'input', format: 'currency', value: assumptions.abatementAmount ?? 0 });
+  entries.push({ id: 'abatementMonths', label: 'Full Abatement Months', kind: 'input', format: 'int', value: assumptions.fullAbatementMonths ?? 0 });
+  entries.push({ id: 'abatementPct', label: 'Abatement Percentage (%)', kind: 'input', format: 'pct', value: assumptions.abatementPct ?? 0 });
+  entries.push({ id: 'abatementPartialFactor', label: 'Abatement Partial Month Factor', kind: 'input', format: 'pct', value: assumptions.abatementPartialFactor ?? 1 });
+  entries.push({ id: 'additionalAbatementFlag', label: 'Additional Abatement Periods', kind: 'input', format: 'int', value: 0 });
 
-  // ── Section 5: Free Rent ────────────────────────────────────────────────
-  entries.push({ id: 'section_freeRent',        label: 'FREE RENT',                                                                  kind: 'heading' });
-  entries.push({ id: 'freeRentStart',           label: 'First Free Rent Event',                                                      kind: 'date',    format: 'date',    value: assumptions.freeRentStart ?? null });
-  entries.push({ id: 'freeRentEnd',             label: 'Last Free Rent Event',                                                       kind: 'date',    format: 'date',    value: assumptions.freeRentEndDate ?? null });
-  entries.push({
-    id: 'freeRentMonths', label: 'Free Rent Event Count', kind: 'computed', format: 'int', value: assumptions.freeRentMonths ?? 0,
-    formulaFn: (cellMap) => `IF(AND(${cellMap.freeRentStart}<>"",${cellMap.freeRentEnd}<>""),DATEDIF(${cellMap.freeRentStart},${cellMap.freeRentEnd},"M")+1,0)`,
-  });
-  entries.push({ id: 'freeRentPct',            label: 'Free Rent Assumption',                                                        kind: 'text',    format: 'text',    value: '100%' });
-  entries.push({ id: 'additionalFreeRentFlag', label: 'Additional free rent later in lease? (If yes, hardcode schedule values)',      kind: 'text',    format: 'text',    value: assumptions.additionalFreeRentFlag });
+  entries.push({ id: 'section_freeRent', label: 'FREE RENT', kind: 'heading' });
+  entries.push({ id: 'freeRentStart', label: 'Free Rent Start Date', kind: 'date', format: 'date', value: assumptions.freeRentStart ?? null });
+  entries.push({ id: 'freeRentEnd', label: 'Free Rent End Date', kind: 'date', format: 'date', value: assumptions.freeRentEndDate ?? null });
+  entries.push({ id: 'freeRentMonths', label: 'Free Rent Months', kind: 'input', format: 'int', value: assumptions.freeRentMonths ?? 0 });
+  entries.push({ id: 'freeRentPct', label: 'Free Rent Percentage (%)', kind: 'input', format: 'pct', value: assumptions.freeRentPct ?? 0 });
+  entries.push({ id: 'additionalFreeRentFlag', label: 'Additional Free Rent Periods', kind: 'input', format: 'int', value: 0 });
 
-  // ── Section 6: Non-Recurring Charges (always 11 slots) ──────────────────
   entries.push({ id: 'section_nonRecurring', label: 'NON-RECURRING CHARGES', kind: 'heading' });
-  const otItems = assumptions.oneTimeItems ?? [];
-  otItems.forEach((item, idx) => {
+  for (const [index, item] of (assumptions.oneTimeItems ?? []).entries()) {
     entries.push({
-      id:      `ot_${idx}`,
-      label:   item.label || '',
-      kind:    'ot_item',
-      format:  'currency',
-      value:   item.amount ?? 0,
-      otDate:  item.date ?? null,
+      id: `ot_${index}`,
+      label: item.label || '',
+      kind: 'ot_item',
+      format: 'currency',
+      value: item.amount ?? 0,
+      otDate: item.date ?? null,
     });
-  });
+  }
 
   return entries;
 }
@@ -247,8 +273,10 @@ function computeAssumptions(rows, params, activeCategories) {
   const isAggregate = nnnMode === 'aggregate';
 
   if (!rows || rows.length === 0) {
-    const rawOt = (params.oneTimeItems ?? []).map((i) => ({
-      label: i.label ?? '', date: dateToISO(i.date), amount: Number(i.amount) || 0,
+    const rawOt = (params.oneTimeItems ?? []).map((item) => ({
+      label: item.label ?? '',
+      date: dateToISO(item.date),
+      amount: Number(item.amount) || 0,
     }));
     const empty = {
       leaseName: params.leaseName || '',
@@ -268,14 +296,26 @@ function computeAssumptions(rows, params, activeCategories) {
       fullAbatementMonths: 0,
       abatementPartialFactor: 1,
       abatementStart: dateToISO(params.abatementStart) ?? null,
-      abatementEndDate: dateToISO(params.abatementEndDate),
-      abatementAmount: Number(params.abatementAmount) || 0,
-      abatementPct: Number(params.abatementPct) || 0,
-      additionalAbatementFlag: params.additionalAbatementFlag ?? 'No',
-      freeRentMonths: Number(params.freeRentMonths) || 0,
+      abatementEndDate: dateToISO(params.abatementEndDate) ?? null,
+      abatementPct: (Number(params.abatementPct) || 0) / 100,
+      abatementAmount: 0,
       freeRentStart: dateToISO(params.freeRentStart) ?? null,
-      freeRentEndDate: dateToISO(params.freeRentEndDate),
-      additionalFreeRentFlag: params.additionalFreeRentFlag ?? 'No',
+      freeRentEndDate: dateToISO(params.freeRentEndDate) ?? null,
+      freeRentPct: 0,
+      freeRentMonths: 0,
+      freeRentConcessions: padConcessionItems([], () => ({
+        label: 'Free rent month',
+        monthNumber: null,
+        date: null,
+        amount: null,
+      })),
+      abatementConcessions: padConcessionItems([], () => ({
+        label: 'Abatement month',
+        monthNumber: null,
+        date: null,
+        amount: null,
+        pct: null,
+      })),
       oneTimeItems: padNrcItems(rawOt),
       categories: {},
     };
@@ -311,47 +351,14 @@ function computeAssumptions(rows, params, activeCategories) {
   const abatementPartialFactor = boundaryRow
     ? (boundaryRow.baseRentProrationFactor ?? 1)
     : 1;
-  const freeRentRows = rows.filter((row) => row.concessionType === 'free_rent');
-  const explicitFreeRentRows = freeRentRows.filter((row) => row.concessionScope === 'monthly_row');
-  const legacyFreeRentRows = freeRentRows.filter((row) => row.concessionScope === 'legacy_window');
-  const abatementRows = rows.filter((row) =>
-    row.concessionType === 'abatement' || ((row.abatementAmount ?? 0) > 0 && (row.baseRentApplied ?? 0) > 0)
-  );
-  const explicitAbatementRows = abatementRows.filter((row) => row.concessionScope === 'monthly_row');
-  const legacyAbatementRows = abatementRows.filter((row) => row.concessionScope === 'legacy_window');
-  const firstAbatementRow = abatementRows[0] ?? rows.find((row) => (row.abatementAmount ?? 0) > 0) ?? null;
-  const firstLegacyAbatementRow = legacyAbatementRows[0] ?? null;
-  const lastLegacyAbatementRow = legacyAbatementRows[legacyAbatementRows.length - 1] ?? null;
-  const firstFreeRentRow = freeRentRows[0] ?? null;
-  const firstLegacyFreeRentRow = legacyFreeRentRows[0] ?? null;
-  const lastFreeRentRow = freeRentRows[freeRentRows.length - 1] ?? null;
-  const lastLegacyFreeRentRow = legacyFreeRentRows[legacyFreeRentRows.length - 1] ?? null;
-  const freeRentMonths = freeRentRows.length;
-  const derivedAbatementPct = firstAbatementRow?.concessionValueMode === 'percent'
-    ? Number(firstAbatementRow.concessionValue) || 0
-    : (
-      (firstAbatementRow?.periodAdjustedBaseRent ?? firstAbatementRow?.scheduledBaseRent ?? 0) > 0
-        ? ((firstAbatementRow?.abatementAmount ?? 0) / (firstAbatementRow?.periodAdjustedBaseRent ?? firstAbatementRow?.scheduledBaseRent ?? 1)) * 100
-        : 0
-    );
-  const abatementAmount = Number(firstAbatementRow?.abatementAmount ?? params.abatementAmount ?? 0);
-  const abatementStart = firstLegacyAbatementRow?.concessionStartDate
-    ?? firstLegacyAbatementRow?.concessionTriggerDate
-    ?? (explicitAbatementRows.length === 0 ? dateToISO(params.abatementStart) ?? null : null);
-  const abatementEndDate = lastLegacyAbatementRow?.concessionEndDate
-    ?? lastLegacyAbatementRow?.concessionTriggerDate
-    ?? (explicitAbatementRows.length === 0 ? dateToISO(params.abatementEndDate) : null);
-  const additionalAbatementFlag = abatementRows.length > 1 ? 'Yes - resolved via dated monthly schedule rows' : (params.additionalAbatementFlag ?? 'No');
-  const additionalFreeRentFlag = freeRentRows.length > 1 ? 'Yes - resolved via dated monthly schedule rows' : (params.additionalFreeRentFlag ?? 'No');
 
-  // Derived Lease Driver computed fields
   const totalLeaseTerm = rows.length;
   let effectiveMonth = 0;
   const effDateISO = dateToISO(params.effectiveAnalysisDate);
   if (effDateISO) {
-    for (let i = rows.length - 1; i >= 0; i--) {
-      if ((rows[i].periodStart ?? '') <= effDateISO) {
-        effectiveMonth = rows[i].leaseMonth ?? rows[i]['Month #'] ?? (i + 1);
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      if ((rows[index].periodStart ?? '') <= effDateISO) {
+        effectiveMonth = rows[index].leaseMonth ?? rows[index]['Month #'] ?? (index + 1);
         break;
       }
     }
@@ -359,20 +366,19 @@ function computeAssumptions(rows, params, activeCategories) {
   const monthsRemaining = Math.max(0, totalLeaseTerm - effectiveMonth);
   const monthsUntilNextEsc = effectiveMonth > 0 ? 12 - ((effectiveMonth - 1) % 12) : 12;
 
-  const commencementDate = firstRow.periodStart ?? null;
-  const rawOt = (params.oneTimeItems ?? []).map((i) => ({
-    label: i.label ?? '', date: dateToISO(i.date), amount: Number(i.amount) || 0,
+  const rawOt = (params.oneTimeItems ?? []).map((item) => ({
+    label: item.label ?? '',
+    date: dateToISO(item.date),
+    amount: Number(item.amount) || 0,
   }));
 
   const assumptions = {
     leaseName: String(params.leaseName || ''),
     nnnMode,
     squareFootage: Number(params.squareFootage) || 0,
-    commencementDate,
+    commencementDate: firstRow.periodStart ?? null,
     expirationDate: lastRow.periodEnd ?? null,
-    // Spec §10: default rentCommencementDate to commencementDate
-    rentCommencementDate: dateToISO(params.rentCommencementDate) ?? commencementDate,
-    // Spec §7: default analysisDate to first of current month
+    rentCommencementDate: dateToISO(params.rentCommencementDate) ?? (firstRow.periodStart ?? null),
     effectiveAnalysisDate: dateToISO(params.effectiveAnalysisDate) ?? currentMonthFirstDayISO(),
     totalLeaseTerm,
     effectiveMonth,
@@ -383,20 +389,16 @@ function computeAssumptions(rows, params, activeCategories) {
     anniversaryMonth: 1,
     fullAbatementMonths,
     abatementPartialFactor,
-    abatementStart,
-    abatementEndDate,
-    abatementAmount,
-    abatementPct: derivedAbatementPct,
-    additionalAbatementFlag,
-    freeRentMonths,
-    freeRentStart: firstLegacyFreeRentRow?.concessionStartDate
-      ?? firstLegacyFreeRentRow?.concessionTriggerDate
-      ?? (explicitFreeRentRows.length === 0 ? dateToISO(params.freeRentStart) ?? null : null),
-    freeRentEndDate: lastLegacyFreeRentRow?.concessionEndDate
-      ?? lastLegacyFreeRentRow?.concessionTriggerDate
-      ?? (explicitFreeRentRows.length === 0 ? dateToISO(params.freeRentEndDate) : null),
-    additionalFreeRentFlag,
-    // Spec §6.1: always emit exactly 11 NRC slots
+    abatementStart: dateToISO(params.abatementStart) ?? null,
+    abatementEndDate: dateToISO(params.abatementEndDate) ?? null,
+    abatementPct: (Number(params.abatementPct) || 0) / 100,
+    abatementAmount: 0,
+    freeRentStart: dateToISO(params.freeRentStart) ?? null,
+    freeRentEndDate: dateToISO(params.freeRentEndDate) ?? null,
+    freeRentPct: 0,
+    freeRentMonths: 0,
+    freeRentConcessions: buildFreeRentConcessionRows(rows),
+    abatementConcessions: buildAbatementConcessionRows(rows),
     oneTimeItems: padNrcItems(rawOt),
     categories: {},
   };
@@ -407,36 +409,31 @@ function computeAssumptions(rows, params, activeCategories) {
   }
 
   for (const category of activeCategories) {
-    // Prefer direct lookup from params.charges when available; fall back to
-    // legacy keyed params for the static 5-category path.
     const chargeFromArray = Array.isArray(params.charges)
-      ? params.charges.find((c) => c.key === category.key)
+      ? params.charges.find((charge) => charge.key === category.key)
       : null;
     assumptions.categories[category.key] = chargeFromArray
       ? { year1: Number(chargeFromArray.year1) || 0, escRate: (Number(chargeFromArray.escPct) || 0) / 100 }
       : { year1: Number(params[category.paramKey]?.year1) || 0, escRate: (Number(params[category.paramKey]?.escPct) || 0) / 100 };
   }
 
-  // Normalized charges array consumed by leaseScheduleSpec for column layout and
-  // assumption block rendering. When params.charges is present, use it directly.
-  // Otherwise derive from activeCategories for backward compat.
   if (Array.isArray(params.charges) && params.charges.length > 0) {
     assumptions.charges = params.charges
-      .filter((c) => !(isAggregate && c.canonicalType === 'nnn'))
-      .map((c) => ({
-        key:          c.key,
-        canonicalType: c.canonicalType,
-        displayLabel:  c.displayLabel,
-        year1:        Number(c.year1) || 0,
-        escRate:      (Number(c.escPct) || 0) / 100,
+      .filter((charge) => !(isAggregate && charge.canonicalType === 'nnn'))
+      .map((charge) => ({
+        key: charge.key,
+        canonicalType: charge.canonicalType,
+        displayLabel: charge.displayLabel,
+        year1: Number(charge.year1) || 0,
+        escRate: (Number(charge.escPct) || 0) / 100,
       }));
   } else {
-    assumptions.charges = activeCategories.map((cat) => ({
-      key:           cat.key,
-      canonicalType: cat.group === 'nnn' ? 'nnn' : 'other',
-      displayLabel:  cat.displayLabel,
-      year1:         Number(params[cat.paramKey]?.year1) || 0,
-      escRate:       (Number(params[cat.paramKey]?.escPct) || 0) / 100,
+    assumptions.charges = activeCategories.map((category) => ({
+      key: category.key,
+      canonicalType: category.group === 'nnn' ? 'nnn' : 'other',
+      displayLabel: category.displayLabel,
+      year1: Number(params[category.paramKey]?.year1) || 0,
+      escRate: (Number(params[category.paramKey]?.escPct) || 0) / 100,
     }));
   }
 
