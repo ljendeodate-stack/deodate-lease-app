@@ -21,13 +21,13 @@ export function buildLegacyLeaseScheduleSpec(exportModel, layout) {
       { hpt: 16 },
       { hpt: 14 },
       {},
-      ...Array(layout.assumptionEntries.length).fill({ hpt: 18 }),
+      ...Array(Math.max(0, layout.assumptionLastRow - layout.assumptionStartRow + 1)).fill({ hpt: 18 }),
       {},
       { hpt: 44 },
     ],
     sections: {
       title: buildTitleSection(exportModel.filename, layout.lastCol),
-      assumptions: buildAssumptionsSection(layout.assumptionEntries, layout.cellMap, layout),
+      assumptions: buildAssumptionsSection(layout.assumptionEntries, layout.cellMap, layout, exportModel.assumptions),
       header: buildHeaderSection(exportModel.columns, layout.headerRow),
       data: buildDataSection(exportModel, layout),
       totals: buildTotalsSection(exportModel.columns, layout),
@@ -98,7 +98,7 @@ function buildTitleSection(filename, lastCol) {
   };
 }
 
-function buildAssumptionsSection(assumptionEntries, cellMap, layout = null) {
+function buildAssumptionsSection(assumptionEntries, cellMap, layout = null, assumptions = {}) {
   const labelStyle = {
     font:      { ...FONT_B, color: { rgb: '1F3864' } },
     fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
@@ -124,6 +124,38 @@ function buildAssumptionsSection(assumptionEntries, cellMap, layout = null) {
   };
 
   const cells = [];
+  const inputCellMaybeBlank = (value, format, align = 'right') => (
+    value === '' || value === null || value === undefined
+      ? {
+          t: 's',
+          v: '',
+          s: {
+            ...ds(C.inputFill, FMT.text, { align, fontColor: C.fcInput }),
+            border: ASSUMPTION_BORDER,
+          },
+        }
+      : {
+          t: 'n',
+          v: Number(value),
+          s: {
+            ...ds(C.inputFill, format, { align, fontColor: C.fcInput }),
+            border: ASSUMPTION_BORDER,
+          },
+        }
+  );
+  const derivedFormulaCell = (formula, fallback, format, align = 'right') => ({
+    t: 'n',
+    v: fallback ?? 0,
+    f: formula,
+    s: {
+      ...ds(C.white, format, { align, fontColor: C.fcCalc }),
+      border: ASSUMPTION_BORDER,
+    },
+  });
+  const totalStyle = {
+    ...TOTAL_BASE,
+    border: ASSUMPTION_BORDER,
+  };
 
   for (const entry of assumptionEntries) {
     const r = entry.row;
@@ -173,6 +205,102 @@ function buildAssumptionsSection(assumptionEntries, cellMap, layout = null) {
     }
     cells.push({ col: 2, row: r, cell: { ...valueCell, s: { ...valueCell.s, border: ASSUMPTION_BORDER } } });
   }
+
+  const scheduledBaseRentCol = layout?.colByKey?.scheduledBaseRent?.letter ?? 'E';
+  const periodStartCol = layout?.colByKey?.periodStart?.letter ?? 'A';
+
+  const renderConcessionTable = (tableLayout, items, headers, isAbatement = false) => {
+    headers.forEach((header, index) => {
+      cells.push({
+        col: tableLayout.labelCol + index,
+        row: tableLayout.headerRow,
+        cell: { t: 's', v: header, s: sectionHeadStyle },
+      });
+    });
+
+    items.forEach((item, index) => {
+      const row = tableLayout.dataStartRow + index;
+      const monthCellRef = `$${colLetter(tableLayout.monthCol)}$${row}`;
+      const dateFormula = `IF(${monthCellRef}="","",IFERROR(INDEX($${periodStartCol}$${layout.firstDataRow}:$${periodStartCol}$${layout.lastDataRow},${monthCellRef}),""))`;
+
+      cells.push({ col: tableLayout.labelCol, row, cell: { t: 's', v: item.label || '', s: labelStyle } });
+      cells.push({
+        col: tableLayout.dateCol,
+        row,
+        cell: derivedFormulaCell(dateFormula, toSerial(item.date) ?? 0, FMT.date, 'center'),
+      });
+      cells.push({
+        col: tableLayout.monthCol,
+        row,
+        cell: inputCellMaybeBlank(item.monthNumber, FMT.int, 'center'),
+      });
+
+      if (isAbatement) {
+        const pctCellRef = `$${colLetter(tableLayout.pctCol)}$${row}`;
+        const amountFormula = `IF(${monthCellRef}="","",IFERROR(INDEX($${scheduledBaseRentCol}$${layout.firstDataRow}:$${scheduledBaseRentCol}$${layout.lastDataRow},${monthCellRef})*${pctCellRef},0))`;
+        cells.push({
+          col: tableLayout.amountCol,
+          row,
+          cell: derivedFormulaCell(amountFormula, Number(item.amount) || 0, FMT.currency),
+        });
+        cells.push({
+          col: tableLayout.pctCol,
+          row,
+          cell: inputCellMaybeBlank(item.pct, FMT.pct),
+        });
+      } else {
+        const amountFormula = `IF(${monthCellRef}="","",IFERROR(INDEX($${scheduledBaseRentCol}$${layout.firstDataRow}:$${scheduledBaseRentCol}$${layout.lastDataRow},${monthCellRef}),0))`;
+        cells.push({
+          col: tableLayout.amountCol,
+          row,
+          cell: derivedFormulaCell(amountFormula, Number(item.amount) || 0, FMT.currency),
+        });
+      }
+    });
+
+    cells.push({ col: tableLayout.labelCol, row: tableLayout.totalRow, cell: { t: 's', v: 'TOTAL', s: totalStyle } });
+    if (isAbatement) {
+      cells.push({ col: tableLayout.dateCol, row: tableLayout.totalRow, cell: { t: 's', v: '', s: totalStyle } });
+      cells.push({ col: tableLayout.monthCol, row: tableLayout.totalRow, cell: { t: 's', v: '', s: totalStyle } });
+      cells.push({
+        col: tableLayout.amountCol,
+        row: tableLayout.totalRow,
+        cell: {
+          t: 'n',
+          v: 0,
+          f: `SUM(${colLetter(tableLayout.amountCol)}${tableLayout.dataStartRow}:${colLetter(tableLayout.amountCol)}${tableLayout.dataEndRow})`,
+          s: { ...totalStyle, numFmt: FMT.currency },
+        },
+      });
+      cells.push({ col: tableLayout.pctCol, row: tableLayout.totalRow, cell: { t: 's', v: 'NA', s: totalStyle } });
+    } else {
+      cells.push({ col: tableLayout.dateCol, row: tableLayout.totalRow, cell: { t: 's', v: '', s: totalStyle } });
+      cells.push({ col: tableLayout.monthCol, row: tableLayout.totalRow, cell: { t: 's', v: '', s: totalStyle } });
+      cells.push({
+        col: tableLayout.amountCol,
+        row: tableLayout.totalRow,
+        cell: {
+          t: 'n',
+          v: 0,
+          f: `SUM(${colLetter(tableLayout.amountCol)}${tableLayout.dataStartRow}:${colLetter(tableLayout.amountCol)}${tableLayout.dataEndRow})`,
+          s: { ...totalStyle, numFmt: FMT.currency },
+        },
+      });
+    }
+  };
+
+  renderConcessionTable(
+    layout.abatementTable,
+    assumptions.abatementConcessions ?? [],
+    ['Abatement option months', 'Date', 'Month #', 'abatement (USD)', '% of base rent @ date'],
+    true,
+  );
+  renderConcessionTable(
+    layout.freeRentTable,
+    assumptions.freeRentConcessions ?? [],
+    ['Free rent option months', 'Date', 'Month #', 'free rent (USD)'],
+    false,
+  );
 
   return { cells };
 }
@@ -243,7 +371,9 @@ function expectedScheduledBaseRent(row, assumptions) {
 }
 
 function canUseAnnualBaseRentFormula(row, assumptions) {
-  return currencyClose(row.scheduledBaseRent ?? 0, expectedScheduledBaseRent(row, assumptions));
+  const expected = expectedScheduledBaseRent(row, assumptions);
+  const tolerance = Math.max(0.01, Math.abs(expected) * 0.0015);
+  return Math.abs((row.scheduledBaseRent ?? 0) - expected) <= tolerance;
 }
 
 function expectedDynamicChargeAmount(row, categoryAssumption) {
@@ -349,9 +479,8 @@ function buildDataSection(exportModel, layout) {
     const pe = `${periodEndCol}${worksheetRow}`;
     const sbr = `${scheduledBaseRentCol}${worksheetRow}`;
     const pfExpr = `IF(${pe}>=EDATE(${ps},1)-1,1,MAX(0,(${pe}-${ps}+1)/DAY(EOMONTH(${pe},0))))`;
-    const freeRentActive = `AND(${cellMap.freeRentStart}<>"",${cellMap.freeRentEnd}<>"",${CD(ps)}>=${CD(cellMap.freeRentStart)},${CD(ps)}<=${CD(cellMap.freeRentEnd)})`;
-    const fullAbatement = `AND(${cellMap.abatementStart}<>"",${cellMap.abatementEnd}<>"",${CD(ps)}>=${CD(cellMap.abatementStart)},${CD(pe)}<=${CD(cellMap.abatementEnd)})`;
-    const boundaryAbatement = `AND(${cellMap.abatementStart}<>"",${cellMap.abatementEnd}<>"",${CD(ps)}>=${CD(cellMap.abatementStart)},${CD(ps)}<=${CD(cellMap.abatementEnd)},${CD(pe)}>${CD(cellMap.abatementEnd)})`;
+    const freeRentActive = `COUNTIF(${layout.freeRentTable.monthRange},${monthCol}${worksheetRow})>0`;
+    const abatementAmount = `SUMIF(${layout.abatementTable.monthRange},${monthCol}${worksheetRow},${layout.abatementTable.amountRange})`;
 
     // Scheduled Base Rent: annual schedules remain dynamic; irregular step-ups stay hardcoded
     const isIrregularBaseRent = Boolean(row.isIrregularBaseRent);
@@ -379,7 +508,7 @@ function buildDataSection(exportModel, layout) {
       cell: (isIrregularBaseRent || hasExplicitMonthlyConcession(row))
         ? calcCell(row.baseRentApplied ?? 0, FMT.currency, nnnFill, baseRentStyle)
         : formulaCell(
-            `(IF(${freeRentActive},0,IF(${fullAbatement},MAX(0,${sbr}-${cellMap.abatementAmount}),IF(${boundaryAbatement},${sbr}*${cellMap.abatementPartialFactor},${sbr}))))*${pfExpr}`,
+            `IF(${termGate},0,IF(${rentCommGate},0,IF(${freeRentActive},0,MAX(0,${sbr}-${abatementAmount}))*${pfExpr}))`,
             row.baseRentApplied ?? 0,
             FMT.currency,
             nnnFill,

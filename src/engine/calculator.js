@@ -724,8 +724,9 @@ export function calculateAllCharges(expandedRows, params) {
     const irregularEscalationTargets = [];
     const irregularEscalationLabels = [];
     const expectedAnnualBaseRent = expectedAnnualBaseRentForRow(row, year1BaseRent, annualEscRate);
+    const annualTol = Math.max(0.01, Math.abs(expectedAnnualBaseRent) * 0.0015);
     const isIrregularBaseRent = Boolean(row.baseRentOverrideApplied) ||
-      !currencyClose(row.scheduledBaseRent ?? 0, expectedAnnualBaseRent);
+      Math.abs((row.scheduledBaseRent ?? 0) - expectedAnnualBaseRent) > annualTol;
 
     if (isIrregularBaseRent) {
       irregularEscalationTargets.push(RECURRING_OVERRIDE_TARGETS.BASE_RENT);
