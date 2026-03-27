@@ -3,7 +3,7 @@
  * Expandable per-row calculation trace.
  */
 
-import { formatFactor } from '../utils/formatUtils.js';
+import { formatDollar, formatFactor } from '../utils/formatUtils.js';
 import { NNN_BUCKET_KEYS, EXPENSE_CATEGORY_DEFS } from '../engine/labelClassifier.js';
 
 function getCategories(row) {
@@ -115,6 +115,23 @@ export default function TracePanel({ row }) {
     return null;
   })();
 
+  const irregularChargeLabels = getCategories(row)
+    .filter((category) => category.overrideApplied)
+    .map((category) => category.label);
+
+  const escalationSemanticsDetail = (() => {
+    const details = [];
+    if (row.isIrregularBaseRent) {
+      details.push('Base rent follows a non-annual or explicitly overridden schedule on this row, so the preview and workbook treat it as a resolved irregular value.');
+    } else {
+      details.push('Base rent stays on the annual formula path on this row.');
+    }
+    if (irregularChargeLabels.length > 0) {
+      details.push(`Irregular recurring override active for ${irregularChargeLabels.join(', ')}.`);
+    }
+    return details.join(' ');
+  })();
+
   return (
     <div className="border-t border-app-border bg-app-shell px-5 py-4">
       <p className="section-kicker">Calculation Trace</p>
@@ -133,6 +150,11 @@ export default function TracePanel({ row }) {
             label="Base Rent Proration Factor"
             value={formatFactor(row.baseRentProrationFactor)}
             detail={prorationDetail}
+          />
+          <TraceRow
+            label="Escalation Semantics"
+            value={row.hasIrregularEscalation ? 'Irregular / resolved override' : 'Annual / formula-driven'}
+            detail={escalationSemanticsDetail}
           />
           {row.concessionType && (
             <TraceRow
@@ -157,11 +179,15 @@ export default function TracePanel({ row }) {
                 value={
                   active === false
                     ? 'INACTIVE'
+                    : category.overrideApplied
+                    ? 'IRREGULAR OVERRIDE'
                     : `Year index: ${escYears ?? '-'} -> x(1 + ${escPct ?? 0}%)^${escYears ?? 0}`
                 }
                 detail={
                   active === false
                     ? 'Charge gated: billing start date not yet reached for this row.'
+                    : category.overrideApplied
+                    ? `Explicit recurring override active on this row. Resolved monthly amount: ${formatDollar(row.chargeAmounts?.[key] ?? row[`${key}Amount`] ?? 0)}.`
                     : escYears === null
                     ? 'Escalation anchored to lease year with no explicit escalation start date.'
                     : 'Escalation anchored to explicit escStart date.'

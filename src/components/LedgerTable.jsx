@@ -39,6 +39,14 @@ function UnresolvedFlag() {
   );
 }
 
+function IrregularFlag() {
+  return (
+    <span className="mr-2 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-status-err-title">
+      Irregular
+    </span>
+  );
+}
+
 function Paginator({ page, totalPages, onPage }) {
   if (totalPages <= 1) return null;
   return (
@@ -126,6 +134,9 @@ export default function LedgerTable({ rows = [] }) {
             {pageRows.map((row, localIdx) => {
               const absIdx = page * PAGE_SIZE + localIdx;
               const isExpanded = expandedIdx === absIdx;
+              const irregularTitle = row.irregularEscalationLabels?.length > 0
+                ? `Irregular escalation: ${row.irregularEscalationLabels.join(', ')}`
+                : undefined;
               const rowTone = row.isAbatementRow
                 ? 'bg-status-warn-bg/55 hover:bg-status-warn-bg/80'
                 : absIdx % 2 === 0
@@ -144,14 +155,22 @@ export default function LedgerTable({ rows = [] }) {
                     <Td>{formatDateMDY(row.periodEnd)}</Td>
                     <Td className="font-mono text-txt-muted">{row.leaseYear}</Td>
                     <Td className="font-mono text-txt-muted">{row.leaseMonth}</Td>
-                    <Td>{row.scheduledBaseRent != null ? formatDollar(row.scheduledBaseRent) : <UnresolvedFlag />}</Td>
-                    <Td>
+                    <Td title={row.isIrregularBaseRent ? irregularTitle : undefined}>
+                      {row.isIrregularBaseRent && <IrregularFlag />}
+                      <span className={row.isIrregularBaseRent ? 'font-semibold text-status-err-title' : ''}>
+                        {row.scheduledBaseRent != null ? formatDollar(row.scheduledBaseRent) : <UnresolvedFlag />}
+                      </span>
+                    </Td>
+                    <Td title={row.isIrregularBaseRent ? irregularTitle : undefined}>
                       {row.isConcessionRow && (
                         <span className="mr-2 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-status-warn-title">
                           Concession
                         </span>
                       )}
-                      {row.baseRentApplied != null ? formatDollar(row.baseRentApplied) : <UnresolvedFlag />}
+                      {row.isIrregularBaseRent && <IrregularFlag />}
+                      <span className={row.isIrregularBaseRent ? 'font-semibold text-status-err-title' : ''}>
+                        {row.baseRentApplied != null ? formatDollar(row.baseRentApplied) : <UnresolvedFlag />}
+                      </span>
                     </Td>
                     <Td>{formatDollar(row.abatementAmount ?? 0)}</Td>
                     <Td className="font-mono text-txt-muted">{formatFactor(row.baseRentProrationFactor)}</Td>
@@ -161,10 +180,20 @@ export default function LedgerTable({ rows = [] }) {
                       const amount = row.chargeAmounts?.[charge.key] ?? row[`${charge.key}Amount`] ?? 0;
                       const active = detail?.active ?? row[`${charge.key}Active`];
                       return (
-                        <Td key={charge.key}>
+                        <Td
+                          key={charge.key}
+                          title={detail?.overrideApplied ? `Irregular escalation: ${detail.displayLabel || charge.label}` : undefined}
+                        >
                           {active === false
                             ? <span className="text-txt-faint italic">inactive</span>
-                            : formatDollar(amount)}
+                            : (
+                              <>
+                                {detail?.overrideApplied && <IrregularFlag />}
+                                <span className={detail?.overrideApplied ? 'font-semibold text-status-err-title' : ''}>
+                                  {formatDollar(amount)}
+                                </span>
+                              </>
+                            )}
                         </Td>
                       );
                     })}

@@ -120,4 +120,22 @@ describe('formToCalculatorParams', () => {
       value: 75,
     });
   });
+
+  it('preserves dated recurring overrides as normalized override events', () => {
+    const params = formToCalculatorParams({
+      nnnMode: 'individual',
+      recurringOverrides: [
+        { targetKey: 'base_rent', date: '02/15/2026', amount: '1200', label: 'Five-year step' },
+      ],
+      oneTimeItems: [],
+    });
+
+    expect(params.recurringOverrides).toHaveLength(1);
+    expect(params.recurringOverrides[0]).toMatchObject({
+      targetKey: 'base_rent',
+      amount: 1200,
+      label: 'Five-year step',
+    });
+    expect(params.recurringOverrides[0].effectiveDate).not.toBeNull();
+  });
 });

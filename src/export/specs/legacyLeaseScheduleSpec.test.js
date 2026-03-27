@@ -44,8 +44,12 @@ describe('buildLegacyLeaseScheduleSpec', () => {
     expect(worksheet[`F${firstDataRow}`].f).toContain(`${layout.colByKey.scheduledBaseRent.letter}${firstDataRow}`);
     expect(worksheet[`E${firstDataRow + 60}`].f).toBeUndefined();
     expect(worksheet[`E${firstDataRow + 60}`].v).toBe(12500);
-    expect(worksheet[`F${firstDataRow + 60}`].f).toContain(`${layout.colByKey.scheduledBaseRent.letter}${firstDataRow + 60}`);
+    expect(worksheet[`E${firstDataRow + 60}`].s.font.bold).toBe(true);
+    expect(worksheet[`E${firstDataRow + 60}`].s.font.color.rgb).toBe('C00000');
+    expect(worksheet[`F${firstDataRow + 60}`].f).toBeUndefined();
     expect(worksheet[`F${firstDataRow + 60}`].v).toBe(12500);
+    expect(worksheet[`F${firstDataRow + 60}`].s.font.bold).toBe(true);
+    expect(worksheet[`F${firstDataRow + 60}`].s.font.color.rgb).toBe('C00000');
   });
 
   it('keeps explicit dated concession rows hardcoded without collapsing neighboring annual rows', () => {
@@ -105,5 +109,45 @@ describe('buildLegacyLeaseScheduleSpec', () => {
     expect(worksheet[`${layout.colByKey.nonRecurringCharges.letter}${firstDataRow}`].f).toContain('SUMPRODUCT');
     expect(worksheet[`${layout.colByKey.totalMonthly.letter}${firstDataRow}`].f).toContain(`${layout.colByKey.baseRentApplied.letter}${firstDataRow}`);
     expect(worksheet[`${layout.colByKey.obligRem.letter}${firstDataRow}`].f).toContain(`:${layout.colByKey.totalMonthly.letter}${layout.lastDataRow}`);
+  });
+
+  it('marks recurring charge overrides in bold red and hardcodes those rows', () => {
+    const charge = {
+      key: 'parking',
+      canonicalType: 'other',
+      displayLabel: 'Parking',
+      year1: 200,
+      escPct: 0,
+      chargeStart: null,
+      escStart: null,
+    };
+
+    const processedRows = makeProcessedRows([
+      { periodStart: parseMDYStrict('01/01/2030'), periodEnd: parseMDYStrict('03/31/2030'), monthlyRent: 7000 },
+    ], {
+      nnnMode: 'individual',
+      squareFootage: 1000,
+      oneTimeItems: [],
+      charges: [charge],
+      recurringOverrides: [
+        { targetKey: 'parking', effectiveDate: parseMDYStrict('02/10/2030'), amount: 325 },
+      ],
+      abatementPct: 0,
+      abatementEndDate: null,
+    });
+
+    const { layout, worksheet } = buildWorksheet(processedRows, {
+      nnnMode: 'individual',
+      squareFootage: 1000,
+      charges: [charge],
+    }, 'irregular-charge');
+    const firstDataRow = layout.firstDataRow;
+    const parkingCell = layout.colByKey.parking.letter;
+
+    expect(worksheet[`${parkingCell}${firstDataRow}`].f).toContain(layout.cellMap.parking_year1);
+    expect(worksheet[`${parkingCell}${firstDataRow + 1}`].f).toBeUndefined();
+    expect(worksheet[`${parkingCell}${firstDataRow + 1}`].v).toBe(325);
+    expect(worksheet[`${parkingCell}${firstDataRow + 1}`].s.font.bold).toBe(true);
+    expect(worksheet[`${parkingCell}${firstDataRow + 1}`].s.font.color.rgb).toBe('C00000');
   });
 });

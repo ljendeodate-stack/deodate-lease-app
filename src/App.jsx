@@ -713,6 +713,7 @@ export default function App() {
               sfRequired={sfRequired}
               leaseStartDate={expandedRows.length > 0 ? expandedRows[0].date : null}
               leaseEndDate={expandedRows.length > 0 ? expandedRows[expandedRows.length - 1].periodEnd : null}
+              schedulePeriodRows={schedulePeriodRows}
               scheduledBaseRent={expandedRows.length > 0 ? expandedRows[0].monthlyRent : null}
               expandedRowCount={expandedRows.length}
               onSubmit={handleFormSubmit}

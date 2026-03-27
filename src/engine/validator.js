@@ -7,6 +7,7 @@ import { EXPENSE_CATEGORY_DEFS } from './labelClassifier.js';
 import {
   CONCESSION_SCOPES,
   CONCESSION_VALUE_MODES,
+  RECURRING_OVERRIDE_TARGETS,
   resolveMonthlyRowIndex,
 } from './leaseTerms.js';
 
@@ -61,6 +62,31 @@ function getChargeValidationEntries(params) {
       fieldPrefix: key,
       value: params[key],
     }));
+}
+
+function getRecurringOverrideTargets(params) {
+  const targets = new Map([
+    [RECURRING_OVERRIDE_TARGETS.BASE_RENT, 'Base Rent'],
+  ]);
+
+  if ((params.nnnMode ?? 'individual') === 'aggregate') {
+    targets.set(RECURRING_OVERRIDE_TARGETS.NNN_AGGREGATE, 'NNN - Aggregate');
+  }
+
+  if (Array.isArray(params.charges) && params.charges.length > 0) {
+    params.charges.forEach((charge) => {
+      if (!charge?.key) return;
+      if ((params.nnnMode ?? 'individual') === 'aggregate' && charge.canonicalType === 'nnn') return;
+      targets.set(charge.key, charge.displayLabel || charge.key);
+    });
+    return targets;
+  }
+
+  STANDARD_CHARGE_KEYS.forEach((key) => {
+    targets.set(key, EXPENSE_CATEGORY_DEFS[key]?.displayLabel || key);
+  });
+
+  return targets;
 }
 
 function validateConcessionEvents(params, rows, errors, warnings) {
@@ -169,6 +195,75 @@ function validateConcessionEvents(params, rows, errors, warnings) {
   }
 }
 
+function validateRecurringOverrides(params, rows, errors, warnings) {
+  const { leaseStart, leaseEnd } = getLeaseBounds(rows);
+  const validTargets = getRecurringOverrideTargets(params);
+  const rowAssignments = new Map();
+
+  (params.recurringOverrides ?? []).forEach((override, index) => {
+    const fieldBase = `recurringOverrides.${index}`;
+    const targetKey = String(override?.targetKey || '');
+    const targetLabel = validTargets.get(targetKey) ?? 'Recurring override';
+
+    if (!targetKey) {
+      pushIssue(errors, `${fieldBase}.targetKey`, 'Recurring override target is required.', 'error');
+      return;
+    }
+    if (!validTargets.has(targetKey)) {
+      pushIssue(errors, `${fieldBase}.targetKey`, 'Recurring override target is not available for the current recurring setup.', 'error');
+    }
+
+    if (!override?.date || !String(override.date).trim()) {
+      pushIssue(errors, `${fieldBase}.date`, 'Recurring override date is required.', 'error');
+      return;
+    }
+
+    const date = parseLooseDate(override.date);
+    if (!date) {
+      pushIssue(errors, `${fieldBase}.date`, 'Recurring override date must be in MM/DD/YYYY format.', 'error');
+      return;
+    }
+
+    if (leaseStart && leaseEnd && (date < leaseStart || date > leaseEnd)) {
+      pushIssue(
+        warnings,
+        `${fieldBase}.date`,
+        `${targetLabel} override date falls outside the resolved lease term and will snap to the nearest schedule row.`,
+        'warning',
+      );
+    }
+
+    const rowIndex = resolveMonthlyRowIndex(rows, date);
+    if (rowIndex >= 0) {
+      const assignmentKey = `${targetKey}:${rowIndex}`;
+      if (rowAssignments.has(assignmentKey)) {
+        pushIssue(
+          errors,
+          `${fieldBase}.date`,
+          `${targetLabel} already has an override on that monthly row. Use one override per target per monthly row.`,
+          'error',
+        );
+      } else {
+        rowAssignments.set(assignmentKey, true);
+      }
+    }
+
+    if (override?.amount === '' || override?.amount === undefined || override?.amount === null) {
+      pushIssue(errors, `${fieldBase}.amount`, 'Recurring override monthly amount is required.', 'error');
+      return;
+    }
+
+    const amount = Number(override.amount);
+    if (!Number.isFinite(amount)) {
+      pushIssue(errors, `${fieldBase}.amount`, 'Recurring override monthly amount must be a number.', 'error');
+      return;
+    }
+    if (amount < 0) {
+      pushIssue(errors, `${fieldBase}.amount`, 'Recurring override monthly amount cannot be negative.', 'error');
+    }
+  });
+}
+
 export function validateParams(params, rows) {
   const errors = [];
   const warnings = [];
@@ -193,6 +288,7 @@ export function validateParams(params, rows) {
   }
 
   validateConcessionEvents(params, rows, errors, warnings);
+  validateRecurringOverrides(params, rows, errors, warnings);
 
   if ((params.nnnMode ?? 'individual') === 'aggregate') {
     if (params.nnnAggregate?.year1 !== '' && params.nnnAggregate?.year1 !== undefined) {

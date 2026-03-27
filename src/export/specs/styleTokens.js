@@ -26,6 +26,7 @@ export const C = {
   fcCalc:       '000000',   // black — formula / calculated values
   fcCrossSheet: '375623',   // dark green — cross-sheet references
   fcTotal:      '1F3864',   // navy — totals row
+  fcIrregular:  'C00000',   // dark red — irregular / non-annual resolved values
 
   inputFill:    'FFFACD',   // gentle yellow — user-editable assumption inputs
 };

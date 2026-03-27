@@ -297,6 +297,48 @@ describe('dated concession events', () => {
   });
 });
 
+describe('dated recurring overrides', () => {
+  it('replaces base rent from the trigger month forward and marks those rows irregular', () => {
+    const rows = expand(makePeriods('01/01/2030', '04/30/2030', 10000));
+    const params = baseParams({
+      recurringOverrides: [
+        { targetKey: 'base_rent', effectiveDate: parseMDYStrict('03/10/2030'), amount: 12500 },
+      ],
+    });
+
+    const result = calculateAllCharges(rows, params);
+    expect(result[0].scheduledBaseRent).toBe(10000);
+    expect(result[0].isIrregularBaseRent).toBe(false);
+    expect(result[2].scheduledBaseRent).toBe(12500);
+    expect(result[2].baseRentApplied).toBe(12500);
+    expect(result[2].baseRentOverrideApplied).toBe(true);
+    expect(result[2].isIrregularBaseRent).toBe(true);
+    expect(result[3].scheduledBaseRent).toBe(12500);
+    expect(result[3].hasIrregularEscalation).toBe(true);
+  });
+
+  it('replaces recurring charge amounts from the trigger month forward and marks those charge rows irregular', () => {
+    const rows = expand(makePeriods('01/01/2030', '03/31/2030', 5000));
+    const params = baseParams({
+      charges: [
+        { key: 'parking', canonicalType: 'other', displayLabel: 'Parking', year1: 150, escPct: 0, escStart: null, chargeStart: null },
+      ],
+      recurringOverrides: [
+        { targetKey: 'parking', effectiveDate: parseMDYStrict('02/05/2030'), amount: 225 },
+      ],
+    });
+
+    const result = calculateAllCharges(rows, params);
+    expect(result[0].chargeAmounts.parking).toBe(150);
+    expect(result[0].chargeDetails.parking.overrideApplied).toBe(false);
+    expect(result[1].chargeAmounts.parking).toBe(225);
+    expect(result[1].chargeDetails.parking.overrideApplied).toBe(true);
+    expect(result[1].hasIrregularEscalation).toBe(true);
+    expect(result[1].irregularEscalationLabels).toContain('Parking');
+    expect(result[1].isIrregularBaseRent).toBe(false);
+  });
+});
+
 describe('irregular stepped rent schedules', () => {
   it('preserves a five-year step-up because rent comes from explicit schedule rows, not annual assumptions', () => {
     const rows = expand([
@@ -307,8 +349,10 @@ describe('irregular stepped rent schedules', () => {
     const result = calculateAllCharges(rows, baseParams());
 
     expect(result[0].scheduledBaseRent).toBe(10000);
+    expect(result[0].isIrregularBaseRent).toBe(false);
     expect(result[59].scheduledBaseRent).toBe(10000);
     expect(result[60].scheduledBaseRent).toBe(12500);
+    expect(result[60].isIrregularBaseRent).toBe(true);
     expect(result[111].scheduledBaseRent).toBe(12500);
   });
 

@@ -13,6 +13,7 @@ import {
   CONCESSION_SCOPES,
   CONCESSION_TYPES,
   CONCESSION_VALUE_MODES,
+  RECURRING_OVERRIDE_TARGETS,
   resolveMonthlyRowIndex,
 } from './leaseTerms.js';
 
@@ -152,6 +153,83 @@ function normalizeConcessionEngineState(rows, params) {
     explicitMap,
     legacyWindows: buildLegacyWindowConcessions(params, rows),
   };
+}
+
+function normalizeRecurringOverrideState(rows, params) {
+  const byRow = new Map();
+  const overrides = Array.isArray(params.recurringOverrides) ? params.recurringOverrides : [];
+
+  for (const override of overrides) {
+    const effectiveDate = parseLooseDate(override?.effectiveDate ?? override?.date);
+    const rowIndex = resolveMonthlyRowIndex(rows, effectiveDate);
+    if (rowIndex < 0) continue;
+
+    const normalized = {
+      ...override,
+      targetKey: String(override?.targetKey || RECURRING_OVERRIDE_TARGETS.BASE_RENT),
+      effectiveDate,
+      amount: Number(override?.amount) || 0,
+    };
+
+    if (!byRow.has(rowIndex)) byRow.set(rowIndex, []);
+    byRow.get(rowIndex).push(normalized);
+  }
+
+  for (const rowOverrides of byRow.values()) {
+    rowOverrides.sort((a, b) => {
+      const left = a.effectiveDate?.getTime?.() ?? 0;
+      const right = b.effectiveDate?.getTime?.() ?? 0;
+      return left - right;
+    });
+  }
+
+  return { byRow };
+}
+
+function resolveActiveRecurringOverridesForRow(recurringOverrideState, rowIndex, activeOverrides) {
+  const rowOverrides = recurringOverrideState.byRow.get(rowIndex) ?? [];
+  for (const override of rowOverrides) {
+    activeOverrides.set(override.targetKey, override);
+  }
+  return activeOverrides;
+}
+
+function computeRecurringOverrideAmount(override, periodFactor) {
+  return Number(((Number(override?.amount) || 0) * periodFactor).toFixed(2));
+}
+
+function roundCurrency(value) {
+  return Number((Number(value) || 0).toFixed(2));
+}
+
+function currencyClose(a, b, tolerance = 0.01) {
+  return Math.abs((Number(a) || 0) - (Number(b) || 0)) <= tolerance;
+}
+
+function expectedAnnualBaseRentForRow(row, year1BaseRent, annualEscRate) {
+  const leaseYear = Number(row?.leaseYear ?? row?.['Year #'] ?? 0);
+  if (!leaseYear) return 0;
+  return roundCurrency(
+    (Number(year1BaseRent) || 0) * Math.pow(1 + (Number(annualEscRate) || 0), leaseYear - 1),
+  );
+}
+
+function inferAnnualBaseEscRate(rows) {
+  const year1BaseRent = Number(rows?.[0]?.scheduledBaseRent ?? 0);
+  if (year1BaseRent <= 0) {
+    return { year1BaseRent, annualEscRate: 0 };
+  }
+
+  const year2Row = rows.find((candidate) =>
+    (candidate?.leaseYear ?? candidate?.['Year #']) === 2 && !candidate?.baseRentOverrideApplied,
+  );
+
+  let annualEscRate = 0;
+  if (year2Row) {
+    annualEscRate = (Number(year2Row.scheduledBaseRent ?? 0) / year1BaseRent) - 1;
+  }
+
+  return { year1BaseRent, annualEscRate };
 }
 
 function applyExplicitConcession(event, scheduledBaseRent, periodFactor) {
@@ -316,6 +394,8 @@ export function calculateAllCharges(expandedRows, params) {
 
   const totalRows = rows.length;
   const concessionState = normalizeConcessionEngineState(rows, params);
+  const recurringOverrideState = normalizeRecurringOverrideState(rows, params);
+  const activeRecurringOverrides = new Map();
 
   const seenOTLabels = new Set();
   const otLabelOrder = [];
@@ -352,6 +432,8 @@ export function calculateAllCharges(expandedRows, params) {
 
   for (let i = 0; i < totalRows; i += 1) {
     const row = rows[i];
+    resolveActiveRecurringOverridesForRow(recurringOverrideState, i, activeRecurringOverrides);
+
     const leaseYear = Number(row['Year #'] || row.leaseYear || 1);
     const leaseMonth = Number(row['Month #'] || row.leaseMonth || i + 1);
     const { periodStart, periodEnd } = getRowBounds(rows, i);
@@ -362,7 +444,8 @@ export function calculateAllCharges(expandedRows, params) {
       calMonthDays,
     } = computePeriodFactor(i, totalRows, periodStart, periodEnd);
 
-    const scheduledBaseRent = Number(row.monthlyRent ?? row.scheduledBaseRent ?? 0);
+    const baseRentOverride = activeRecurringOverrides.get(RECURRING_OVERRIDE_TARGETS.BASE_RENT) ?? null;
+    const scheduledBaseRent = Number(baseRentOverride?.amount ?? row.monthlyRent ?? row.scheduledBaseRent ?? 0);
     const periodAdjustedBaseRent = scheduledBaseRent * periodFactor;
 
     const explicitEvent = concessionState.explicitMap.get(i) ?? null;
@@ -395,13 +478,16 @@ export function calculateAllCharges(expandedRows, params) {
     let otherChargesBase = 0;
 
     if (isAggregate) {
-      nnnAggregateAmount = Number(computeChargeAmount(
-        Number(nnnAggregate?.year1) || 0,
-        nnnAggEsc,
-        null,
-        leaseYear,
-        periodFactor,
-      ).toFixed(2));
+      const aggregateOverride = activeRecurringOverrides.get(RECURRING_OVERRIDE_TARGETS.NNN_AGGREGATE) ?? null;
+      nnnAggregateAmount = aggregateOverride
+        ? computeRecurringOverrideAmount(aggregateOverride, periodFactor)
+        : Number(computeChargeAmount(
+          Number(nnnAggregate?.year1) || 0,
+          nnnAggEsc,
+          null,
+          leaseYear,
+          periodFactor,
+        ).toFixed(2));
       trueNNN = nnnAggregateAmount;
       chargeAmounts.nnnAggregate = nnnAggregateAmount;
       chargeDetails.nnnAggregate = {
@@ -409,7 +495,8 @@ export function calculateAllCharges(expandedRows, params) {
         canonicalType: 'nnn',
         active: true,
         escYears: null,
-        escPct: Number(nnnAggregate?.escPct) || 0,
+        escPct: aggregateOverride ? 0 : Number(nnnAggregate?.escPct) || 0,
+        overrideApplied: Boolean(aggregateOverride),
       };
     }
 
@@ -417,12 +504,17 @@ export function calculateAllCharges(expandedRows, params) {
       for (const charge of paramCharges) {
         if (isAggregate && charge.canonicalType === 'nnn') continue;
 
+        const overrideEvent = activeRecurringOverrides.get(charge.key) ?? null;
         const escRate = (Number(charge.escPct) || 0) / 100;
-        const active = isChargeActive(periodStart, charge.chargeStart);
-        const escYears = active ? yearsSinceStart(periodStart, charge.escStart) : null;
-        const amount = active
-          ? Number(computeChargeAmount(Number(charge.year1) || 0, escRate, escYears, leaseYear, periodFactor).toFixed(2))
-          : 0;
+        const active = overrideEvent ? true : isChargeActive(periodStart, charge.chargeStart);
+        const escYears = overrideEvent ? null : (active ? yearsSinceStart(periodStart, charge.escStart) : null);
+        const amount = overrideEvent
+          ? computeRecurringOverrideAmount(overrideEvent, periodFactor)
+          : (
+            active
+              ? Number(computeChargeAmount(Number(charge.year1) || 0, escRate, escYears, leaseYear, periodFactor).toFixed(2))
+              : 0
+          );
 
         chargeAmounts[charge.key] = amount;
         chargeDetails[charge.key] = {
@@ -430,7 +522,8 @@ export function calculateAllCharges(expandedRows, params) {
           canonicalType: charge.canonicalType,
           active,
           escYears,
-          escPct: Number(charge.escPct) || 0,
+          escPct: overrideEvent ? 0 : Number(charge.escPct) || 0,
+          overrideApplied: Boolean(overrideEvent),
         };
 
         if (charge.canonicalType === 'nnn') {
@@ -469,38 +562,63 @@ export function calculateAllCharges(expandedRows, params) {
       }
     } else {
       if (!isAggregate) {
-        camsActive = isChargeActive(periodStart, cams?.chargeStart);
-        camsEscYears = camsActive ? yearsSinceStart(periodStart, cams?.escStart) : null;
-        camsAmount = camsActive
-          ? Number(computeChargeAmount(Number(cams?.year1) || 0, camsEsc, camsEscYears, leaseYear, periodFactor).toFixed(2))
-          : 0;
+        const camsOverride = activeRecurringOverrides.get('cams') ?? null;
+        camsActive = camsOverride ? true : isChargeActive(periodStart, cams?.chargeStart);
+        camsEscYears = camsOverride ? null : (camsActive ? yearsSinceStart(periodStart, cams?.escStart) : null);
+        camsAmount = camsOverride
+          ? computeRecurringOverrideAmount(camsOverride, periodFactor)
+          : (
+            camsActive
+              ? Number(computeChargeAmount(Number(cams?.year1) || 0, camsEsc, camsEscYears, leaseYear, periodFactor).toFixed(2))
+              : 0
+          );
 
-        insuranceActive = isChargeActive(periodStart, insurance?.chargeStart);
-        insuranceEscYears = insuranceActive ? yearsSinceStart(periodStart, insurance?.escStart) : null;
-        insuranceAmount = insuranceActive
-          ? Number(computeChargeAmount(Number(insurance?.year1) || 0, insuranceEsc, insuranceEscYears, leaseYear, periodFactor).toFixed(2))
-          : 0;
+        const insuranceOverride = activeRecurringOverrides.get('insurance') ?? null;
+        insuranceActive = insuranceOverride ? true : isChargeActive(periodStart, insurance?.chargeStart);
+        insuranceEscYears = insuranceOverride ? null : (insuranceActive ? yearsSinceStart(periodStart, insurance?.escStart) : null);
+        insuranceAmount = insuranceOverride
+          ? computeRecurringOverrideAmount(insuranceOverride, periodFactor)
+          : (
+            insuranceActive
+              ? Number(computeChargeAmount(Number(insurance?.year1) || 0, insuranceEsc, insuranceEscYears, leaseYear, periodFactor).toFixed(2))
+              : 0
+          );
 
-        taxesActive = isChargeActive(periodStart, taxes?.chargeStart);
-        taxesEscYears = taxesActive ? yearsSinceStart(periodStart, taxes?.escStart) : null;
-        taxesAmount = taxesActive
-          ? Number(computeChargeAmount(Number(taxes?.year1) || 0, taxesEsc, taxesEscYears, leaseYear, periodFactor).toFixed(2))
-          : 0;
+        const taxesOverride = activeRecurringOverrides.get('taxes') ?? null;
+        taxesActive = taxesOverride ? true : isChargeActive(periodStart, taxes?.chargeStart);
+        taxesEscYears = taxesOverride ? null : (taxesActive ? yearsSinceStart(periodStart, taxes?.escStart) : null);
+        taxesAmount = taxesOverride
+          ? computeRecurringOverrideAmount(taxesOverride, periodFactor)
+          : (
+            taxesActive
+              ? Number(computeChargeAmount(Number(taxes?.year1) || 0, taxesEsc, taxesEscYears, leaseYear, periodFactor).toFixed(2))
+              : 0
+          );
 
         trueNNN = camsAmount + insuranceAmount + taxesAmount;
       }
 
-      securityActive = isChargeActive(periodStart, security?.chargeStart);
-      securityEscYears = securityActive ? yearsSinceStart(periodStart, security?.escStart) : null;
-      securityAmount = securityActive
-        ? Number(computeChargeAmount(Number(security?.year1) || 0, securityEsc, securityEscYears, leaseYear, periodFactor).toFixed(2))
-        : 0;
+      const securityOverride = activeRecurringOverrides.get('security') ?? null;
+      securityActive = securityOverride ? true : isChargeActive(periodStart, security?.chargeStart);
+      securityEscYears = securityOverride ? null : (securityActive ? yearsSinceStart(periodStart, security?.escStart) : null);
+      securityAmount = securityOverride
+        ? computeRecurringOverrideAmount(securityOverride, periodFactor)
+        : (
+          securityActive
+            ? Number(computeChargeAmount(Number(security?.year1) || 0, securityEsc, securityEscYears, leaseYear, periodFactor).toFixed(2))
+            : 0
+        );
 
-      otherItemsActive = isChargeActive(periodStart, otherItems?.chargeStart);
-      otherItemsEscYears = otherItemsActive ? yearsSinceStart(periodStart, otherItems?.escStart) : null;
-      otherItemsAmount = otherItemsActive
-        ? Number(computeChargeAmount(Number(otherItems?.year1) || 0, otherItemsEsc, otherItemsEscYears, leaseYear, periodFactor).toFixed(2))
-        : 0;
+      const otherItemsOverride = activeRecurringOverrides.get('otherItems') ?? null;
+      otherItemsActive = otherItemsOverride ? true : isChargeActive(periodStart, otherItems?.chargeStart);
+      otherItemsEscYears = otherItemsOverride ? null : (otherItemsActive ? yearsSinceStart(periodStart, otherItems?.escStart) : null);
+      otherItemsAmount = otherItemsOverride
+        ? computeRecurringOverrideAmount(otherItemsOverride, periodFactor)
+        : (
+          otherItemsActive
+            ? Number(computeChargeAmount(Number(otherItems?.year1) || 0, otherItemsEsc, otherItemsEscYears, leaseYear, periodFactor).toFixed(2))
+            : 0
+        );
 
       otherChargesBase = securityAmount + otherItemsAmount;
 
@@ -508,15 +626,15 @@ export function calculateAllCharges(expandedRows, params) {
         chargeAmounts.cams = camsAmount;
         chargeAmounts.insurance = insuranceAmount;
         chargeAmounts.taxes = taxesAmount;
-        chargeDetails.cams = { displayLabel: 'CAMS', canonicalType: 'nnn', active: camsActive, escYears: camsEscYears, escPct: Number(cams?.escPct) || 0 };
-        chargeDetails.insurance = { displayLabel: 'Insurance', canonicalType: 'nnn', active: insuranceActive, escYears: insuranceEscYears, escPct: Number(insurance?.escPct) || 0 };
-        chargeDetails.taxes = { displayLabel: 'Taxes', canonicalType: 'nnn', active: taxesActive, escYears: taxesEscYears, escPct: Number(taxes?.escPct) || 0 };
+        chargeDetails.cams = { displayLabel: 'CAMS', canonicalType: 'nnn', active: camsActive, escYears: camsEscYears, escPct: activeRecurringOverrides.get('cams') ? 0 : Number(cams?.escPct) || 0, overrideApplied: Boolean(activeRecurringOverrides.get('cams')) };
+        chargeDetails.insurance = { displayLabel: 'Insurance', canonicalType: 'nnn', active: insuranceActive, escYears: insuranceEscYears, escPct: activeRecurringOverrides.get('insurance') ? 0 : Number(insurance?.escPct) || 0, overrideApplied: Boolean(activeRecurringOverrides.get('insurance')) };
+        chargeDetails.taxes = { displayLabel: 'Taxes', canonicalType: 'nnn', active: taxesActive, escYears: taxesEscYears, escPct: activeRecurringOverrides.get('taxes') ? 0 : Number(taxes?.escPct) || 0, overrideApplied: Boolean(activeRecurringOverrides.get('taxes')) };
       }
 
       chargeAmounts.security = securityAmount;
       chargeAmounts.otherItems = otherItemsAmount;
-      chargeDetails.security = { displayLabel: 'Security', canonicalType: 'other', active: securityActive, escYears: securityEscYears, escPct: Number(security?.escPct) || 0 };
-      chargeDetails.otherItems = { displayLabel: 'Other Items', canonicalType: 'other', active: otherItemsActive, escYears: otherItemsEscYears, escPct: Number(otherItems?.escPct) || 0 };
+      chargeDetails.security = { displayLabel: 'Security', canonicalType: 'other', active: securityActive, escYears: securityEscYears, escPct: activeRecurringOverrides.get('security') ? 0 : Number(security?.escPct) || 0, overrideApplied: Boolean(activeRecurringOverrides.get('security')) };
+      chargeDetails.otherItems = { displayLabel: 'Other Items', canonicalType: 'other', active: otherItemsActive, escYears: otherItemsEscYears, escPct: activeRecurringOverrides.get('otherItems') ? 0 : Number(otherItems?.escPct) || 0, overrideApplied: Boolean(activeRecurringOverrides.get('otherItems')) };
     }
 
     const oneTimeItemAmounts = oneTimeByRow[i];
@@ -536,6 +654,7 @@ export function calculateAllCharges(expandedRows, params) {
       leaseMonth,
       scheduledBaseRent: Number(scheduledBaseRent.toFixed(2)),
       periodAdjustedBaseRent: Number(periodAdjustedBaseRent.toFixed(2)),
+      baseRentOverrideApplied: Boolean(baseRentOverride),
       baseRentApplied,
       abatementAmount,
       baseRentProrationFactor: Number(concessionResult.baseFactor.toFixed(6)),
@@ -598,6 +717,33 @@ export function calculateAllCharges(expandedRows, params) {
       sourcePeriodStart: row.sourcePeriodStart ?? null,
       sourcePeriodEnd: row.sourcePeriodEnd ?? null,
     });
+  }
+
+  const { year1BaseRent, annualEscRate } = inferAnnualBaseEscRate(rows);
+  for (const row of rows) {
+    const irregularEscalationTargets = [];
+    const irregularEscalationLabels = [];
+    const expectedAnnualBaseRent = expectedAnnualBaseRentForRow(row, year1BaseRent, annualEscRate);
+    const isIrregularBaseRent = Boolean(row.baseRentOverrideApplied) ||
+      !currencyClose(row.scheduledBaseRent ?? 0, expectedAnnualBaseRent);
+
+    if (isIrregularBaseRent) {
+      irregularEscalationTargets.push(RECURRING_OVERRIDE_TARGETS.BASE_RENT);
+      irregularEscalationLabels.push('Base Rent');
+    }
+
+    for (const [key, detail] of Object.entries(row.chargeDetails ?? {})) {
+      if (!detail?.overrideApplied) continue;
+      irregularEscalationTargets.push(key);
+      irregularEscalationLabels.push(detail.displayLabel || key);
+    }
+
+    row.inferredAnnualBaseRent = expectedAnnualBaseRent;
+    row.isIrregularBaseRent = isIrregularBaseRent;
+    row.baseRentEscalationType = isIrregularBaseRent ? 'irregular' : 'annual';
+    row.hasIrregularEscalation = irregularEscalationTargets.length > 0;
+    row.irregularEscalationTargets = irregularEscalationTargets;
+    row.irregularEscalationLabels = irregularEscalationLabels;
   }
 
   let runningTotal = 0;

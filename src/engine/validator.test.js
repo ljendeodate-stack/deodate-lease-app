@@ -76,4 +76,32 @@ describe('validateParams', () => {
     expect(result.errors.map((error) => error.field)).toContain('freeRentEvents.0.date');
     expect(result.errors.map((error) => error.field)).toContain('abatementEvents.0.value');
   });
+
+  it('validates recurring override amounts and duplicate target rows', () => {
+    const result = validateParams(
+      {
+        squareFootage: '1000',
+        nnnMode: 'individual',
+        charges: [
+          {
+            key: 'parking',
+            displayLabel: 'Parking',
+            canonicalType: 'other',
+            year1: '100',
+            escPct: '0',
+            chargeStart: '',
+            escStart: '',
+          },
+        ],
+        recurringOverrides: [
+          { targetKey: 'parking', date: '01/15/2026', amount: 'abc' },
+          { targetKey: 'parking', date: '01/25/2026', amount: '250' },
+        ],
+      },
+      rows,
+    );
+
+    expect(result.errors.map((error) => error.field)).toContain('recurringOverrides.0.amount');
+    expect(result.errors.map((error) => error.field)).toContain('recurringOverrides.1.date');
+  });
 });

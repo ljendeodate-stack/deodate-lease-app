@@ -105,8 +105,13 @@ function ColumnHeader({ children, className = '' }) {
 
 function fmtISO(isoStr) {
   if (!isoStr) return '';
+  if (isoStr instanceof Date && !isNaN(isoStr.getTime())) {
+    const mm = String(isoStr.getMonth() + 1).padStart(2, '0');
+    const dd = String(isoStr.getDate()).padStart(2, '0');
+    return `${mm}/${dd}/${isoStr.getFullYear()}`;
+  }
   const match = String(isoStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return isoStr;
+  if (!match) return String(isoStr);
   return `${match[2]}/${match[3]}/${match[1]}`;
 }
 
@@ -143,6 +148,7 @@ export default function InputForm({
   sfRequired,
   leaseStartDate,
   leaseEndDate,
+  schedulePeriodRows = [],
   scheduledBaseRent,
   expandedRowCount,
   onSubmit,
@@ -559,6 +565,52 @@ export default function InputForm({
           hint="Use dated recurring overrides when base rent, NNN, or another recurring charge changes on a non-annual or irregular schedule. Each override persists from its trigger month until superseded."
         >
           <div className="space-y-3">
+            <div className="rounded-[1rem] border border-app-border bg-app-chrome px-4 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="section-kicker">Loaded from Schedule</p>
+                  <h5 className="mt-1 text-sm font-semibold text-txt-primary">Base Rent Schedule</h5>
+                </div>
+                {schedulePeriodRows.length > 0 && (
+                  <span className="text-xs text-txt-dim">
+                    {schedulePeriodRows.length} period{schedulePeriodRows.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+
+              {schedulePeriodRows.length === 0 ? (
+                <p className="mt-3 text-xs text-txt-dim">
+                  The loaded schedule will appear here after the prior schedule step is confirmed.
+                </p>
+              ) : (
+                <>
+                  <div className="mt-3 overflow-x-auto rounded-[0.9rem] border border-app-border bg-app-panel">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-app-panel-strong text-[0.68rem] uppercase tracking-[0.18em] text-txt-dim">
+                          <th className="px-3 py-3 text-left font-semibold">Period Start</th>
+                          <th className="px-3 py-3 text-left font-semibold">Period End</th>
+                          <th className="px-3 py-3 text-right font-semibold">Monthly Base Rent</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-app-border">
+                        {schedulePeriodRows.map((period, idx) => (
+                          <tr key={`${period.periodStart}-${period.periodEnd}-${idx}`} className={idx % 2 === 0 ? 'bg-app-panel' : 'bg-app-chrome'}>
+                            <td className="px-3 py-3 font-mono text-txt-primary">{fmtISO(period.periodStart)}</td>
+                            <td className="px-3 py-3 font-mono text-txt-primary">{fmtISO(period.periodEnd)}</td>
+                            <td className="px-3 py-3 text-right font-mono text-txt-primary">{formatDollar(period.monthlyRent)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-3 text-xs text-txt-dim">
+                    This mirrors the base-rent schedule from the prior step. Add dated recurring overrides below only when rent or another recurring charge needs to replace the standard recurring assumption path from a specific month forward.
+                  </p>
+                </>
+              )}
+            </div>
+
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="section-kicker">Irregular Escalations</p>
@@ -624,7 +676,7 @@ export default function InputForm({
             )}
 
             <p className="text-xs text-txt-dim">
-              An override starts on the monthly row containing the effective date and continues forward until another override for the same target replaces it.
+              An override starts on the monthly row containing the effective date and continues forward until another override for the same target replaces it. Targets can include Base Rent, aggregate NNN, or any recurring charge line item shown above.
             </p>
           </div>
         </SectionBox>

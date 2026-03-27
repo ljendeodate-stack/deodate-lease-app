@@ -220,6 +220,12 @@ function hasExplicitMonthlyConcession(row) {
   return row?.concessionScope === 'monthly_row' || row?.prorationBasis === 'concession-event';
 }
 
+function irregularStyleOptions(isIrregular) {
+  return isIrregular
+    ? { bold: true, fontColor: C.fcIrregular }
+    : { fontColor: C.fcCalc };
+}
+
 function expectedScheduledBaseRent(row, assumptions) {
   const leaseYear = Number(row.leaseYear ?? row['Year #'] ?? 0);
   if (!leaseYear) return 0;
@@ -348,63 +354,85 @@ function buildDataSection(exportModel, layout) {
     const boundaryAbatement = `AND(${cellMap.abatementStart}<>"",${cellMap.abatementEnd}<>"",${CD(ps)}>=${CD(cellMap.abatementStart)},${CD(ps)}<=${CD(cellMap.abatementEnd)},${CD(pe)}>${CD(cellMap.abatementEnd)})`;
 
     // Scheduled Base Rent: annual schedules remain dynamic; irregular step-ups stay hardcoded
+    const isIrregularBaseRent = Boolean(row.isIrregularBaseRent);
+    const baseRentStyle = irregularStyleOptions(isIrregularBaseRent);
+    const useAnnualBaseRentFormula = !isIrregularBaseRent && canUseAnnualBaseRentFormula(row, assumptions);
+
     cells.push({
       col: colByKey.scheduledBaseRent.index,
       row: worksheetRow,
-      cell: canUseAnnualBaseRentFormula(row, assumptions)
+      cell: useAnnualBaseRentFormula
         ? formulaCell(
             `IF(${termGate},0,IF(${rentCommGate},0,${cellMap.year1BaseRent}*(1+${cellMap.annualEscRate})^(${yearCol}${worksheetRow}-1)))`,
             row.scheduledBaseRent ?? 0,
             FMT.currency,
             rowFill,
+            baseRentStyle,
           )
-        : calcCell(row.scheduledBaseRent ?? 0, FMT.currency, rowFill),
+        : calcCell(row.scheduledBaseRent ?? 0, FMT.currency, rowFill, baseRentStyle),
     });
 
-    // Base Rent Applied: explicit dated concessions stay hardcoded; annual logic remains formula-driven
+    // Base Rent Applied: irregular/non-annual rows and explicit dated concessions stay hardcoded
     cells.push({
       col: colByKey.baseRentApplied.index,
       row: worksheetRow,
-      cell: hasExplicitMonthlyConcession(row)
-        ? calcCell(row.baseRentApplied ?? 0, FMT.currency, nnnFill)
+      cell: (isIrregularBaseRent || hasExplicitMonthlyConcession(row))
+        ? calcCell(row.baseRentApplied ?? 0, FMT.currency, nnnFill, baseRentStyle)
         : formulaCell(
             `(IF(${freeRentActive},0,IF(${fullAbatement},MAX(0,${sbr}-${cellMap.abatementAmount}),IF(${boundaryAbatement},${sbr}*${cellMap.abatementPartialFactor},${sbr}))))*${pfExpr}`,
             row.baseRentApplied ?? 0,
             FMT.currency,
             nnnFill,
+            baseRentStyle,
           ),
     });
 
     // NNN charge columns
     if (assumptions.nnnMode === 'aggregate' && colByKey.nnnAggregate) {
+      const aggregateOverrideApplied = Boolean(row.chargeDetails?.nnnAggregate?.overrideApplied);
+      const aggregateStyle = irregularStyleOptions(aggregateOverrideApplied);
       cells.push({
         col: colByKey.nnnAggregate.index,
         row: worksheetRow,
-        cell: formulaCell(
-          `(IF(${termGate},0,${cellMap.nnnAgg_year1}*(1+${cellMap.nnnAgg_escRate})^(${yearCol}${worksheetRow}-1)))*${pfExpr}`,
-          row.nnnAggregateAmount ?? 0,
-          FMT.currency,
-          nnnFill,
-        ),
+        cell: aggregateOverrideApplied
+          ? calcCell(row.nnnAggregateAmount ?? 0, FMT.currency, nnnFill, aggregateStyle)
+          : formulaCell(
+              `(IF(${termGate},0,${cellMap.nnnAgg_year1}*(1+${cellMap.nnnAgg_escRate})^(${yearCol}${worksheetRow}-1)))*${pfExpr}`,
+              row.nnnAggregateAmount ?? 0,
+              FMT.currency,
+              nnnFill,
+              aggregateStyle,
+            ),
       });
     } else {
       for (const column of nnnColumns) {
         const category = column.catDef;
         if (!category) continue;
+        const chargeOverrideApplied = Boolean(row.chargeDetails?.[category.key]?.overrideApplied);
+        const chargeStyle = irregularStyleOptions(chargeOverrideApplied);
         cells.push({
           col: column.index,
           row: worksheetRow,
-          cell: canUseDynamicChargeFormula(row, category.key, category.amountField, assumptions)
+          cell: chargeOverrideApplied
+            ? calcCell(
+                row.chargeAmounts?.[category.key] ?? row[category.amountField] ?? 0,
+                FMT.currency,
+                nnnFill,
+                chargeStyle,
+              )
+            : canUseDynamicChargeFormula(row, category.key, category.amountField, assumptions)
             ? formulaCell(
                 `(IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1)))*${pfExpr}`,
                 row.chargeAmounts?.[category.key] ?? row[category.amountField] ?? 0,
                 FMT.currency,
                 nnnFill,
+                chargeStyle,
               )
             : calcCell(
                 row.chargeAmounts?.[category.key] ?? row[category.amountField] ?? 0,
                 FMT.currency,
                 nnnFill,
+                chargeStyle,
               ),
         });
       }
@@ -414,20 +442,31 @@ function buildDataSection(exportModel, layout) {
     for (const column of otherChargeColumns) {
       const category = column.catDef;
       if (!category) continue;
+      const chargeOverrideApplied = Boolean(row.chargeDetails?.[category.key]?.overrideApplied);
+      const chargeStyle = irregularStyleOptions(chargeOverrideApplied);
       cells.push({
         col: column.index,
         row: worksheetRow,
-        cell: canUseDynamicChargeFormula(row, category.key, category.amountField, assumptions)
+        cell: chargeOverrideApplied
+          ? calcCell(
+              row.chargeAmounts?.[category.key] ?? row[category.amountField] ?? 0,
+              FMT.currency,
+              nnnFill,
+              chargeStyle,
+            )
+          : canUseDynamicChargeFormula(row, category.key, category.amountField, assumptions)
           ? formulaCell(
               `(IF(${termGate},0,${cellMap[`${category.key}_year1`]}*(1+${cellMap[`${category.key}_escRate`]})^(${yearCol}${worksheetRow}-1)))*${pfExpr}`,
               row.chargeAmounts?.[category.key] ?? row[category.amountField] ?? 0,
               FMT.currency,
               nnnFill,
+              chargeStyle,
             )
           : calcCell(
               row.chargeAmounts?.[category.key] ?? row[category.amountField] ?? 0,
               FMT.currency,
               nnnFill,
+              chargeStyle,
             ),
       });
     }
@@ -599,8 +638,8 @@ function buildFootnotesSection(layout) {
     `① Total NNN (col ${totalNnnLabel}) = ${nnnColumnNames || 'N/A'}. Other Charges (${otherColumnNames || 'none'}) are NOT included in NNN.`,
     `② Total Monthly Obligation (${totalMonthlyLabel}) = Base Rent Applied + Total NNN${otherColumnNames ? ' + Other Charges' : ''}${nrcLabel}.`,
     '③ Remaining: Obligation = SUM of future Total Monthly Obligation. Base Rent / NNN / Other Charges = tail-sums of their respective columns.',
-    '④ Annual schedules remain live formulas. Non-annual rent steps and dated monthly concession rows are exported as resolved overrides so Excel stays consistent with the preview.',
-    '⑤ Color guide: Yellow fill + blue text = user-editable inputs | Black text = formula outputs or resolved overrides | Red-pink fill = NNN/obligation columns | Amber rows = concession rows.',
+    '④ Annual schedules remain live formulas. Non-annual rent steps and dated recurring overrides are exported as resolved irregular values so Excel stays consistent with the preview.',
+    '⑤ Bold red text marks irregular / non-annual escalation rows or recurring overrides. Yellow fill + blue text = user-editable inputs | Black text = formula outputs | Red-pink fill = NNN/obligation columns | Amber rows = concession rows.',
   ];
 
   return {
@@ -649,28 +688,28 @@ function dateCell(isoDate, fill, fontColor = C.fcCalc) {
   };
 }
 
-function inputCell(value, format, fill) {
+function inputCell(value, format, fill, styleOptions = {}) {
   return {
     t: 'n',
     v: value ?? 0,
-    s: ds(fill, format, { fontColor: C.fcInput }),
+    s: ds(fill, format, { fontColor: C.fcInput, ...styleOptions }),
   };
 }
 
-function calcCell(value, format, fill) {
+function calcCell(value, format, fill, styleOptions = {}) {
   return {
     t: 'n',
     v: value ?? 0,
-    s: ds(fill, format, { fontColor: C.fcCalc }),
+    s: ds(fill, format, styleOptions.fontColor ? styleOptions : { fontColor: C.fcCalc, ...styleOptions }),
   };
 }
 
-function formulaCell(formula, fallback, format, fill) {
+function formulaCell(formula, fallback, format, fill, styleOptions = {}) {
   return {
     t: 'n',
     v: fallback ?? 0,
     f: formula,
-    s: ds(fill, format, { fontColor: C.fcCalc }),
+    s: ds(fill, format, styleOptions.fontColor ? styleOptions : { fontColor: C.fcCalc, ...styleOptions }),
   };
 }
 
