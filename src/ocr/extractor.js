@@ -1093,7 +1093,9 @@ export async function extractFromUploadedDocument(file) {
 
 export async function extractFromPDF(pdfBuffer) {
   const scanned = likelyScanned(pdfBuffer);
-  const documentText = await extractPdfPlainText(pdfBuffer);
+  const pdfBufferForText = pdfBuffer.slice(0);
+  const pdfBufferForOCR = pdfBuffer.slice(0);
+  const documentText = await extractPdfPlainText(pdfBufferForText);
 
   if (!scanned && hasUsableDocumentText(documentText)) {
     try {
@@ -1112,7 +1114,7 @@ export async function extractFromPDF(pdfBuffer) {
   let fallbackReason;
 
   try {
-    const base64PDF = bufferToBase64(pdfBuffer);
+    const base64PDF = bufferToBase64(pdfBufferForOCR);
     const ocrResult = await extractOCRText(base64PDF);
     rawText = ocrResult.rawText;
     providerUsed = ocrResult.providerUsed;
