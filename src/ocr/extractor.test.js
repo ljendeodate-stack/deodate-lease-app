@@ -8,6 +8,7 @@ import {
   repairNarrativeRecurringChargeSemantics,
   repairRecurringChargeOverrideSemantics,
   repairSfBasedRentSemantics,
+  shouldUseTextFirstScheduleResult,
 } from './extractor.js';
 
 describe('documentIndicatesSfBasedRent', () => {
@@ -404,5 +405,47 @@ describe('repairExtractionSemantics', () => {
     expect(repaired.rentSchedule).toHaveLength(2);
     expect(repaired.rentSchedule[0]).toMatchObject({ periodStart: '03/01/2018', monthlyRent: 98463.6 });
     expect(repaired.rentSchedule[1]).toMatchObject({ periodStart: '03/01/2019', monthlyRent: 101417.51 });
+  });
+});
+
+describe('shouldUseTextFirstScheduleResult', () => {
+  it('accepts text-first results when they contain a usable dated rent schedule', () => {
+    expect(shouldUseTextFirstScheduleResult({
+      rentSchedule: [
+        { periodStart: '03/01/2018', periodEnd: '02/28/2019', monthlyRent: 98463.6 },
+      ],
+      scheduleNormalization: null,
+    })).toBe(true);
+  });
+
+  it('rejects text-first results that only contain schedule candidates without derived dated rows', () => {
+    expect(shouldUseTextFirstScheduleResult({
+      rentSchedule: [],
+      scheduleNormalization: {
+        candidates: [{ id: 'candidate-1' }],
+        derivedRentSchedule: [],
+      },
+    })).toBe(false);
+  });
+
+  it('rejects malformed OCR-style rows that do not yet contain parseable dated periods', () => {
+    expect(shouldUseTextFirstScheduleResult({
+      rentSchedule: [
+        { periodStart: 'NOT A DATE', periodEnd: 'ALSO NOT A DATE', monthlyRent: 98463.6 },
+      ],
+      scheduleNormalization: null,
+    })).toBe(false);
+  });
+
+  it('accepts text-first results when semantic schedule derivation already produced dated rows', () => {
+    expect(shouldUseTextFirstScheduleResult({
+      rentSchedule: [],
+      scheduleNormalization: {
+        candidates: [{ id: 'candidate-1' }],
+        derivedRentSchedule: [
+          { periodStart: '03/01/2018', periodEnd: '02/28/2019', monthlyRent: 98463.6 },
+        ],
+      },
+    })).toBe(true);
   });
 });

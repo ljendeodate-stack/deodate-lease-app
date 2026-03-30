@@ -1023,6 +1023,24 @@ function hasMeaningfulExtraction(result) {
   );
 }
 
+function hasUsableDatedRentSchedule(rentSchedule = []) {
+  if (!Array.isArray(rentSchedule)) return false;
+
+  return rentSchedule.some((row) => {
+    const periodStart = parseExplicitScheduleDate(row?.periodStart);
+    const periodEnd = parseExplicitScheduleDate(row?.periodEnd);
+    const monthlyRent = Number(row?.monthlyRent);
+    return Boolean(periodStart && periodEnd && Number.isFinite(monthlyRent) && monthlyRent >= 0);
+  });
+}
+
+export function shouldUseTextFirstScheduleResult(result) {
+  return Boolean(
+    hasUsableDatedRentSchedule(result?.rentSchedule) ||
+    result?.scheduleNormalization?.derivedRentSchedule?.length
+  );
+}
+
 async function extractTextPayload(prompt) {
   if (OCR_PROVIDER === 'openai') {
     return { rawText: await extractPromptFromOpenAI(prompt), providerUsed: 'openai', fallbackReason: null };
@@ -1096,14 +1114,16 @@ export async function extractFromPDF(pdfBuffer) {
   const pdfBufferForText = pdfBuffer.slice(0);
   const pdfBufferForOCR = pdfBuffer.slice(0);
   const documentText = await extractPdfPlainText(pdfBufferForText);
+  let textFirstWasInsufficient = false;
 
   if (!scanned && hasUsableDocumentText(documentText)) {
     try {
       const { result } = await extractFromDocumentText(documentText, 'native PDF text');
       result.notices.unshift('Native-text PDF routed through text-first extraction. OCR document vision was not required.');
-      if (hasMeaningfulExtraction(result)) {
+      if (shouldUseTextFirstScheduleResult(result)) {
         return { result, isLikelyScanned: false, documentText };
       }
+      textFirstWasInsufficient = true;
     } catch {
       // Fall through to OCR document extraction if text-first extraction fails.
     }
@@ -1134,6 +1154,9 @@ export async function extractFromPDF(pdfBuffer) {
   }
 
   const notices = [];
+  if (textFirstWasInsufficient) {
+    notices.push('Native-text extraction did not yield a usable dated rent schedule; document vision OCR was run instead.');
+  }
   if (fallbackReason) {
     notices.push(`OCR fallback used: ${providerUsed}. ${fallbackReason}`);
   }
