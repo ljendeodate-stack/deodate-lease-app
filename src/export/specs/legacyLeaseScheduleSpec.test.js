@@ -52,7 +52,7 @@ describe('buildLegacyLeaseScheduleSpec', () => {
     expect(worksheet[`F${firstDataRow + 60}`].s.font.color.rgb).toBe('C00000');
   });
 
-  it('keeps explicit dated concession rows hardcoded without collapsing neighboring annual rows', () => {
+  it('keeps explicit dated concession rows formula-driven through the concession tables without collapsing neighboring annual rows', () => {
     const processedRows = makeProcessedRows([
       { periodStart: parseMDYStrict('01/01/2030'), periodEnd: parseMDYStrict('04/30/2030'), monthlyRent: 9000 },
     ], {
@@ -75,11 +75,11 @@ describe('buildLegacyLeaseScheduleSpec', () => {
 
     expect(model.assumptions.freeRentConcessions[0]).toMatchObject({ monthNumber: 2, amount: 9000 });
     expect(model.assumptions.freeRentConcessions[1]).toMatchObject({ monthNumber: 4, amount: 9000 });
-    expect(worksheet[`F${februaryRow}`].f).toBeUndefined();
+    expect(worksheet[`F${februaryRow}`].f).toContain('COUNTIF(');
     expect(worksheet[`F${februaryRow}`].v).toBe(0);
     expect(worksheet[`F${marchRow}`].f).toContain(`${layout.colByKey.scheduledBaseRent.letter}${marchRow}`);
     expect(worksheet[`F${marchRow}`].v).toBe(9000);
-    expect(worksheet[`F${aprilRow}`].f).toBeUndefined();
+    expect(worksheet[`F${aprilRow}`].f).toContain('COUNTIF(');
     expect(worksheet[`F${aprilRow}`].v).toBe(0);
   });
 

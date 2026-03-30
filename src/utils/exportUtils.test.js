@@ -4,6 +4,13 @@ import { buildXLSXWorkbook } from './exportUtils.js';
 import { calculateAllCharges } from '../engine/calculator.js';
 import { expandPeriods } from '../engine/expander.js';
 import { parseMDYStrict } from '../engine/yearMonth.js';
+import { buildExportModel } from '../export/model/buildExportModel.js';
+import { resolveLeaseScheduleLayout } from '../export/resolvers/resolveLeaseScheduleLayout.js';
+import {
+  INLINE_SCENARIO_COLUMNS,
+  INLINE_SCENARIO_EXIT_GROUP_TITLE,
+  INLINE_SCENARIO_RENEGO_GROUP_TITLE,
+} from '../export/derived/inlineScenarioColumns.js';
 
 function makeWorkbook(periods, params = {}, exportParams = {}) {
   const { rows } = expandPeriods(periods);
@@ -138,6 +145,18 @@ describe('buildXLSXWorkbook', () => {
     });
   });
 
+  it('defaults the effective analysis date to the first schedule date instead of the current month', () => {
+    const { workbook, firstDataRow } = makeWorkbook([
+      { periodStart: parseMDYStrict('01/01/2030'), periodEnd: parseMDYStrict('12/31/2030'), monthlyRent: 10000 },
+    ]);
+
+    const leaseSheet = workbook.Sheets['Lease Schedule'];
+    const scenarioSheet = workbook.Sheets['Scenario Analysis'];
+    expect(leaseSheet.C11.v).toBeGreaterThan(0);
+    expect(scenarioSheet.I5.f).toBe(`'Lease Schedule'!$C$11`);
+    expect(scenarioSheet.I5.v).toBe(leaseSheet[`A${firstDataRow}`].v);
+  });
+
   it('keeps base-rent-applied dynamic when free rent or abatement starts the schedule', () => {
     const { workbook, firstDataRow, processedRows } = makeWorkbook([
       { periodStart: parseMDYStrict('01/01/2030'), periodEnd: parseMDYStrict('03/31/2030'), monthlyRent: 10000 },
@@ -154,5 +173,70 @@ describe('buildXLSXWorkbook', () => {
     expect(sheet[`F${firstDataRow}`].f).not.toContain('abatementMonths');
     expect(sheet[`F${firstDataRow}`].v).toBe(processedRows[0].baseRentApplied);
     expect(sheet[`F${firstDataRow + 1}`].v).toBe(processedRows[1].baseRentApplied);
+  });
+
+  it('adds inline renegotiation and exit columns with explicit basis labels and formulas', () => {
+    const { rows } = expandPeriods([
+      { periodStart: parseMDYStrict('01/01/2030'), periodEnd: parseMDYStrict('12/31/2030'), monthlyRent: 10000 },
+    ]);
+    const processedRows = calculateAllCharges(rows, {
+      nnnMode: 'individual',
+      squareFootage: 1000,
+      oneTimeItems: [{ label: 'HVAC', date: '2030-01-15', amount: 5000 }],
+      charges: [
+        { key: 'cams', canonicalType: 'nnn', displayLabel: 'CAMS', year1: 1000, escPct: 0 },
+        { key: 'parking', canonicalType: 'other', displayLabel: 'Parking', year1: 300, escPct: 0 },
+      ],
+      abatementPct: 0,
+      abatementEndDate: null,
+    });
+    const exportParams = {
+      nnnMode: 'individual',
+      squareFootage: 1000,
+      oneTimeItems: [{ label: 'HVAC', date: '2030-01-15', amount: 5000 }],
+      charges: [
+        { key: 'cams', canonicalType: 'nnn', displayLabel: 'CAMS', year1: 1000, escPct: 0 },
+        { key: 'parking', canonicalType: 'other', displayLabel: 'Parking', year1: 300, escPct: 0 },
+      ],
+    };
+    const model = buildExportModel(processedRows, exportParams, 'scenario-inline');
+    const layout = resolveLeaseScheduleLayout(model);
+    const { workbook } = buildXLSXWorkbook(processedRows, exportParams, 'scenario-inline');
+    const sheet = workbook.Sheets['Lease Schedule'];
+
+    const firstScenarioColumn = model.columns.find((column) => column.key === INLINE_SCENARIO_COLUMNS[0].key);
+    const lastScenarioColumn = model.columns.find((column) => column.key === INLINE_SCENARIO_COLUMNS[INLINE_SCENARIO_COLUMNS.length - 1].key);
+    const otherRemColumn = model.columns.find((column) => column.key === 'otherRem');
+    const firstDataRow = layout.firstDataRow;
+
+    expect(firstScenarioColumn.index).toBe(otherRemColumn.index + 1);
+    expect(sheet[`${firstScenarioColumn.letter}${layout.scenarioGroupRow}`].v).toBe(INLINE_SCENARIO_RENEGO_GROUP_TITLE);
+    const firstExitScenarioColumn = model.columns.find((column) => column.key === 'exitBaseNetsOther0');
+    expect(sheet[`${firstExitScenarioColumn.letter}${layout.scenarioGroupRow}`].v).toBe(INLINE_SCENARIO_EXIT_GROUP_TITLE);
+    expect(sheet[`${firstScenarioColumn.letter}${layout.headerRow}`].v).toContain('Renego: (base rent only)');
+    expect(sheet[`${lastScenarioColumn.letter}${layout.headerRow}`].v).toContain('Exit: (base rent, nets, and other obligations)');
+    expect(sheet[`${firstScenarioColumn.letter}${layout.headerRow}`].s.fill.fgColor.rgb).toBe('B66318');
+    expect(sheet[`${firstExitScenarioColumn.letter}${layout.headerRow}`].s.fill.fgColor.rgb).toBe('DA9B5A');
+    expect(sheet[`${firstScenarioColumn.letter}${firstDataRow}`].f).toBe(`${layout.colByKey.baseRem.letter}${firstDataRow}*(1-0.1)`);
+    expect(sheet[`${lastScenarioColumn.letter}${firstDataRow}`].f).toBe(`${layout.colByKey.obligRem.letter}${firstDataRow}*(1-0.5)`);
+    expect(sheet[`${firstScenarioColumn.letter}${firstDataRow}`].f).not.toContain(layout.colByKey.obligRem.letter);
+    expect(sheet[`${lastScenarioColumn.letter}${firstDataRow}`].f).toContain(layout.colByKey.obligRem.letter);
+  });
+
+  it('keeps free-rent schedule cells formula-driven instead of hardcoded when users input concession rows', () => {
+    const { workbook, firstDataRow } = makeWorkbook([
+      { periodStart: parseMDYStrict('01/01/2030'), periodEnd: parseMDYStrict('04/30/2030'), monthlyRent: 9000 },
+    ], {
+      concessionEvents: [
+        { id: 'free_1', type: 'free_rent', scope: 'monthly_row', effectiveDate: parseMDYStrict('02/15/2030'), valueMode: 'percent', value: 100 },
+        { id: 'free_2', type: 'free_rent', scope: 'monthly_row', effectiveDate: parseMDYStrict('04/15/2030'), valueMode: 'percent', value: 100 },
+      ],
+    });
+
+    const sheet = workbook.Sheets['Lease Schedule'];
+    expect(sheet[`F${firstDataRow + 1}`].f).toContain('COUNTIF(');
+    expect(sheet[`F${firstDataRow + 3}`].f).toContain('COUNTIF(');
+    expect(sheet[`F${firstDataRow + 1}`].v).toBe(0);
+    expect(sheet[`F${firstDataRow + 3}`].v).toBe(0);
   });
 });

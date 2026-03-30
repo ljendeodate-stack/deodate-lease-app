@@ -1,4 +1,5 @@
-import { getActiveCategories, buildColumnLayout } from '../../engine/chargeCategories.js';
+import { getActiveCategories, buildColumnLayout, colIndexToLetter } from '../../engine/chargeCategories.js';
+import { INLINE_SCENARIO_COLUMNS } from '../derived/inlineScenarioColumns.js';
 
 const NRC_SLOT_COUNT = 11;
 const CONCESSION_SLOT_COUNT = 10;
@@ -34,12 +35,6 @@ function padNrcItems(items) {
     result.push({ label: `NRC Item ${result.length + 1}`, date: null, amount: 0 });
   }
   return result;
-}
-
-function currentMonthFirstDayISO() {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
 }
 
 function dateToISO(value) {
@@ -129,12 +124,91 @@ function buildAbatementConcessionRows(rows = []) {
   }));
 }
 
+function getConcessionRows(rows = [], type) {
+  return rows
+    .filter((row) => row?.concessionScope === 'monthly_row' && row?.concessionType === type)
+    .slice()
+    .sort((left, right) => {
+      const leftMonth = getLeaseMonthNumber(left, 0) ?? Number.MAX_SAFE_INTEGER;
+      const rightMonth = getLeaseMonthNumber(right, 0) ?? Number.MAX_SAFE_INTEGER;
+      return leftMonth - rightMonth;
+    });
+}
+
+function deriveFreeRentSummary(rows = []) {
+  const freeRentRows = getConcessionRows(rows, 'free_rent');
+  if (freeRentRows.length === 0) {
+    return {
+      freeRentStart: null,
+      freeRentEndDate: null,
+      freeRentPct: 0,
+      freeRentMonths: 0,
+    };
+  }
+
+  const firstRow = freeRentRows[0];
+  const lastRow = freeRentRows[freeRentRows.length - 1];
+  const explicitPctRow = freeRentRows.find((row) => row?.concessionValueMode === 'percent' && Number.isFinite(Number(row?.concessionValue)));
+  const freeRentPct = explicitPctRow
+    ? Number(explicitPctRow.concessionValue) / 100
+    : 1;
+
+  return {
+    freeRentStart: firstRow.periodStart ?? firstRow.date ?? null,
+    freeRentEndDate: lastRow.periodEnd ?? lastRow.periodStart ?? lastRow.date ?? null,
+    freeRentPct,
+    freeRentMonths: freeRentRows.length,
+  };
+}
+
+function deriveAbatementSummary(rows = []) {
+  const abatementRows = getConcessionRows(rows, 'abatement');
+  if (abatementRows.length === 0) {
+    return {
+      abatementStart: null,
+      abatementEndDate: null,
+      abatementPct: 0,
+      abatementAmount: 0,
+    };
+  }
+
+  const firstRow = abatementRows[0];
+  const lastRow = abatementRows[abatementRows.length - 1];
+  const explicitPctRow = abatementRows.find((row) => row?.concessionValueMode === 'percent' && Number.isFinite(Number(row?.concessionValue)));
+  const abatementAmount = Number(firstRow.abatementAmount ?? 0) || 0;
+  const derivedPct = explicitPctRow
+    ? Number(explicitPctRow.concessionValue) / 100
+    : (
+        Number(firstRow.scheduledBaseRent ?? 0) > 0
+          ? abatementAmount / Number(firstRow.scheduledBaseRent)
+          : 0
+      );
+
+  return {
+    abatementStart: firstRow.periodStart ?? firstRow.date ?? null,
+    abatementEndDate: lastRow.periodEnd ?? lastRow.periodStart ?? lastRow.date ?? null,
+    abatementPct: derivedPct,
+    abatementAmount,
+  };
+}
+
 export function buildExportModel(rows, params = {}, filename = 'lease-schedule') {
   const nnnMode = params.nnnMode ?? 'individual';
   const activeCategories = getActiveCategories(rows, params, nnnMode);
   const assumptions = computeAssumptions(rows, params, activeCategories);
   const otLabels = deriveOneTimeLabels(rows);
-  const columns = buildColumnLayout(activeCategories, otLabels, nnnMode);
+  const baseColumns = buildColumnLayout(activeCategories, otLabels, nnnMode);
+  const columns = [
+    ...baseColumns,
+    ...INLINE_SCENARIO_COLUMNS.map((column, offset) => {
+      const index = baseColumns.length + offset;
+      return {
+        ...column,
+        index,
+        letter: colIndexToLetter(index),
+      };
+    }),
+  ];
   const assumptionEntries = buildAssumptionEntries(assumptions, activeCategories);
 
   return {
@@ -285,7 +359,7 @@ function computeAssumptions(rows, params, activeCategories) {
       commencementDate: null,
       expirationDate: null,
       rentCommencementDate: dateToISO(params.rentCommencementDate) ?? null,
-      effectiveAnalysisDate: dateToISO(params.effectiveAnalysisDate) ?? currentMonthFirstDayISO(),
+      effectiveAnalysisDate: dateToISO(params.effectiveAnalysisDate) ?? null,
       totalLeaseTerm: 0,
       effectiveMonth: 0,
       monthsRemaining: 0,
@@ -371,6 +445,8 @@ function computeAssumptions(rows, params, activeCategories) {
     date: dateToISO(item.date),
     amount: Number(item.amount) || 0,
   }));
+  const freeRentSummary = deriveFreeRentSummary(rows);
+  const abatementSummary = deriveAbatementSummary(rows);
 
   const assumptions = {
     leaseName: String(params.leaseName || ''),
@@ -379,7 +455,7 @@ function computeAssumptions(rows, params, activeCategories) {
     commencementDate: firstRow.periodStart ?? null,
     expirationDate: lastRow.periodEnd ?? null,
     rentCommencementDate: dateToISO(params.rentCommencementDate) ?? (firstRow.periodStart ?? null),
-    effectiveAnalysisDate: dateToISO(params.effectiveAnalysisDate) ?? currentMonthFirstDayISO(),
+    effectiveAnalysisDate: dateToISO(params.effectiveAnalysisDate) ?? (firstRow.periodStart ?? null),
     totalLeaseTerm,
     effectiveMonth,
     monthsRemaining,
@@ -389,14 +465,16 @@ function computeAssumptions(rows, params, activeCategories) {
     anniversaryMonth: 1,
     fullAbatementMonths,
     abatementPartialFactor,
-    abatementStart: dateToISO(params.abatementStart) ?? null,
-    abatementEndDate: dateToISO(params.abatementEndDate) ?? null,
-    abatementPct: (Number(params.abatementPct) || 0) / 100,
-    abatementAmount: 0,
-    freeRentStart: dateToISO(params.freeRentStart) ?? null,
-    freeRentEndDate: dateToISO(params.freeRentEndDate) ?? null,
-    freeRentPct: 0,
-    freeRentMonths: 0,
+    abatementStart: dateToISO(params.abatementStart) ?? abatementSummary.abatementStart,
+    abatementEndDate: dateToISO(params.abatementEndDate) ?? abatementSummary.abatementEndDate,
+    abatementPct: Number(params.abatementPct)
+      ? (Number(params.abatementPct) || 0) / 100
+      : abatementSummary.abatementPct,
+    abatementAmount: abatementSummary.abatementAmount,
+    freeRentStart: dateToISO(params.freeRentStart) ?? freeRentSummary.freeRentStart,
+    freeRentEndDate: dateToISO(params.freeRentEndDate) ?? freeRentSummary.freeRentEndDate,
+    freeRentPct: freeRentSummary.freeRentPct,
+    freeRentMonths: freeRentSummary.freeRentMonths,
     freeRentConcessions: buildFreeRentConcessionRows(rows),
     abatementConcessions: buildAbatementConcessionRows(rows),
     oneTimeItems: padNrcItems(rawOt),

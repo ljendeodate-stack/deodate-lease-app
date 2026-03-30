@@ -1,5 +1,13 @@
 import { C, FMT, FONT_B, FONT_SM, TOTAL_BASE, ds, hdrStyle, ASSUMPTION_BORDER } from './styleTokens.js';
 import { colLetter } from '../engine/registry.js';
+import {
+  INLINE_SCENARIO_EXIT_GROUP_FILL,
+  INLINE_SCENARIO_EXIT_GROUP_TITLE,
+  INLINE_SCENARIO_ORANGE,
+  INLINE_SCENARIO_RENEGO_GROUP_FILL,
+  INLINE_SCENARIO_RENEGO_GROUP_TITLE,
+  deriveInlineScenarioValues,
+} from '../derived/inlineScenarioColumns.js';
 
 /**
  * Build a spec that reproduces the current Lease Schedule worksheet layout.
@@ -23,12 +31,13 @@ export function buildLegacyLeaseScheduleSpec(exportModel, layout) {
       {},
       ...Array(Math.max(0, layout.assumptionLastRow - layout.assumptionStartRow + 1)).fill({ hpt: 18 }),
       {},
+      { hpt: 24 },
       { hpt: 44 },
     ],
     sections: {
       title: buildTitleSection(exportModel.filename, layout.lastCol),
       assumptions: buildAssumptionsSection(layout.assumptionEntries, layout.cellMap, layout, exportModel.assumptions),
-      header: buildHeaderSection(exportModel.columns, layout.headerRow),
+      header: buildHeaderSection(exportModel.columns, layout),
       data: buildDataSection(exportModel, layout),
       totals: buildTotalsSection(exportModel.columns, layout),
       footnotes: buildFootnotesSection(layout),
@@ -332,14 +341,86 @@ function buildAssumptionsSection(assumptionEntries, cellMap, layout = null, assu
   return { cells };
 }
 
-function buildHeaderSection(columns, headerRow) {
+function buildScenarioGroupStyle(background) {
   return {
-    cells: columns.map((column) => ({
-      col: column.index,
-      row: headerRow,
-      cell: { t: 's', v: column.header, s: hdrStyle(C.headerNavy) },
-    })),
+    font: { ...FONT_B, color: { rgb: C.white } },
+    fill: { patternType: 'solid', fgColor: { rgb: background } },
+    alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+    border: {
+      top: { style: 'thin', color: { rgb: '000000' } },
+      bottom: { style: 'medium', color: { rgb: '000000' } },
+      left: { style: 'thin', color: { rgb: '000000' } },
+      right: { style: 'thin', color: { rgb: '000000' } },
+    },
+    numFmt: FMT.text,
   };
+}
+
+function buildHeaderSection(columns, layout) {
+  const scenarioColumns = columns.filter((column) => column.group === 'scenario');
+  const standardColumns = columns.filter((column) => column.group !== 'scenario');
+  const renegoScenarioColumns = scenarioColumns.filter((column) => column.scenarioGroup === 'renego');
+  const exitScenarioColumns = scenarioColumns.filter((column) => column.scenarioGroup === 'exit');
+  const cells = columns.map((column) => ({
+    col: column.index,
+    row: layout.headerRow,
+    cell: {
+      t: 's',
+      v: column.header,
+      s: hdrStyle(column.group === 'scenario' ? (column.headerFill ?? INLINE_SCENARIO_ORANGE) : C.headerNavy),
+    },
+  }));
+  const merges = [];
+
+  if (standardColumns.length > 0) {
+    cells.push({
+      col: standardColumns[0].index,
+      row: layout.scenarioGroupRow,
+      cell: {
+        t: 's',
+        v: 'Lease Schedule',
+        s: buildScenarioGroupStyle(C.headerNavy),
+      },
+    });
+    merges.push({
+      s: { r: layout.scenarioGroupRow - 1, c: standardColumns[0].index },
+      e: { r: layout.scenarioGroupRow - 1, c: standardColumns[standardColumns.length - 1].index },
+    });
+  }
+
+  if (renegoScenarioColumns.length > 0) {
+    cells.push({
+      col: renegoScenarioColumns[0].index,
+      row: layout.scenarioGroupRow,
+      cell: {
+        t: 's',
+        v: INLINE_SCENARIO_RENEGO_GROUP_TITLE,
+        s: buildScenarioGroupStyle(INLINE_SCENARIO_RENEGO_GROUP_FILL),
+      },
+    });
+    merges.push({
+      s: { r: layout.scenarioGroupRow - 1, c: renegoScenarioColumns[0].index },
+      e: { r: layout.scenarioGroupRow - 1, c: renegoScenarioColumns[renegoScenarioColumns.length - 1].index },
+    });
+  }
+
+  if (exitScenarioColumns.length > 0) {
+    cells.push({
+      col: exitScenarioColumns[0].index,
+      row: layout.scenarioGroupRow,
+      cell: {
+        t: 's',
+        v: INLINE_SCENARIO_EXIT_GROUP_TITLE,
+        s: buildScenarioGroupStyle(INLINE_SCENARIO_EXIT_GROUP_FILL),
+      },
+    });
+    merges.push({
+      s: { r: layout.scenarioGroupRow - 1, c: exitScenarioColumns[0].index },
+      e: { r: layout.scenarioGroupRow - 1, c: exitScenarioColumns[exitScenarioColumns.length - 1].index },
+    });
+  }
+
+  return { cells, merges };
 }
 
 /**
@@ -428,6 +509,7 @@ function buildDataSection(exportModel, layout) {
     colByKey,
     nnnColumns,
     otherChargeColumns,
+    scenarioColumns,
     nrcColumn,
     nrcDateRange,
     nrcAmountRange,
@@ -437,6 +519,7 @@ function buildDataSection(exportModel, layout) {
 
   rows.forEach((row, index) => {
     const worksheetRow = firstDataRow + index;
+    const inlineScenarioValues = deriveInlineScenarioValues(row);
     const rowFill = row.isConcessionRow || row.isAbatementRow
       ? C.amber
       : index % 2 === 0 ? C.rowEven : C.rowOdd;
@@ -741,6 +824,22 @@ function buildDataSection(exportModel, layout) {
         rowFill,
       ),
     });
+
+    for (const column of scenarioColumns) {
+      const basisColumnLetter = column.basis === 'baseRem'
+        ? colByKey.baseRem.letter
+        : colByKey.obligRem.letter;
+      cells.push({
+        col: column.index,
+        row: worksheetRow,
+        cell: formulaCell(
+          `${basisColumnLetter}${worksheetRow}*(1-${column.discountPct})`,
+          inlineScenarioValues[column.key] ?? 0,
+          FMT.currency,
+          column.bodyFill ?? rowFill,
+        ),
+      });
+    }
   });
 
   return { cells };
@@ -789,6 +888,9 @@ function buildFootnotesSection(layout) {
   const totalMonthlyLabel = `col ${layout.colByKey.totalMonthly.letter}`;
   const totalNnnLabel = layout.colByKey.totalNNN.letter;
   const nrcLabel = layout.nrcColumn ? ` + Non-Recurring Charges (${layout.nrcColumn.letter})` : '';
+  const scenarioLabel = layout.scenarioColumns.length > 0
+    ? `${layout.scenarioColumns[0].letter}-${layout.scenarioColumns[layout.scenarioColumns.length - 1].letter}`
+    : null;
 
   const notes = [
     `① Total NNN (col ${totalNnnLabel}) = ${nnnColumnNames || 'N/A'}. Other Charges (${otherColumnNames || 'none'}) are NOT included in NNN.`,
@@ -796,10 +898,13 @@ function buildFootnotesSection(layout) {
     '③ Remaining: Obligation = SUM of future Total Monthly Obligation. Base Rent / NNN / Other Charges = tail-sums of their respective columns.',
     '④ Annual schedules remain live formulas. Non-annual rent steps and dated recurring overrides are exported as resolved irregular values so Excel stays consistent with the preview.',
     '⑤ Bold red text marks irregular / non-annual escalation rows or recurring overrides. Yellow fill + blue text = user-editable inputs | Black text = formula outputs | Red-pink fill = NNN/obligation columns | Amber rows = concession rows.',
+    scenarioLabel
+      ? `⑥ Inline scenario columns (${scenarioLabel}) are derived only. Renego columns use Base Rent Remaining only; Exit columns use Obligation Remaining, inclusive of base rent, nets, and other obligations.`
+      : '',
   ];
 
   return {
-    cells: notes.map((note, index) => ({
+    cells: notes.filter(Boolean).map((note, index) => ({
       col: 0,
       row: layout.noteRow + index,
       cell: { t: 's', v: note, s: noteStyle },

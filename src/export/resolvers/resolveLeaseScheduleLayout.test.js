@@ -86,10 +86,11 @@ describe('resolveLeaseScheduleLayout', () => {
 
     expect(layout.leftAssumptionLastRow).toBe(51);
     expect(layout.assumptionLastRow).toBe(51);
-    expect(layout.headerRow).toBe(53);
-    expect(layout.firstDataRow).toBe(54);
-    expect(layout.totalsRow).toBe(56);
-    expect(layout.noteRow).toBe(58);
+    expect(layout.scenarioGroupRow).toBe(53);
+    expect(layout.headerRow).toBe(54);
+    expect(layout.firstDataRow).toBe(55);
+    expect(layout.totalsRow).toBe(57);
+    expect(layout.noteRow).toBe(59);
 
     // NRC ranges should span the 11 OT entries
     expect(layout.nrcDateRange).toBeDefined();
@@ -143,7 +144,8 @@ describe('resolveLeaseScheduleLayout', () => {
     expect(layout.cellMap.nnnAgg_year1).toBe('$C$19');    // index 14
     expect(layout.cellMap.nnnAgg_escRate).toBe('$C$24');  // index 19
     expect(layout.cellMap.security_year1).toBe('$C$20');  // index 15
-    expect(layout.headerRow).toBe(53);
+    expect(layout.scenarioGroupRow).toBe(53);
+    expect(layout.headerRow).toBe(54);
     expect(layout.colByKey.nnnAggregate.letter).toBe('G');
     expect(layout.colByKey.totalNNN.letter).toBe('I');
   });
@@ -206,7 +208,7 @@ describe('resolveLeaseScheduleLayout', () => {
     expect(model.assumptions.rentCommencementDate).toBe('2026-01-01');
   });
 
-  it('defaults effectiveAnalysisDate to first of current month when not provided', () => {
+  it('defaults effectiveAnalysisDate to the first schedule date when not provided', () => {
     const rows = [
       {
         periodStart: '2026-01-01',
@@ -227,7 +229,50 @@ describe('resolveLeaseScheduleLayout', () => {
 
     const model = buildExportModel(rows, params, 'default-analysis-date');
 
-    // Should be a valid ISO date string (YYYY-MM-DD) ending in -01
-    expect(model.assumptions.effectiveAnalysisDate).toMatch(/^\d{4}-\d{2}-01$/);
+    expect(model.assumptions.effectiveAnalysisDate).toBe('2026-01-01');
+  });
+
+  it('derives free-rent summary assumptions from user-entered monthly concession rows', () => {
+    const rows = [
+      {
+        periodStart: '2026-01-01',
+        periodEnd: '2026-01-31',
+        leaseMonth: 1,
+        leaseYear: 1,
+        scheduledBaseRent: 10000,
+        baseRentApplied: 10000,
+      },
+      {
+        periodStart: '2026-02-01',
+        periodEnd: '2026-02-28',
+        leaseMonth: 2,
+        leaseYear: 1,
+        scheduledBaseRent: 10000,
+        baseRentApplied: 0,
+        concessionScope: 'monthly_row',
+        concessionType: 'free_rent',
+        concessionValueMode: 'percent',
+        concessionValue: 100,
+      },
+      {
+        periodStart: '2026-03-01',
+        periodEnd: '2026-03-31',
+        leaseMonth: 3,
+        leaseYear: 1,
+        scheduledBaseRent: 10000,
+        baseRentApplied: 0,
+        concessionScope: 'monthly_row',
+        concessionType: 'free_rent',
+        concessionValueMode: 'percent',
+        concessionValue: 100,
+      },
+    ];
+
+    const model = buildExportModel(rows, { squareFootage: 1000, nnnMode: 'individual' }, 'free-rent-summary');
+
+    expect(model.assumptions.freeRentStart).toBe('2026-02-01');
+    expect(model.assumptions.freeRentEndDate).toBe('2026-03-31');
+    expect(model.assumptions.freeRentMonths).toBe(2);
+    expect(model.assumptions.freeRentPct).toBe(1);
   });
 });

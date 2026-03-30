@@ -12,12 +12,25 @@ import {
   formatFactor,
 } from '../utils/formatUtils.js';
 import { formatDateMDY } from '../utils/dateUtils.js';
+import {
+  INLINE_SCENARIO_COLUMNS,
+  INLINE_SCENARIO_EXIT_GROUP_PREVIEW,
+  INLINE_SCENARIO_EXIT_GROUP_TITLE,
+  INLINE_SCENARIO_RENEGO_GROUP_PREVIEW,
+  INLINE_SCENARIO_RENEGO_GROUP_TITLE,
+  deriveInlineScenarioValues,
+} from '../export/derived/inlineScenarioColumns.js';
 
 const PAGE_SIZE = 25;
+const GROUP_HEADER_TOP_PX = 0;
+const COLUMN_HEADER_TOP_PX = 34;
 
-function Th({ children, className = '' }) {
+function Th({ children, className = '', stickyTop = COLUMN_HEADER_TOP_PX, style = {} }) {
   return (
-    <th className={`bg-app-panel-strong px-3 py-3 text-left text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-txt-dim whitespace-nowrap sticky top-0 border-b border-app-border ${className}`}>
+    <th
+      className={`bg-app-panel-strong px-3 py-3 text-left text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-txt-dim whitespace-nowrap sticky border-b border-app-border ${className}`}
+      style={{ top: `${stickyTop}px`, ...style }}
+    >
       {children}
     </th>
   );
@@ -92,7 +105,11 @@ export default function LedgerTable({ rows = [] }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
 
   const chargeColumns = useMemo(() => deriveChargeColumns(rows), [rows]);
-  const totalColSpan = 10 + chargeColumns.length + 7;
+  const scenarioColumns = INLINE_SCENARIO_COLUMNS;
+  const renegoScenarioColumns = scenarioColumns.filter((column) => column.scenarioGroup === 'renego');
+  const exitScenarioColumns = scenarioColumns.filter((column) => column.scenarioGroup === 'exit');
+  const totalColSpan = 10 + chargeColumns.length + 7 + scenarioColumns.length;
+  const scheduleColSpan = totalColSpan - scenarioColumns.length;
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
@@ -107,6 +124,29 @@ export default function LedgerTable({ rows = [] }) {
       <div className="max-h-[600px] overflow-x-auto overflow-y-auto">
         <table className="min-w-full border-separate border-spacing-0">
           <thead>
+            <tr>
+              <th
+                colSpan={scheduleColSpan}
+                className="sticky border-b border-app-border px-3 py-2 text-left text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-white"
+                style={{ top: `${GROUP_HEADER_TOP_PX}px`, backgroundColor: '#1F3864' }}
+              >
+                Lease Schedule
+              </th>
+              <th
+                colSpan={renegoScenarioColumns.length}
+                className="sticky border-b border-app-border px-3 py-2 text-left text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-white"
+                style={{ top: `${GROUP_HEADER_TOP_PX}px`, backgroundColor: INLINE_SCENARIO_RENEGO_GROUP_PREVIEW }}
+              >
+                {INLINE_SCENARIO_RENEGO_GROUP_TITLE}
+              </th>
+              <th
+                colSpan={exitScenarioColumns.length}
+                className="sticky border-b border-app-border px-3 py-2 text-left text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-white"
+                style={{ top: `${GROUP_HEADER_TOP_PX}px`, backgroundColor: INLINE_SCENARIO_EXIT_GROUP_PREVIEW }}
+              >
+                {INLINE_SCENARIO_EXIT_GROUP_TITLE}
+              </th>
+            </tr>
             <tr>
               <Th />
               <Th>Period Start</Th>
@@ -128,11 +168,21 @@ export default function LedgerTable({ rows = [] }) {
               <Th>Total Remaining</Th>
               <Th>NNN Remaining</Th>
               <Th>Base Remaining</Th>
+              {scenarioColumns.map((column, index) => (
+                <Th
+                  key={column.key}
+                  className={`whitespace-normal text-white min-w-[14rem] ${index === 0 || scenarioColumns[index - 1]?.scenarioGroup !== column.scenarioGroup ? 'border-l-4 border-l-white/60' : ''}`}
+                  style={{ backgroundColor: column.previewHeaderFill }}
+                >
+                  {column.previewHeader}
+                </Th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {pageRows.map((row, localIdx) => {
               const absIdx = page * PAGE_SIZE + localIdx;
+              const inlineScenarioValues = deriveInlineScenarioValues(row);
               const isExpanded = expandedIdx === absIdx;
               const irregularTitle = row.irregularEscalationLabels?.length > 0
                 ? `Irregular escalation: ${row.irregularEscalationLabels.join(', ')}`
@@ -220,6 +270,15 @@ export default function LedgerTable({ rows = [] }) {
                     <Td>{formatDollar(row.totalObligationRemaining)}</Td>
                     <Td>{formatDollar(row.totalNNNRemaining)}</Td>
                     <Td>{formatDollar(row.totalBaseRentRemaining)}</Td>
+                    {scenarioColumns.map((column, index) => (
+                      <Td
+                        key={column.key}
+                        className={`font-semibold ${index === 0 || scenarioColumns[index - 1]?.scenarioGroup !== column.scenarioGroup ? 'border-l-4 border-l-white/70' : ''}`}
+                        style={{ backgroundColor: column.previewBodyFill }}
+                      >
+                        {formatDollar(inlineScenarioValues[column.key] ?? 0)}
+                      </Td>
+                    ))}
                   </tr>
                   {isExpanded && (
                     <tr>

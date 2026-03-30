@@ -69,7 +69,8 @@ export function resolveLeaseScheduleLayout(exportModel) {
   freeRentTable.totalAmountAddress = `$${excelColLetter(freeRentTable.amountCol)}$${freeRentTable.totalRow}`;
 
   const assumptionLastRow = Math.max(leftAssumptionLastRow, freeRentTable.totalRow);
-  const headerRow = assumptionLastRow + 2;
+  const scenarioGroupRow = assumptionLastRow + 2;
+  const headerRow = scenarioGroupRow + 1;
   const firstDataRow = headerRow + 1;
   const lastDataRow = firstDataRow + exportModel.rows.length - 1;
   const totalsRow = lastDataRow + 1;
@@ -94,6 +95,7 @@ export function resolveLeaseScheduleLayout(exportModel) {
     colByKey,
     nnnColumns: exportModel.columns.filter((column) => column.group === 'nnn'),
     otherChargeColumns: exportModel.columns.filter((column) => column.group === 'otherCharge'),
+    scenarioColumns: exportModel.columns.filter((column) => column.group === 'scenario'),
     nrcColumn: exportModel.columns.find((column) => column.group === 'nrc') ?? null,
     nrcDateRange,
     nrcAmountRange,
@@ -102,6 +104,7 @@ export function resolveLeaseScheduleLayout(exportModel) {
     freeRentTable,
     leftAssumptionLastRow,
     assumptionLastRow,
+    scenarioGroupRow,
     headerRow,
     firstDataRow,
     lastDataRow,
