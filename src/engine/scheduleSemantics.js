@@ -56,6 +56,21 @@ const NUMERIC_DATE_PATTERN = '(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})';
 const DATE_CAPTURE_PATTERN = `(?:${NAMED_DATE_PATTERN}|${NUMERIC_DATE_PATTERN})`;
 const MONTH_RANGE_PATTERN = /\bmonths?\s+(\d{1,3})(?:\s*(?:-|to|through)\s*(\d{1,3}))?\b[\s\S]{0,80}?\$\s*([\d,]+(?:\.\d{1,2})?)/gi;
 const LEASE_YEAR_RANGE_PATTERN = /\b(?:lease\s+)?years?\s+(\d{1,2})(?:\s*(?:-|to|through)\s*(\d{1,2}))?\b[\s\S]{0,80}?\$\s*([\d,]+(?:\.\d{1,2})?)/gi;
+const LEASE_TERM_PATTERN = new RegExp(`\\blease\\s+term\\b[^\\n]{0,80}?(${DATE_CAPTURE_PATTERN})\\s*(?:-|to|through)\\s*(${DATE_CAPTURE_PATTERN})`, 'i');
+const NARRATIVE_ESCALATION_PATTERN = /\b(?:base rent|minimum rent|rent)\b[\s\S]{0,120}?\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:\/|\bper\b)?\s*(?:month|monthly)\b[\s\S]{0,120}?\b(?:escalat(?:e|ed|es)?|increase(?:s|d)?)\b[\s\S]{0,40}?(\d+(?:\.\d+)?)%\s*(?:every|per)\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*(year|years|month|months)\b/i;
+
+const WORD_TO_NUMBER = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
 
 function normalizeSearchText(value) {
   return String(value ?? '')
@@ -148,6 +163,65 @@ function endOfPriorDay(date) {
 function toMoneyNumber(value) {
   const amount = Number(String(value ?? '').replace(/[^\d.]/g, ''));
   return Number.isFinite(amount) ? amount : null;
+}
+
+function roundMoney(value) {
+  return Number((Number(value) || 0).toFixed(2));
+}
+
+function cadenceToMonths(rawValue, rawUnit) {
+  const numericValue = Number(rawValue);
+  const cadenceValue = Number.isFinite(numericValue) && numericValue > 0
+    ? numericValue
+    : (WORD_TO_NUMBER[String(rawValue ?? '').toLowerCase()] ?? 1);
+  return String(rawUnit ?? '').toLowerCase().startsWith('year')
+    ? cadenceValue * 12
+    : cadenceValue;
+}
+
+function countTermMonths(startDate, endDate) {
+  const start = parseDateLike(startDate);
+  const end = parseDateLike(endDate);
+  if (!start || !end || end.getTime() <= start.getTime()) return 0;
+
+  let months = 0;
+  let cursor = new Date(start);
+  while (cursor.getTime() < end.getTime() && months < 600) {
+    cursor = addMonthsAnchored(cursor, 1);
+    months += 1;
+  }
+  return months;
+}
+
+function extractLeaseTermWindow(documentText) {
+  const match = String(documentText ?? '').match(LEASE_TERM_PATTERN);
+  if (!match) return null;
+
+  const startDate = parseDateLike(match[1]);
+  const endDate = parseDateLike(match[8]);
+  if (!startDate || !endDate) return null;
+
+  return {
+    startDate,
+    endDate,
+    sourceText: match[0],
+  };
+}
+
+function extractNarrativeEscalationRule(documentText) {
+  const match = String(documentText ?? '').match(NARRATIVE_ESCALATION_PATTERN);
+  if (!match) return null;
+
+  const startMonthlyRent = toMoneyNumber(match[1]);
+  const escalationPct = Number(match[2]);
+  if (startMonthlyRent == null || !Number.isFinite(escalationPct)) return null;
+
+  return {
+    startMonthlyRent,
+    escalationPct,
+    cadenceMonths: cadenceToMonths(match[3], match[4]),
+    sourceText: match[0],
+  };
 }
 
 function humanizeEventKey(eventKey) {
@@ -586,6 +660,50 @@ function buildLeaseYearCandidate(documentText, startRules) {
   };
 }
 
+function buildNarrativeEscalationCandidate(documentText) {
+  const termWindow = extractLeaseTermWindow(documentText);
+  const escalationRule = extractNarrativeEscalationRule(documentText);
+  if (!termWindow || !escalationRule) return null;
+
+  const totalMonths = countTermMonths(termWindow.startDate, termWindow.endDate);
+  if (!totalMonths) return null;
+
+  const cadenceMonths = Math.max(1, escalationRule.cadenceMonths || 12);
+  const terms = [];
+
+  for (let startMonth = 1; startMonth <= totalMonths; startMonth += cadenceMonths) {
+    const stepIndex = Math.floor((startMonth - 1) / cadenceMonths);
+    terms.push({
+      startMonth,
+      endMonth: Math.min(totalMonths, startMonth + cadenceMonths - 1),
+      monthlyRent: roundMoney(
+        escalationRule.startMonthlyRent * Math.pow(1 + (escalationRule.escalationPct / 100), stepIndex),
+      ),
+      sourceText: escalationRule.sourceText,
+    });
+  }
+
+  return {
+    id: 'narrative_escalation_1',
+    scope: 'base_rent',
+    representationType: SCHEDULE_REPRESENTATION_TYPES.RELATIVE_MONTH_RANGES,
+    terms,
+    anchorRule: {
+      scope: SCHEDULE_START_SCOPES.BASE_RENT_START,
+      startType: inferStartType(SCHEDULE_START_SCOPES.BASE_RENT_START),
+      triggerEvent: null,
+      ruleKind: SCHEDULE_RULE_KINDS.ABSOLUTE_DATE,
+      offsetValue: null,
+      offsetUnit: null,
+      resolvedDate: formatMDY(termWindow.startDate),
+      compositeRules: [],
+      confidence: 0.9,
+      sourceText: termWindow.sourceText,
+    },
+    confidence: 0.89,
+  };
+}
+
 function toDateObjectMap(eventDates = {}) {
   const mapped = {};
   for (const [eventKey, value] of Object.entries(eventDates ?? {})) {
@@ -838,6 +956,7 @@ export function analyzeScheduleSemantics({
     buildDatedPeriodCandidate(existingRentSchedule),
     buildRelativeMonthCandidate(documentText, startRules),
     buildLeaseYearCandidate(documentText, startRules),
+    buildNarrativeEscalationCandidate(documentText),
   ].filter(Boolean);
 
   const preferredCandidate = selectPreferredCandidate(candidates, resolvedEventDates);

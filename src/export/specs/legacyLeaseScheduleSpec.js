@@ -98,6 +98,33 @@ function buildTitleSection(filename, lastCol) {
   };
 }
 
+function buildConcessionLookupRange(colLetterValue, layout) {
+  return `$${colLetterValue}$${layout.firstDataRow}:$${colLetterValue}$${layout.lastDataRow}`;
+}
+
+function buildConcessionMonthCellRef(tableLayout, row) {
+  return `$${colLetter(tableLayout.monthCol)}$${row}`;
+}
+
+function buildConcessionPctCellRef(tableLayout, row) {
+  return `$${colLetter(tableLayout.pctCol)}$${row}`;
+}
+
+function buildConcessionDateFormula(tableLayout, row, periodStartRange) {
+  const monthCellRef = buildConcessionMonthCellRef(tableLayout, row);
+  return `IF(${monthCellRef}="","",IFERROR(INDEX(${periodStartRange},${monthCellRef}),""))`;
+}
+
+function buildConcessionAmountFormula(tableLayout, row, scheduledBaseRentRange, isAbatement = false) {
+  const monthCellRef = buildConcessionMonthCellRef(tableLayout, row);
+  if (!isAbatement) {
+    return `IF(${monthCellRef}="","",IFERROR(INDEX(${scheduledBaseRentRange},${monthCellRef}),0))`;
+  }
+
+  const pctCellRef = buildConcessionPctCellRef(tableLayout, row);
+  return `IF(${monthCellRef}="","",IFERROR(INDEX(${scheduledBaseRentRange},${monthCellRef})*${pctCellRef},0))`;
+}
+
 function buildAssumptionsSection(assumptionEntries, cellMap, layout = null, assumptions = {}) {
   const labelStyle = {
     font:      { ...FONT_B, color: { rgb: '1F3864' } },
@@ -208,6 +235,8 @@ function buildAssumptionsSection(assumptionEntries, cellMap, layout = null, assu
 
   const scheduledBaseRentCol = layout?.colByKey?.scheduledBaseRent?.letter ?? 'E';
   const periodStartCol = layout?.colByKey?.periodStart?.letter ?? 'A';
+  const scheduledBaseRentRange = buildConcessionLookupRange(scheduledBaseRentCol, layout);
+  const periodStartRange = buildConcessionLookupRange(periodStartCol, layout);
 
   const renderConcessionTable = (tableLayout, items, headers, isAbatement = false) => {
     headers.forEach((header, index) => {
@@ -220,8 +249,7 @@ function buildAssumptionsSection(assumptionEntries, cellMap, layout = null, assu
 
     items.forEach((item, index) => {
       const row = tableLayout.dataStartRow + index;
-      const monthCellRef = `$${colLetter(tableLayout.monthCol)}$${row}`;
-      const dateFormula = `IF(${monthCellRef}="","",IFERROR(INDEX($${periodStartCol}$${layout.firstDataRow}:$${periodStartCol}$${layout.lastDataRow},${monthCellRef}),""))`;
+      const dateFormula = buildConcessionDateFormula(tableLayout, row, periodStartRange);
 
       cells.push({ col: tableLayout.labelCol, row, cell: { t: 's', v: item.label || '', s: labelStyle } });
       cells.push({
@@ -236,8 +264,7 @@ function buildAssumptionsSection(assumptionEntries, cellMap, layout = null, assu
       });
 
       if (isAbatement) {
-        const pctCellRef = `$${colLetter(tableLayout.pctCol)}$${row}`;
-        const amountFormula = `IF(${monthCellRef}="","",IFERROR(INDEX($${scheduledBaseRentCol}$${layout.firstDataRow}:$${scheduledBaseRentCol}$${layout.lastDataRow},${monthCellRef})*${pctCellRef},0))`;
+        const amountFormula = buildConcessionAmountFormula(tableLayout, row, scheduledBaseRentRange, true);
         cells.push({
           col: tableLayout.amountCol,
           row,
@@ -249,7 +276,7 @@ function buildAssumptionsSection(assumptionEntries, cellMap, layout = null, assu
           cell: inputCellMaybeBlank(item.pct, FMT.pct),
         });
       } else {
-        const amountFormula = `IF(${monthCellRef}="","",IFERROR(INDEX($${scheduledBaseRentCol}$${layout.firstDataRow}:$${scheduledBaseRentCol}$${layout.lastDataRow},${monthCellRef}),0))`;
+        const amountFormula = buildConcessionAmountFormula(tableLayout, row, scheduledBaseRentRange, false);
         cells.push({
           col: tableLayout.amountCol,
           row,
@@ -501,11 +528,11 @@ function buildDataSection(exportModel, layout) {
         : calcCell(row.scheduledBaseRent ?? 0, FMT.currency, rowFill, baseRentStyle),
     });
 
-    // Base Rent Applied: irregular/non-annual rows and explicit dated concessions stay hardcoded
+    // Base Rent Applied: keep concession math formula-driven so front-loaded free rent / abatement stays dynamic.
     cells.push({
       col: colByKey.baseRentApplied.index,
       row: worksheetRow,
-      cell: (isIrregularBaseRent || hasExplicitMonthlyConcession(row))
+      cell: isIrregularBaseRent
         ? calcCell(row.baseRentApplied ?? 0, FMT.currency, nnnFill, baseRentStyle)
         : formulaCell(
             `IF(${termGate},0,IF(${rentCommGate},0,IF(${freeRentActive},0,MAX(0,${sbr}-${abatementAmount}))*${pfExpr}))`,

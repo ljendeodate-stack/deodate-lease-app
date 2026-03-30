@@ -1,0 +1,60 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+4 0 obj
+<< /Type /Pages /Count 1 /Kids [6 0 R] >>
+endobj
+5 0 obj
+<< /Length 2061 >>
+stream
+BT /F2 16 Tf 1 0 0 1 54.00 738.00 Tm (OCR Aggregate NNN and Dollars Per Square Foot) Tj ET
+BT /F3 10 Tf 1 0 0 1 54.00 716.00 Tm (Fixture ID: PDF-06) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 54.00 700.00 Tm (Intended upload: Scan Lease \(PDF\) - OCR-first narrative path) Tj ET
+BT /F2 11.5 Tf 1 0 0 1 54.00 680.00 Tm (Lease Abstract) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 664.00 Tm (Tenant: Harbor Light Medical Group. Premises: Suite 410 at 4550 Pacific Avenue. Rentable) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 650.00 Tm (Area: 4,800 square feet. Lease Commencement Date: 01/01/2027. Lease Expiration Date:) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 636.00 Tm (12/31/2031.) Tj ET
+BT /F2 11.5 Tf 1 0 0 1 54.00 614.00 Tm (Base Rent) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 598.00 Tm (Base Rent shall equal 31.20 dollars per square foot per year during Lease Year 1, increasing) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 584.00 Tm (by 3 percent each Lease Year thereafter. Monthly installments are payable in advance on the) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 570.00 Tm (first day of each month.) Tj ET
+BT /F2 11.5 Tf 1 0 0 1 54.00 548.00 Tm (Additional Rent) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 532.00 Tm (Estimated first year triple net charges are 8.40 dollars per square foot per year in the) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 518.00 Tm (aggregate, with no separate breakout for common area maintenance, insurance, or taxes.) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 504.00 Tm (Landlord currently estimates the aggregate NNN amount only.) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 482.00 Tm (- OCR extraction should identify square footage and a PSF-based rent expression.) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 468.00 Tm (- The form should support aggregate NNN rather than separate CAMS, insurance, and) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 454.00 Tm (  taxes if the model follows the prompt.) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 440.00 Tm (- This fixture is intended to confirm that OCR can convert annual PSF language into) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 426.00 Tm (  the app review flow without using the structured table parser.) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R /F3 3 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Type /Catalog /Pages 4 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000085 00000 n 
+0000000160 00000 n 
+0000000228 00000 n 
+0000000285 00000 n 
+0000002398 00000 n 
+0000002544 00000 n 
+trailer
+<< /Size 8 /Root 7 0 R >>
+startxref
+2593
+%%EOF

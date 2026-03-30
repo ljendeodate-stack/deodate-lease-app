@@ -1,0 +1,86 @@
+[
+  {
+    "id": "PDF-01",
+    "fileName": "01_structured_happy_path_partial_term.pdf",
+    "intendedUpload": "Scan Lease (PDF) - structured table path",
+    "title": "Structured Happy Path With Partial Opening and Expiration Month",
+    "binaryPreamble": false
+  },
+  {
+    "id": "PDF-02",
+    "fileName": "02_structured_duplicate_period_start.pdf",
+    "intendedUpload": "Scan Lease (PDF) - structured table path",
+    "title": "Structured Duplicate Period Start Dates",
+    "binaryPreamble": false
+  },
+  {
+    "id": "PDF-03",
+    "fileName": "03_structured_overlap_warning.pdf",
+    "intendedUpload": "Scan Lease (PDF) - structured table path",
+    "title": "Structured Overlap Warning",
+    "binaryPreamble": false
+  },
+  {
+    "id": "PDF-04",
+    "fileName": "04_structured_gap_warning.pdf",
+    "intendedUpload": "Scan Lease (PDF) - structured table path",
+    "title": "Structured Gap Warning",
+    "binaryPreamble": false
+  },
+  {
+    "id": "PDF-05",
+    "fileName": "05_structured_plausibility_extremes.pdf",
+    "intendedUpload": "Scan Lease (PDF) - structured table path",
+    "title": "Structured Plausibility Extremes",
+    "binaryPreamble": false
+  },
+  {
+    "id": "PDF-06",
+    "fileName": "06_ocr_aggregate_nnn_psf.pdf",
+    "intendedUpload": "Scan Lease (PDF) - OCR-first narrative path",
+    "title": "OCR Aggregate NNN and Dollars Per Square Foot",
+    "binaryPreamble": false
+  },
+  {
+    "id": "PDF-07",
+    "fileName": "07_ocr_individual_nnn_and_recurring_security.pdf",
+    "intendedUpload": "Scan Lease (PDF) - OCR-first narrative path",
+    "title": "OCR Individual NNN With Recurring Security Charge",
+    "binaryPreamble": false
+  },
+  {
+    "id": "PDF-08",
+    "fileName": "08_ocr_security_deposit_and_tranche_items.pdf",
+    "intendedUpload": "Scan Lease (PDF) - OCR-first narrative path",
+    "title": "OCR One-Time Item Coverage and Multi-Tranche Funding",
+    "binaryPreamble": false
+  },
+  {
+    "id": "PDF-09",
+    "fileName": "09_ocr_abatement_inclusive_boundary.pdf",
+    "intendedUpload": "Scan Lease (PDF) - OCR-first narrative path",
+    "title": "OCR Abatement Inclusive Boundary Date",
+    "binaryPreamble": false
+  },
+  {
+    "id": "PDF-10",
+    "fileName": "10_ocr_nonstandard_multicolumn_layout.pdf",
+    "intendedUpload": "Scan Lease (PDF) - OCR / manual-review stress case",
+    "title": "OCR Non-Standard Multi-Column Layout",
+    "binaryPreamble": false
+  },
+  {
+    "id": "PDF-11",
+    "fileName": "11_scanned_like_manual_fallback.pdf",
+    "intendedUpload": "Scan Lease (PDF) - scanned heuristic and fallback behavior",
+    "title": "Scanned-Like OCR Stress Fixture",
+    "binaryPreamble": true
+  },
+  {
+    "id": "PDF-12",
+    "fileName": "12_ocr_annual_rent_conversion.pdf",
+    "intendedUpload": "Scan Lease (PDF) - OCR-first narrative path",
+    "title": "OCR Annual Rent Conversion",
+    "binaryPreamble": false
+  }
+]

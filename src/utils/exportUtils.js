@@ -531,11 +531,15 @@ function buildLedger(rows, assump, otLabels, columns, activeCategories, cellMap,
       rowFill,
     ));
 
-    // Base Rent Applied: abatement formula * period factor
+    const freeRentMonthRange = '$H$20:$H$29';
+    const abatementMonthRange = '$H$6:$H$15';
+    const abatementAmountRange = '$I$6:$I$15';
+
+    // Base Rent Applied: dynamic concession tables drive free-rent and abatement math.
     const monthCol = colByKey.monthNum.letter;
     const sbrCol   = colByKey.scheduledBaseRent.letter;
     sc(ws, colByKey.baseRentApplied.index, r, cFmla(
-      `(IF(${monthCol}${r}<=${cellMap.abatementMonths},0,IF(${monthCol}${r}=${cellMap.abatementMonths}+1,${sbrCol}${r}*${cellMap.abatementPartialFactor},${sbrCol}${r})))*${pfExpr}`,
+      `IF(COUNTIF(${freeRentMonthRange},${monthCol}${r})>0,0,MAX(0,${sbrCol}${r}-SUMIF(${abatementMonthRange},${monthCol}${r},${abatementAmountRange})))*${pfExpr}`,
       row.baseRentApplied ?? 0,
       FMT.currency,
       nnnFill,
@@ -955,7 +959,13 @@ function writeCurrentRemainingObligations(ws, cr, LS = '') {
   ].forEach(([r, label, lookupCol]) => {
     sc(ws, 4, r, { t: 's', v: label, s: lblS });
     sc(ws, 5, r, cFmla(
-      `XLOOKUP($I$5,${LS}$A$${FDR}:$A$${LAST},${LS}${lookupCol}$${FDR}:${lookupCol}$${LAST},${LS}${lookupCol}$${FDR},-1)`,
+      legacyNearestPriorLookup(
+        '$I$5',
+        `${LS}$A$${FDR}:$A$${LAST}`,
+        `${LS}${lookupCol}$${FDR}:${lookupCol}$${LAST}`,
+        `${LS}$A$${FDR}`,
+        `${LS}${lookupCol}$${FDR}`,
+      ),
       0, FMT.currency, C.white,
     ));
   });
@@ -1038,6 +1048,10 @@ function pDash() {
       numFmt:    FMT.text,
     },
   };
+}
+
+function legacyNearestPriorLookup(lookupCell, dateRange, returnRange, firstDateCell, firstReturnCell) {
+  return `IF(${lookupCell}<${firstDateCell},${firstReturnCell},LOOKUP(${lookupCell},${dateRange},${returnRange}))`;
 }
 
 // Green-emphasis cells for savings rows
@@ -1200,7 +1214,12 @@ function writeRenegotiationPanel(ws, cr, LS = '') {
   // from the contractual rate, not from zero during abatement months.
   // FV/NPV computations still use BRENT (applied).
   sc(ws, 4, 16, pRowLbl('Monthly Base Rent'));
-  sc(ws, 5, 16, cFmla(`XLOOKUP($I$5,${AR},${ER},INDEX(${ER},1),-1)`, 0, FMT.currency, C.white));
+  sc(ws, 5, 16, cFmla(
+    legacyNearestPriorLookup('$I$5', AR, ER, `${LS}$A$${FDR}`, `${LS}$${SBRENT}$${FDR}`),
+    0,
+    FMT.currency,
+    C.white,
+  ));
   sc(ws, 6, 16, cFmla('$F$16*(1-G15)', 0, FMT.currency, C.white));
   sc(ws, 7, 16, cFmla('$F$16*(1-H15)', 0, FMT.currency, C.white));
   sc(ws, 8, 16, cFmla('$F$16*(1-I15)', 0, FMT.currency, C.white));
@@ -1214,7 +1233,12 @@ function writeRenegotiationPanel(ws, cr, LS = '') {
 
   // Row 18: Additional Rent (Total NNN from analysis date row)
   sc(ws, 4, 18, pRowLbl('Additional Rent'));
-  sc(ws, 5, 18, cFmla(`XLOOKUP($I$5,${AR},${LR},INDEX(${LR},1),-1)`, 0, FMT.currency, C.white));
+  sc(ws, 5, 18, cFmla(
+    legacyNearestPriorLookup('$I$5', AR, LR, `${LS}$A$${FDR}`, `${LS}$${TNNN}$${FDR}`),
+    0,
+    FMT.currency,
+    C.white,
+  ));
   sc(ws, 6, 18, cFmla('F18', 0, FMT.currency, C.white));
   sc(ws, 7, 18, cFmla('G18', 0, FMT.currency, C.white));
   sc(ws, 8, 18, cFmla('H18', 0, FMT.currency, C.white));

@@ -76,4 +76,32 @@ describe('scheduleSemantics', () => {
       ]),
     );
   });
+
+  it('materializes narrative escalation rules into dated base-rent periods', () => {
+    const documentText = [
+      'Lease term 01/01/2025-01/01/2035',
+      'Rent 10000 month, escalated 2% every two years',
+    ].join('\n');
+
+    const analysis = analyzeScheduleSemantics({ documentText });
+
+    expect(analysis.materializationStatus).toBe('resolved');
+    expect(analysis.preferredRepresentationType).toBe('relative_month_ranges');
+    expect(analysis.preferredAnchorDate).toBe('01/01/2025');
+    expect(analysis.derivedRentSchedule[0]).toEqual({
+      periodStart: '01/01/2025',
+      periodEnd: '12/31/2026',
+      monthlyRent: 10000,
+    });
+    expect(analysis.derivedRentSchedule[1]).toEqual({
+      periodStart: '01/01/2027',
+      periodEnd: '12/31/2028',
+      monthlyRent: 10200,
+    });
+    expect(analysis.derivedRentSchedule[4]).toEqual({
+      periodStart: '01/01/2033',
+      periodEnd: '12/31/2034',
+      monthlyRent: 10824.32,
+    });
+  });
 });

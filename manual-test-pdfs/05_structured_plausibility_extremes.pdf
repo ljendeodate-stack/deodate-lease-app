@@ -1,0 +1,64 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+4 0 obj
+<< /Type /Pages /Count 1 /Kids [6 0 R] >>
+endobj
+5 0 obj
+<< /Length 1764 >>
+stream
+BT /F2 16 Tf 1 0 0 1 54.00 738.00 Tm (Structured Plausibility Extremes) Tj ET
+BT /F3 10 Tf 1 0 0 1 54.00 716.00 Tm (Fixture ID: PDF-05) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 54.00 700.00 Tm (Intended upload: Scan Lease \(PDF\) - structured table path) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 680.00 Tm (Digitally generated schedule with implausible rents. The first row is a likely unconverted) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 666.00 Tm (dollars-per-square-foot figure, the second row is negative, and the third row is unusually) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 652.00 Tm (large.) Tj ET
+BT /F2 10.5 Tf 1 0 0 1 54.00 630.00 Tm (Period Start) Tj ET
+BT /F2 10.5 Tf 1 0 0 1 170.00 630.00 Tm (Period End) Tj ET
+BT /F2 10.5 Tf 1 0 0 1 300.00 630.00 Tm (Monthly Base Rent) Tj ET
+BT /F2 10.5 Tf 1 0 0 1 450.00 630.00 Tm (Notes) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 54.00 617.00 Tm (08/01/2026) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 170.00 617.00 Tm (07/31/2027) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 300.00 617.00 Tm (0.85) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 450.00 617.00 Tm (Likely PSF value) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 54.00 604.00 Tm (08/01/2027) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 170.00 604.00 Tm (07/31/2028) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 300.00 604.00 Tm (-2500.00) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 450.00 604.00 Tm (Negative rent) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 54.00 591.00 Tm (08/01/2028) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 170.00 591.00 Tm (07/31/2029) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 300.00 591.00 Tm (1500000.00) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 450.00 591.00 Tm (Unusually high) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 568.00 Tm (- Plausibility warnings should call out low, negative, and unusually high rent values.) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 554.00 Tm (- The app should still allow review rather than failing outright.) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R /F3 3 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Type /Catalog /Pages 4 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000085 00000 n 
+0000000160 00000 n 
+0000000228 00000 n 
+0000000285 00000 n 
+0000002101 00000 n 
+0000002247 00000 n 
+trailer
+<< /Size 8 /Root 7 0 R >>
+startxref
+2296
+%%EOF

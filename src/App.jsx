@@ -24,7 +24,7 @@ import { parseFile } from './engine/parser.js';
 import { expandPeriods } from './engine/expander.js';
 import { calculateAllCharges } from './engine/calculator.js';
 import { validateParams, validateSchedule } from './engine/validator.js';
-import { extractFromPDF } from './ocr/extractor.js';
+import { extractFromUploadedDocument } from './ocr/extractor.js';
 import { classifyExpenseLabel, NNN_BUCKET_KEYS } from './engine/labelClassifier.js';
 import { scoreExtraction, categorizeFields } from './engine/confidenceScorer.js';
 import { checkSchedulePlausibility } from './engine/plausibility.js';
@@ -46,8 +46,101 @@ const STEP = {
   RESULTS: 'results',
 };
 
+const PARSER_ELIGIBLE_EXTENSIONS = new Set(['pdf', 'xlsx', 'xls', 'csv']);
+
 export function formToCalculatorParams(form, rows = []) {
   return normalizeFormToCalculatorParams(form, rows);
+}
+
+function getFileExtension(filename = '') {
+  return String(filename).split('.').pop()?.toLowerCase() ?? '';
+}
+
+function hasBlockingPlausibilityIssues(periodRows = []) {
+  return checkSchedulePlausibility(periodRows).some((issue) => issue.severity === 'error');
+}
+
+function summarizeScheduleConflict(parsedRows = [], extractedRows = []) {
+  if (!parsedRows.length || !extractedRows.length) return null;
+
+  const parsedFirst = parsedRows[0];
+  const extractedFirst = extractedRows[0];
+  const parsedLast = parsedRows[parsedRows.length - 1];
+  const extractedLast = extractedRows[extractedRows.length - 1];
+  const sameLength = parsedRows.length === extractedRows.length;
+  const startGapDays = Math.round((parsedFirst.periodStart - extractedFirst.periodStart) / 86400000);
+  const endGapDays = Math.round((parsedLast.periodEnd - extractedLast.periodEnd) / 86400000);
+  const firstRentDelta = Math.abs((parsedFirst.monthlyRent ?? 0) - (extractedFirst.monthlyRent ?? 0));
+
+  if (sameLength && startGapDays === 0 && endGapDays === 0 && firstRentDelta < 0.01) {
+    return null;
+  }
+
+  return `Structured parsing and text extraction produced different base-rent schedules. The text-first draft was kept for review because it appears to contain materially different period timing or rent values.`;
+}
+
+function chooseScheduleDraft({ parsedRows, extractionResult, parserWarnings }) {
+  const semanticNormalization = extractionResult?.scheduleNormalization ?? null;
+  const extractedRows = ocrScheduleToPeriodRows(extractionResult?.rentSchedule);
+  const usingSemanticSchedule = Boolean(semanticNormalization?.usedAsRentSchedule);
+  const parsedUsable = parsedRows.length > 0 && !hasBlockingPlausibilityIssues(parsedRows);
+  const extractedUsable = extractedRows.length > 0 && !hasBlockingPlausibilityIssues(extractedRows);
+  const scheduleWarnings = [...(parserWarnings ?? [])];
+
+  const conflictMessage = parsedUsable && extractedUsable
+    ? summarizeScheduleConflict(parsedRows, extractedRows)
+    : null;
+  if (conflictMessage) {
+    scheduleWarnings.push(conflictMessage);
+  }
+
+  if (conflictMessage && extractedUsable) {
+    return {
+      periodRows: extractedRows,
+      scheduleWarnings: [
+        ...scheduleWarnings,
+        usingSemanticSchedule
+          ? 'Rent schedule was materialized from semantic lease language. Verify the anchor date, escalation cadence, and derived dated periods before confirming.'
+          : 'Rent schedule was derived from text-first extraction. Verify all periods and amounts before confirming.',
+      ],
+      nextScheduleMode: usingSemanticSchedule ? 'semantic' : 'explicit',
+      semanticNormalization,
+      usingSemanticSchedule,
+    };
+  }
+
+  if (parsedUsable) {
+    return {
+      periodRows: parsedRows,
+      scheduleWarnings,
+      nextScheduleMode: 'explicit',
+      semanticNormalization,
+      usingSemanticSchedule: false,
+    };
+  }
+
+  if (extractedUsable) {
+    return {
+      periodRows: extractedRows,
+      scheduleWarnings: [
+        ...scheduleWarnings,
+        usingSemanticSchedule
+          ? 'Rent schedule was materialized from semantic lease language. Verify the anchor date, escalation cadence, and derived dated periods before confirming.'
+          : 'Rent schedule was derived from text-first extraction. Verify all periods and amounts before confirming.',
+      ],
+      nextScheduleMode: usingSemanticSchedule ? 'semantic' : 'explicit',
+      semanticNormalization,
+      usingSemanticSchedule,
+    };
+  }
+
+  return {
+    periodRows: [],
+    scheduleWarnings,
+    nextScheduleMode: semanticNormalization?.candidates?.length ? 'semantic' : 'explicit',
+    semanticNormalization,
+    usingSemanticSchedule,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -141,74 +234,73 @@ export default function App() {
   // Upload handlers
   // ---------------------------------------------------------------------------
 
-  const handlePDFUpload = useCallback(async (file) => {
+  const handleScanUpload = useCallback(async (file) => {
     setGlobalError(null);
-    setInputPath('pdf');
+    setInputPath('scan');
     setFileName(file.name.replace(/\.[^/.]+$/, ''));
     setMenuOpen(false);
     setIsExtracting(true);
+    setExpandedRows([]);
+    setDuplicateDates([]);
+    setDupConfirmed(true);
+    setValidationErrors([]);
+    setValidationWarnings([]);
+    setConfidenceResult(null);
+    setFieldCategories(null);
+    setPlausibilityIssues([]);
 
     try {
-      const buffer = await file.arrayBuffer();
-      const [{ result, isLikelyScanned }, parsedFile] = await Promise.all([
-        extractFromPDF(buffer),
-        parseFile(file),
+      const ext = getFileExtension(file.name);
+      const [extractedDocument, parsedFile] = await Promise.all([
+        extractFromUploadedDocument(file),
+        PARSER_ELIGIBLE_EXTENSIONS.has(ext)
+          ? parseFile(file)
+          : Promise.resolve({ rows: [], warnings: [] }),
       ]);
+      const { result } = extractedDocument;
 
-      const semanticNormalization = result.scheduleNormalization ?? null;
-      const usingSemanticSchedule = parsedFile.rows.length === 0 && Boolean(semanticNormalization?.usedAsRentSchedule);
-      const usingOcrSchedule = parsedFile.rows.length === 0 && !usingSemanticSchedule && result.rentSchedule?.length > 0;
-      const periodRows = usingOcrSchedule || usingSemanticSchedule
-        ? ocrScheduleToPeriodRows(result.rentSchedule)
-        : parsedFile.rows;
-      const nextScheduleMode = usingSemanticSchedule || (periodRows.length === 0 && semanticNormalization?.candidates?.length > 0)
-        ? 'semantic'
-        : 'explicit';
-
-      const scheduleWarnings = [
-        ...parsedFile.warnings,
-        ...(usingOcrSchedule
-          ? ['Rent schedule loaded from OCR extraction. Verify all periods and amounts before confirming.']
-          : []),
-        ...(usingSemanticSchedule
-          ? ['Rent schedule was materialized from semantic lease language. Verify the anchor date, month buckets, and derived dated periods before confirming.']
-          : []),
-      ];
+      const resolvedSchedule = chooseScheduleDraft({
+        parsedRows: parsedFile.rows,
+        extractionResult: result,
+        parserWarnings: parsedFile.warnings,
+      });
 
       // Score confidence
-      const confidence = scoreExtraction(result, periodRows);
+      const confidence = scoreExtraction(result, resolvedSchedule.periodRows);
       setConfidenceResult(confidence);
       setFieldCategories(categorizeFields(result, confidence));
 
       // Run plausibility checks on the period rows
-      const plausibility = checkSchedulePlausibility(periodRows);
+      const plausibility = checkSchedulePlausibility(resolvedSchedule.periodRows);
       setPlausibilityIssues(plausibility);
 
-      const { rows: previewRows } = periodRows.length > 0 ? expandPeriods(periodRows) : { rows: [] };
+      const { rows: previewRows } = resolvedSchedule.periodRows.length > 0
+        ? expandPeriods(resolvedSchedule.periodRows)
+        : { rows: [] };
       applyPrepopulatedFormState(result, previewRows);
-      setScheduleSemantics(semanticNormalization);
-      setScheduleMaterializationMode(nextScheduleMode);
-      setSchedulePeriodRows(periodRows);
-      setParseWarnings(scheduleWarnings);
+      setScheduleSemantics(resolvedSchedule.semanticNormalization);
+      setScheduleMaterializationMode(resolvedSchedule.nextScheduleMode);
+      setSchedulePeriodRows(resolvedSchedule.periodRows);
+      setParseWarnings(resolvedSchedule.scheduleWarnings);
 
-      if (periodRows.length > 0) {
+      if (resolvedSchedule.periodRows.length > 0) {
         setScheduleNotice({
           tone: confidence.level === 'low' ? 'warning' : 'info',
-          title: 'Review OCR schedule before assumptions',
-          message: usingSemanticSchedule
-            ? 'The app materialized a dated base-rent schedule from detected semantic lease language. Review the derived periods below before continuing to lease assumptions.'
-            : 'OCR extracted a draft rent schedule. Review and edit the schedule preview below before continuing to lease assumptions.',
+          title: 'Review extracted schedule before assumptions',
+          message: resolvedSchedule.usingSemanticSchedule
+            ? 'The app materialized a dated base-rent schedule from detected lease language. Review the derived periods below before continuing to lease assumptions.'
+            : 'The uploaded file produced a draft base-rent schedule. Review and edit the schedule preview below before continuing to lease assumptions.',
           detail: `Extraction confidence: ${(confidence.overall * 100).toFixed(0)}% (${confidence.level})${confidence.reasons.length > 0 ? ` - ${confidence.reasons[0]}` : ''}`,
         });
         setStep(STEP.SCHEDULE);
-      } else if (semanticNormalization?.candidates?.length > 0) {
+      } else if (resolvedSchedule.semanticNormalization?.candidates?.length > 0) {
         setScheduleNotice(null);
         setStep(STEP.FORM);
       } else {
         setScheduleNotice({
           tone: 'warning',
           title: 'Manual schedule entry needed',
-          message: 'OCR extracted assumptions, but a usable rent schedule was not identified. Enter or paste the rent schedule below before continuing.',
+          message: 'The uploaded file populated assumptions, but a usable rent schedule was not identified. Enter or paste the rent schedule below before continuing.',
           detail: `Extraction confidence: ${(confidence.overall * 100).toFixed(0)}% (${confidence.level})${confidence.reasons.length > 0 ? ` - ${confidence.reasons[0]}` : ''}`,
         });
         setStep(STEP.SCHEDULE);
@@ -222,7 +314,7 @@ export default function App() {
       setScheduleNotice({
         tone: 'warning',
         title: 'Manual schedule entry needed',
-        message: 'OCR extraction failed unexpectedly. Enter or paste the rent schedule below, then continue to lease assumptions.',
+        message: 'Automatic extraction failed unexpectedly. Enter or paste the rent schedule below, then continue to lease assumptions.',
         detail: null,
       });
       setStep(STEP.SCHEDULE);
@@ -569,12 +661,7 @@ export default function App() {
         <div className="max-w-screen-xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div>
-              <p className="section-kicker">Decision-Grade Output</p>
-              <div className="mt-1 flex items-center gap-3">
-                <span className="font-display text-xl font-semibold tracking-[0.1em] text-accent">DEODATE</span>
-                <span className="text-txt-faint">/</span>
-                <span className="text-sm text-txt-muted">Lease Schedule Engine</span>
-              </div>
+              <span className="font-display text-xl font-semibold text-accent">Lease Schedule Engine</span>
             </div>
           </div>
           {showWorkflowMenu && (
@@ -654,8 +741,7 @@ export default function App() {
         {/* Step: Upload */}
         {step === STEP.UPLOAD && (
           <UploadRouter
-            onPDFUpload={handlePDFUpload}
-            onFileUpload={handleFileUpload}
+            onScanUpload={handleScanUpload}
             onManualEntry={handleManualEntry}
             isExtracting={isExtracting}
           />
@@ -684,7 +770,7 @@ export default function App() {
               onConfirm={handleScheduleConfirm}
               onBack={() => navigateToStep(STEP.UPLOAD)}
               initialPeriodRows={schedulePeriodRows}
-              initialEntryMode={schedulePeriodRows.length > 0 || inputPath === 'pdf' ? 'manual' : 'quick'}
+              initialEntryMode={schedulePeriodRows.length > 0 || inputPath === 'scan' ? 'manual' : 'quick'}
               semanticSchedule={scheduleSemantics}
               scheduleMaterializationMode={scheduleMaterializationMode}
             />
@@ -817,7 +903,7 @@ export default function App() {
                 plausibilityIssues={plausibilityIssues}
                 validationWarnings={validationWarnings}
                 leaseMetadata={{
-                  inputPath: inputPath === 'pdf' ? 'scan' : 'manual',
+                  inputPath: inputPath === 'scan' ? 'scan' : 'manual',
                   ocrConfidenceFlags,
                   ocrNotices,
                   parseWarnings,

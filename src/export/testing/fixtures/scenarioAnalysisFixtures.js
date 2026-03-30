@@ -60,6 +60,24 @@ export const scenarioAnalysisFixtures = [
     },
   },
   {
+    id: 'free-rent',
+    description: 'Lease with free-rent months that should flow through the live lease schedule total into Scenario Analysis.',
+    filename: 'semantic-free-rent',
+    periodRows: basePeriods,
+    params: makeParams({
+      leaseName: 'Free Rent Lease',
+      concessionEvents: [
+        { id: 'free_1', type: 'free_rent', scope: 'monthly_row', effectiveDate: d('01/01/2025'), valueMode: 'percent', value: 100, label: 'Opening month' },
+        { id: 'free_2', type: 'free_rent', scope: 'monthly_row', effectiveDate: d('02/01/2025'), valueMode: 'percent', value: 100, label: 'Launch support' },
+      ],
+    }),
+    expected: {
+      requiresApproximateRouting: false,
+      hasOneTimeCharges: false,
+      hasAbatement: false,
+    },
+  },
+  {
     id: 'one-time-charges',
     description: 'Lease with separate one-time charges that should not route into Additional Rent.',
     filename: 'semantic-one-time-charges',

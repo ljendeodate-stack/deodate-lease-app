@@ -1,61 +1,47 @@
-/**
- * UploadRouter
- * Presents three intake options:
- *   1. Scan Lease - PDF upload -> OCR extraction
- *   2. Input Schedule - routes to ScheduleEditor (manual entry / file upload)
- *   3. Download Blank Excel Template - static download
- */
-
 import { useRef, useState } from 'react';
 
-const OCR_NOTICES = [
+const EXTRACTION_NOTICES = [
   'Scanned or image-based PDFs',
   'Image-heavy lease exhibits',
-  'Rent escalation embedded in narrative legal prose (not a table)',
+  'Rent escalation embedded in narrative legal prose',
   'Non-standard or multi-column rent schedule layouts',
 ];
 
-function StepBadge({ number, muted = false }) {
+function StepBadge({ number }) {
   return (
-    <span className={`inline-flex h-10 w-10 items-center justify-center rounded-full border text-sm font-semibold ${
-      muted
-        ? 'border-app-border text-txt-dim'
-        : 'border-accent/45 bg-accent/12 text-accent'
-    }`}>
+    <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-accent/45 bg-accent/12 text-sm font-semibold text-accent">
       {number}
     </span>
   );
 }
 
-export default function UploadRouter({ onPDFUpload, onFileUpload, onManualEntry, isExtracting }) {
-  const pdfRef = useRef(null);
+export default function UploadRouter({ onScanUpload, onManualEntry, isExtracting }) {
+  const uploadRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
 
-  function handleDrop(e) {
-    e.preventDefault();
+  function handleDrop(event) {
+    event.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) onPDFUpload(file);
+    const file = event.dataTransfer.files?.[0];
+    if (file) onScanUpload(file);
   }
 
-  function handleFileChange(e) {
-    const file = e.target.files?.[0];
+  function handleFileChange(event) {
+    const file = event.target.files?.[0];
     if (!file) return;
-    onPDFUpload(file);
-    e.target.value = '';
+    onScanUpload(file);
+    event.target.value = '';
   }
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <section className="surface-glass px-8 py-10">
-        <p className="section-kicker">Institutional Lease Review</p>
         <div className="mt-4 max-w-3xl">
           <h1 className="text-4xl font-semibold leading-tight text-txt-primary sm:text-5xl">
-            Build a lease schedule from scan, schedule input, or template.
+            Lease Schedule Engine
           </h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-txt-muted">
-            Choose the intake path that matches the document you have today.
-            Every path converges into the same review flow, calculations, and export package.
+            Build a lease schedule from a lease file, schedule file, or unstructured notes. File-based intake routes through the same review, calculation, and export flow.
           </p>
         </div>
       </section>
@@ -71,8 +57,7 @@ export default function UploadRouter({ onPDFUpload, onFileUpload, onManualEntry,
               </div>
             </div>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-txt-muted">
-              Upload a raw lease PDF and extract the rent schedule draft through OCR.
-              The system pre-fills the review flow, but human confirmation is still required before processing.
+              Upload a lease PDF, schedule file, or narrative notes file. Native-text uploads route through text extraction, while scanned PDFs add OCR before the same downstream review.
             </p>
           </div>
 
@@ -82,7 +67,7 @@ export default function UploadRouter({ onPDFUpload, onFileUpload, onManualEntry,
                 Reduced extraction reliability for:
               </p>
               <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-status-warn-text">
-                {OCR_NOTICES.map((notice) => (
+                {EXTRACTION_NOTICES.map((notice) => (
                   <li key={notice}>{notice}</li>
                 ))}
               </ul>
@@ -97,77 +82,58 @@ export default function UploadRouter({ onPDFUpload, onFileUpload, onManualEntry,
                   ? 'border-accent bg-accent/10 shadow-accent'
                   : 'border-app-border-strong bg-app-chrome/70 hover:border-accent/45 hover:bg-app-panel-strong'
               }`}
-              onDragOver={(e) => {
-                e.preventDefault();
+              onDragOver={(event) => {
+                event.preventDefault();
                 setDragOver(true);
               }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
-              onClick={() => !isExtracting && pdfRef.current?.click()}
+              onClick={() => !isExtracting && uploadRef.current?.click()}
             >
               <input
-                ref={pdfRef}
+                ref={uploadRef}
                 type="file"
-                accept=".pdf"
+                accept=".pdf,.docx,.txt,.xlsx,.xls,.csv"
                 className="hidden"
                 onChange={handleFileChange}
               />
               <div className="mx-auto max-w-md text-center">
-                <p className="section-kicker">{isExtracting ? 'OCR in Progress' : 'Drop Zone'}</p>
+                <p className="section-kicker">{isExtracting ? 'Extraction In Progress' : 'Drop Zone'}</p>
                 <p className="mt-3 font-display text-2xl font-semibold text-txt-primary">
-                  {isExtracting ? 'Extracting lease structure...' : 'Drop PDF here or click to browse'}
+                  {isExtracting ? 'Extracting lease structure...' : 'Drop file here or click to browse'}
                 </p>
                 <p className="mt-3 text-sm text-txt-muted">
-                  Accepts PDF lease files. OCR only prepares the draft; review happens in the next steps.
+                  Accepts .pdf, .docx, .txt, .xlsx, .xls, and .csv. Review still happens before processing.
                 </p>
               </div>
             </div>
           </div>
         </section>
 
-        <div className="space-y-5">
-          <section className="surface-panel px-6 py-6">
-            <div className="flex items-center gap-4">
-              <StepBadge number="2" />
-              <div>
-                <p className="section-kicker">Direct Entry</p>
-                <h2 className="mt-1 text-xl font-semibold text-txt-primary">Input Schedule</h2>
-              </div>
+        <section className="surface-panel px-6 py-6">
+          <div className="flex items-center gap-4">
+            <StepBadge number="2" />
+            <div>
+              <p className="section-kicker">Direct Entry</p>
+              <h2 className="mt-1 text-xl font-semibold text-txt-primary">Input Schedule</h2>
             </div>
-            <p className="mt-4 text-sm leading-6 text-txt-muted">
-              Type, paste, or generate the rent schedule directly. Supports quick entry, bulk paste,
-              and structured uploads with the same downstream results.
-            </p>
+          </div>
+          <p className="mt-4 text-sm leading-6 text-txt-muted">
+            Type, paste, or generate the rent schedule directly. Use this path when you want to build or correct the schedule manually before lease assumptions are finalized.
+          </p>
+          <div className="mt-5 space-y-3">
             <button
               type="button"
               onClick={onManualEntry}
-              className="btn-secondary mt-5 w-full"
+              className="btn-secondary w-full"
             >
               Open Schedule Editor
             </button>
-          </section>
-
-          <section className="surface-panel px-6 py-6">
-            <div className="flex items-center gap-4">
-              <StepBadge number="3" muted />
-              <div>
-                <p className="section-kicker">Offline Prep</p>
-                <h2 className="mt-1 text-xl font-semibold text-txt-primary">Download Blank Template</h2>
-              </div>
-            </div>
-            <p className="mt-4 text-sm leading-6 text-txt-muted">
-              Download the blank workbook with the correct sheet structure and assumptions block,
-              then complete it offline in Excel or Google Sheets.
+            <p className="text-xs text-txt-dim">
+              Manual entry supports quick entry, bulk paste, and direct schedule editing only.
             </p>
-            <a
-              href="/deodate-lease-template.xlsx"
-              download
-              className="btn-ghost mt-5 w-full"
-            >
-              Download Template (.xlsx)
-            </a>
-          </section>
-        </div>
+          </div>
+        </section>
       </div>
     </div>
   );

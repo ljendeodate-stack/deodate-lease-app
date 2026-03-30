@@ -1,0 +1,65 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+4 0 obj
+<< /Type /Pages /Count 1 /Kids [6 0 R] >>
+endobj
+5 0 obj
+<< /Length 1877 >>
+stream
+BT /F2 16 Tf 1 0 0 1 54.00 738.00 Tm (Structured Happy Path With Partial Opening and Expiration Month) Tj ET
+BT /F3 10 Tf 1 0 0 1 54.00 716.00 Tm (Fixture ID: PDF-01) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 54.00 700.00 Tm (Intended upload: Scan Lease \(PDF\) - structured table path) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 680.00 Tm (Digitally generated rent table with exact parser headers. Commencement is mid-month and the) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 666.00 Tm (final period ends mid-month so the monthly expansion and calculator proration logic can be) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 652.00 Tm (reviewed against a clean baseline.) Tj ET
+BT /F2 10.5 Tf 1 0 0 1 54.00 630.00 Tm (Period Start) Tj ET
+BT /F2 10.5 Tf 1 0 0 1 170.00 630.00 Tm (Period End) Tj ET
+BT /F2 10.5 Tf 1 0 0 1 300.00 630.00 Tm (Monthly Base Rent) Tj ET
+BT /F2 10.5 Tf 1 0 0 1 450.00 630.00 Tm (Notes) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 54.00 617.00 Tm (03/15/2026) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 170.00 617.00 Tm (03/14/2027) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 300.00 617.00 Tm (12500.00) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 450.00 617.00 Tm (Year 1) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 54.00 604.00 Tm (03/15/2027) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 170.00 604.00 Tm (03/14/2028) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 300.00 604.00 Tm (12875.00) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 450.00 604.00 Tm (Year 2) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 54.00 591.00 Tm (03/15/2028) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 170.00 591.00 Tm (04/14/2029) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 300.00 591.00 Tm (13261.25) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 450.00 591.00 Tm (Final stub) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 568.00 Tm (- Structured PDF parser should detect the table directly.) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 554.00 Tm (- No duplicate, overlap, or gap warning should appear.) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 540.00 Tm (- Monthly ledger should begin on 2026-03-15 and end on 2029-04-14.) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R /F3 3 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Type /Catalog /Pages 4 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000085 00000 n 
+0000000160 00000 n 
+0000000228 00000 n 
+0000000285 00000 n 
+0000002214 00000 n 
+0000002360 00000 n 
+trailer
+<< /Size 8 /Root 7 0 R >>
+startxref
+2409
+%%EOF

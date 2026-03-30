@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  detectNarrativeRecurringCharges,
   detectRecurringChargeIrregularities,
   documentIndicatesSfBasedRent,
   repairExtractionSemantics,
+  repairNarrativeRecurringChargeSemantics,
   repairRecurringChargeOverrideSemantics,
   repairSfBasedRentSemantics,
 } from './extractor.js';
@@ -123,6 +125,44 @@ describe('detectRecurringChargeIrregularities', () => {
     );
 
     expect(irregularities).toEqual([]);
+  });
+});
+
+describe('narrative recurring charge repair', () => {
+  it('detects recurring charge rules from unstructured notes', () => {
+    const charges = detectNarrativeRecurringCharges(
+      'NNN escalate 2.5% every year, amt 10000',
+    );
+
+    expect(charges).toEqual([
+      expect.objectContaining({
+        label: 'NNN',
+        bucketKey: 'cams',
+        canonicalType: 'nnn',
+        year1: 10000,
+        escPct: 2.5,
+      }),
+    ]);
+  });
+
+  it('supplements missing recurring charges from narrative text during repair', () => {
+    const repaired = repairNarrativeRecurringChargeSemantics(
+      {
+        recurringCharges: [],
+        notices: [],
+      },
+      'NNN escalate 2.5% every year, amt 10000',
+    );
+
+    expect(repaired.recurringCharges).toEqual([
+      expect.objectContaining({
+        label: 'NNN',
+        bucketKey: 'cams',
+        year1: 10000,
+        escPct: 2.5,
+      }),
+    ]);
+    expect(repaired.notices[0]).toContain('recurring charge narrative rule');
   });
 });
 

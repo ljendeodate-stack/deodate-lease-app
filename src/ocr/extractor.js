@@ -13,6 +13,7 @@
  */
 
 import { analyzeScheduleSemantics } from '../engine/scheduleSemantics.js';
+import { extractDocumentTextFromFile } from './documentText.js';
 
 const OCR_PROVIDER = (import.meta.env.VITE_OCR_PROVIDER || 'anthropic').toLowerCase();
 
@@ -227,6 +228,13 @@ function likelyScanned(buffer) {
   // PDFs with embedded text have many printable ASCII chars; scanned ones don't.
   const printable = (text.match(/[\x20-\x7E]/g) || []).length;
   return printable / bytes.length < 0.15;
+}
+
+function hasUsableDocumentText(documentText) {
+  const normalized = String(documentText ?? '').replace(/\s+/g, ' ').trim();
+  if (normalized.length < 80) return false;
+  const alphaCount = (normalized.match(/[a-z]/gi) || []).length;
+  return alphaCount >= 40;
 }
 
 /**
@@ -458,6 +466,132 @@ export function detectRecurringChargeIrregularities(documentText, recurringCharg
     .filter(Boolean);
 }
 
+function parseCadenceMonths(rawValue, rawUnit) {
+  const normalizedUnit = String(rawUnit ?? '').toLowerCase();
+  const normalizedValue = String(rawValue ?? '').trim().toLowerCase();
+  const wordToNumber = {
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+  };
+
+  const numericValue = Number(normalizedValue);
+  const value = Number.isFinite(numericValue) && numericValue > 0
+    ? numericValue
+    : (wordToNumber[normalizedValue] ?? 1);
+
+  if (normalizedUnit.startsWith('year')) return value * 12;
+  if (normalizedUnit.startsWith('month')) return value;
+  return 12;
+}
+
+function inferRecurringChargeRoute(labelText) {
+  const normalized = normalizeSearchText(labelText);
+  if (/\b(insurance|hazard insurance|property insurance)\b/.test(normalized)) {
+    return { canonicalType: 'nnn', bucketKey: 'insurance', label: 'Insurance' };
+  }
+  if (/\b(real estate tax|property tax|taxes)\b/.test(normalized)) {
+    return { canonicalType: 'nnn', bucketKey: 'taxes', label: 'Taxes' };
+  }
+  if (/\b(cam|cams|common area maintenance|operating expense|operating expenses|triple net|nnn)\b/.test(normalized)) {
+    return { canonicalType: 'nnn', bucketKey: 'cams', label: /\bnnn\b/.test(normalized) ? 'NNN' : 'Operating Expenses' };
+  }
+  return { canonicalType: 'other', bucketKey: null, label: labelText || 'Recurring Charge' };
+}
+
+export function detectNarrativeRecurringCharges(documentText = '') {
+  const lines = String(documentText ?? '')
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const charges = [];
+  const seen = new Set();
+  const leadingEscPattern = /\b(?<label>nnn|cam(?:s)?|common area maintenance|operating expenses?|insurance|property insurance|real estate taxes?|taxes|additional rent)\b[\s,:-]*(?:escalat(?:e|ed|es)?[\s,:-]*)?(?:(?<esc>\d+(?:\.\d+)?)%\s*(?:every|per)\s*(?<cadenceValue>\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*(?<cadenceUnit>year|years|month|months))?[\s,;-]*(?:amt|amount|monthly|per month|month|at)?[\s:$-]*(?<amount>\d[\d,]*(?:\.\d{1,2})?)/i;
+  const trailingEscPattern = /\b(?<label>nnn|cam(?:s)?|common area maintenance|operating expenses?|insurance|property insurance|real estate taxes?|taxes|additional rent)\b[\s,:-]*(?:amount|amt)?[\s:$-]*(?<amount>\d[\d,]*(?:\.\d{1,2})?)[\s,;-]*(?:per|\/)?\s*(?:month|monthly)?[\s,;-]*(?:escalat(?:e|ed|es)?|increase(?:s|d)?)?[\s,:-]*(?<esc>\d+(?:\.\d+)?)%\s*(?:every|per)\s*(?<cadenceValue>\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*(?<cadenceUnit>year|years|month|months)/i;
+
+  for (const line of lines) {
+    const match = line.match(leadingEscPattern) ?? line.match(trailingEscPattern);
+    if (!match?.groups?.amount) continue;
+
+    const route = inferRecurringChargeRoute(match.groups.label);
+    const year1 = moneyToNumber(match.groups.amount);
+    if (year1 == null) continue;
+
+    const escPct = match.groups.esc ? Number(match.groups.esc) : null;
+    const cadenceMonths = match.groups.esc
+      ? parseCadenceMonths(match.groups.cadenceValue, match.groups.cadenceUnit)
+      : null;
+    const key = `${route.bucketKey ?? route.label}:${year1}:${escPct ?? ''}:${cadenceMonths ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    charges.push({
+      label: route.label,
+      bucketKey: route.bucketKey,
+      canonicalType: route.canonicalType,
+      year1,
+      amountBasis: 'monthly',
+      escPct,
+      chargeStart: null,
+      escStart: null,
+      confidence: 0.72,
+      evidenceText: line,
+      sourceKind: 'narrative_obligation',
+      cadenceMonths,
+    });
+  }
+
+  return charges;
+}
+
+export function repairNarrativeRecurringChargeSemantics(result, documentText) {
+  const repaired = {
+    ...result,
+    notices: Array.isArray(result?.notices) ? [...result.notices] : [],
+    recurringCharges: Array.isArray(result?.recurringCharges)
+      ? result.recurringCharges.map((charge) => ({ ...charge }))
+      : [],
+  };
+
+  const narrativeCharges = detectNarrativeRecurringCharges(documentText);
+  if (narrativeCharges.length === 0) return repaired;
+
+  for (const narrativeCharge of narrativeCharges) {
+    const existing = repaired.recurringCharges.find((charge) => {
+      const sameBucket = charge?.bucketKey && narrativeCharge.bucketKey && charge.bucketKey === narrativeCharge.bucketKey;
+      const sameLabel = normalizeSearchText(charge?.label) === normalizeSearchText(narrativeCharge.label);
+      return sameBucket || sameLabel;
+    });
+
+    if (existing) {
+      if (existing.year1 == null) existing.year1 = narrativeCharge.year1;
+      if (existing.escPct == null && narrativeCharge.escPct != null) existing.escPct = narrativeCharge.escPct;
+      if (!existing.evidenceText) existing.evidenceText = narrativeCharge.evidenceText;
+      if (existing.confidence == null || existing.confidence < narrativeCharge.confidence) {
+        existing.confidence = narrativeCharge.confidence;
+      }
+      continue;
+    }
+
+    repaired.recurringCharges.push(narrativeCharge);
+  }
+
+  pushUnique(
+    repaired.notices,
+    `${narrativeCharges.length} recurring charge narrative rule${narrativeCharges.length === 1 ? '' : 's'} were inferred from unstructured text. Review the extracted charge labels, amounts, and escalation cadence before processing.`,
+  );
+
+  return repaired;
+}
+
 export function documentIndicatesSfBasedRent(documentText) {
   const normalized = normalizeSearchText(documentText);
   if (!normalized) return false;
@@ -567,7 +701,10 @@ export function repairRecurringChargeOverrideSemantics(result, documentText) {
 export function repairExtractionSemantics(result, documentText) {
   return repairScheduleSemantics(
     repairRecurringChargeOverrideSemantics(
-      repairSfBasedRentSemantics(result, documentText),
+      repairNarrativeRecurringChargeSemantics(
+        repairSfBasedRentSemantics(result, documentText),
+        documentText,
+      ),
       documentText,
     ),
     documentText,
@@ -628,7 +765,7 @@ export function repairScheduleSemantics(result, documentText) {
   return repaired;
 }
 
-async function extractPdfPlainText(buffer) {
+export async function extractPdfPlainText(buffer) {
   try {
     const pdfjsLib = await import('pdfjs-dist');
     const loadingTask = pdfjsLib.getDocument({ data: buffer });
@@ -699,33 +836,194 @@ function emptyExtractionResult(notices = []) {
   };
 }
 
+function buildTextExtractionPrompt(documentText, sourceLabel = 'document text') {
+  const normalizedText = String(documentText ?? '').trim().slice(0, 120000);
+  return `${EXTRACTION_PROMPT}
+
+SOURCE TYPE: ${sourceLabel}
+DOCUMENT TEXT:
+${normalizedText}`;
+}
+
+function normalizeExtractionResult(result, documentText, notices = []) {
+  const normalized = {
+    ...emptyExtractionResult(),
+    ...(result ?? {}),
+  };
+
+  normalized.confidenceFlags = normalized.confidenceFlags ?? [];
+  normalized.notices = [...notices, ...(normalized.notices ?? [])];
+  normalized.rentSchedule = normalized.rentSchedule ?? [];
+  normalized.rentCommencementDate = normalized.rentCommencementDate ?? null;
+  normalized.freeRentEvents = Array.isArray(normalized.freeRentEvents) ? normalized.freeRentEvents : [];
+  normalized.abatementEvents = Array.isArray(normalized.abatementEvents) ? normalized.abatementEvents : [];
+  normalized.recurringCharges = Array.isArray(normalized.recurringCharges) ? normalized.recurringCharges : [];
+
+  const repaired = repairExtractionSemantics(normalized, documentText);
+  const flagCount = repaired.confidenceFlags.length;
+  repaired.overallConfidence = flagCount === 0 ? 'high' : flagCount <= 3 ? 'medium' : 'low';
+  return repaired;
+}
+
+function parseExtractionPayload(rawText, fallbackNotice, documentText, notices = []) {
+  try {
+    const cleaned = String(rawText ?? '')
+      .replace(/^```json\s*/i, '')
+      .replace(/```\s*$/, '')
+      .trim();
+    const parsed = JSON.parse(cleaned);
+    return normalizeExtractionResult(parsed, documentText, notices);
+  } catch {
+    return normalizeExtractionResult(
+      emptyExtractionResult([fallbackNotice]),
+      documentText,
+      notices,
+    );
+  }
+}
+
+function hasMeaningfulExtraction(result) {
+  return Boolean(
+    result?.rentSchedule?.length ||
+    result?.scheduleNormalization?.candidates?.length ||
+    result?.recurringCharges?.length ||
+    result?.freeRentEvents?.length ||
+    result?.abatementEvents?.length ||
+    result?.leaseName ||
+    result?.squareFootage != null,
+  );
+}
+
+async function extractTextPayload(prompt) {
+  if (OCR_PROVIDER === 'openai') {
+    return { rawText: await extractPromptFromOpenAI(prompt), providerUsed: 'openai', fallbackReason: null };
+  }
+
+  try {
+    return { rawText: await extractPromptFromAnthropic(prompt), providerUsed: 'anthropic', fallbackReason: null };
+  } catch (anthropicError) {
+    if (!hasConfiguredOpenAIKey()) {
+      throw anthropicError;
+    }
+
+    return {
+      rawText: await extractPromptFromOpenAI(prompt),
+      providerUsed: 'openai',
+      fallbackReason: 'Anthropic failed, so the app switched providers automatically.',
+    };
+  }
+}
+
+export async function extractFromDocumentText(documentText, sourceLabel = 'document text') {
+  if (!hasUsableDocumentText(documentText)) {
+    return {
+      result: normalizeExtractionResult(
+        emptyExtractionResult(['The uploaded file did not contain enough readable text to extract assumptions automatically.']),
+        documentText,
+      ),
+      providerUsed: null,
+    };
+  }
+
+  const prompt = buildTextExtractionPrompt(documentText, sourceLabel);
+  const { rawText, providerUsed, fallbackReason } = await extractTextPayload(prompt);
+  const result = parseExtractionPayload(
+    rawText,
+    'The text extraction response could not be parsed. Review the schedule and assumptions manually.',
+    documentText,
+    fallbackReason ? [`OCR fallback used: ${providerUsed}. ${fallbackReason}`] : [],
+  );
+
+  return { result, providerUsed };
+}
+
+export async function extractFromUploadedDocument(file) {
+  const { ext, buffer, text } = await extractDocumentTextFromFile(file);
+
+  if (ext === 'pdf') {
+    const extracted = await extractFromPDF(buffer);
+    return {
+      ...extracted,
+      documentText: extracted.documentText ?? text ?? '',
+      inputKind: 'pdf',
+    };
+  }
+
+  const { result, providerUsed } = await extractFromDocumentText(text, `${ext.toUpperCase()} text`);
+  if (providerUsed) {
+    result.notices.unshift(`${ext.toUpperCase()} upload routed through text-first extraction.`);
+  }
+
+  return {
+    result,
+    isLikelyScanned: false,
+    documentText: text,
+    inputKind: ext,
+  };
+}
+
 export async function extractFromPDF(pdfBuffer) {
   const scanned = likelyScanned(pdfBuffer);
+  const documentText = await extractPdfPlainText(pdfBuffer);
+
+  if (!scanned && hasUsableDocumentText(documentText)) {
+    try {
+      const { result } = await extractFromDocumentText(documentText, 'native PDF text');
+      result.notices.unshift('Native-text PDF routed through text-first extraction. OCR document vision was not required.');
+      if (hasMeaningfulExtraction(result)) {
+        return { result, isLikelyScanned: false, documentText };
+      }
+    } catch {
+      // Fall through to OCR document extraction if text-first extraction fails.
+    }
+  }
+
   let rawText;
   let providerUsed;
   let fallbackReason;
-  let documentText = '';
 
   try {
     const base64PDF = bufferToBase64(pdfBuffer);
-    const [ocrResult, extractedPdfText] = await Promise.all([
-      extractOCRText(base64PDF),
-      extractPdfPlainText(pdfBuffer),
-    ]);
+    const ocrResult = await extractOCRText(base64PDF);
     rawText = ocrResult.rawText;
     providerUsed = ocrResult.providerUsed;
     fallbackReason = ocrResult.fallbackReason;
-    documentText = extractedPdfText;
   } catch (ocrError) {
     // OCR completely failed — return empty result with notice instead of throwing
     return {
-      result: emptyExtractionResult([
-        `OCR extraction failed: ${ocrError.message}. ` +
-        'You can still proceed by entering the rent schedule manually.',
-      ]),
+      result: normalizeExtractionResult(
+        emptyExtractionResult([
+          `OCR extraction failed: ${ocrError.message}. You can still proceed by entering the rent schedule manually.`,
+        ]),
+        documentText,
+      ),
       isLikelyScanned: scanned,
+      documentText,
     };
   }
+
+  const notices = [];
+  if (fallbackReason) {
+    notices.push(`OCR fallback used: ${providerUsed}. ${fallbackReason}`);
+  }
+  if (scanned) {
+    notices.push(
+      'This PDF appears to be scanned or image-based. Extraction reliability is reduced. Review all fields carefully before confirming.',
+    );
+  }
+
+  const parsedResult = parseExtractionPayload(
+    rawText,
+    'OCR provider returned a response that could not be parsed. You can still proceed by entering the rent schedule manually.',
+    documentText,
+    notices,
+  );
+
+  if (scanned) {
+    parsedResult.overallConfidence = 'low';
+  }
+
+  return { result: parsedResult, isLikelyScanned: scanned, documentText };
 
   let result;
   try {
@@ -848,6 +1146,48 @@ async function extractFromAnthropic(base64PDF) {
   return data.content?.[0]?.text ?? '';
 }
 
+async function extractPromptFromAnthropic(prompt) {
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  if (!apiKey || apiKey === 'your_api_key_here') {
+    throw new Error('VITE_ANTHROPIC_API_KEY is not configured. Set it in the .env file.');
+  }
+
+  const requestBody = {
+    model: ANTHROPIC_MODEL,
+    max_tokens: 4096,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: prompt,
+          },
+        ],
+      },
+    ],
+  };
+
+  const response = await fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Anthropic API error ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.content?.[0]?.text ?? '';
+}
+
 async function extractFromOpenAI(base64PDF) {
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
   if (!apiKey || apiKey === 'your_api_key_here') {
@@ -868,6 +1208,45 @@ async function extractFromOpenAI(base64PDF) {
           {
             type: 'input_text',
             text: EXTRACTION_PROMPT,
+          },
+        ],
+      },
+    ],
+  };
+
+  const response = await fetch(OPENAI_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI API error ${response.status}: ${errorText}`);
+  }
+
+  const data = await response.json();
+  return extractOutputText(data);
+}
+
+async function extractPromptFromOpenAI(prompt) {
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  if (!apiKey || apiKey === 'your_api_key_here') {
+    throw new Error('VITE_OPENAI_API_KEY is not configured. Set it in the .env file.');
+  }
+
+  const requestBody = {
+    model: OPENAI_MODEL,
+    input: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: prompt,
           },
         ],
       },

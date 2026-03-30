@@ -38,6 +38,28 @@ export function evaluateScenarioAnalysisFixture(fixture, scenario) {
     `Renegotiation label=${JSON.stringify(scenario.labels.renegotiationAdditionalRent.raw?.v)}, exit label=${JSON.stringify(scenario.labels.exitAdditionalRent.raw?.v)}.`
   ));
 
+  checks.push(check(
+    'lease-schedule-concession-links',
+    scenario.formulaSemantics.freeRentLinksToLeaseScheduleTotal &&
+      scenario.formulaSemantics.abatementLinksToLeaseScheduleTotal,
+    `Free Rent link=${scenario.cells.freeRentLeaseSchedule.formula ?? 'missing'}; Abatement link=${scenario.cells.abatementLeaseSchedule.formula ?? 'missing'}.`
+  ));
+
+  checks.push(check(
+    'renegotiation-concession-discount-links',
+    scenario.formulaSemantics.renegotiationFreeRentDiscountsLeaseScheduleTotal &&
+      scenario.formulaSemantics.renegotiationAbatementDiscountsLeaseScheduleTotal,
+    `Free Rent formulas=[${[
+      scenario.cells.renegotiationFreeRentModest.formula,
+      scenario.cells.renegotiationFreeRentMaterial.formula,
+      scenario.cells.renegotiationFreeRentSignificant.formula,
+    ].join(', ')}]; Abatement formulas=[${[
+      scenario.cells.renegotiationAbatementModest.formula,
+      scenario.cells.renegotiationAbatementMaterial.formula,
+      scenario.cells.renegotiationAbatementSignificant.formula,
+    ].join(', ')}].`
+  ));
+
   const snapshotShouldBePositive = snapshot && (
     isMateriallyPositive(snapshot.monthlyBaseRent) ||
     isMateriallyPositive(snapshot.additionalRent) ||

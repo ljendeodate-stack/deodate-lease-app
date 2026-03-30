@@ -1,0 +1,69 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+4 0 obj
+<< /Type /Pages /Count 1 /Kids [6 0 R] >>
+endobj
+5 0 obj
+<< /Length 2165 >>
+stream
+BT /F2 16 Tf 1 0 0 1 54.00 738.00 Tm (OCR Non-Standard Multi-Column Layout) Tj ET
+BT /F3 10 Tf 1 0 0 1 54.00 716.00 Tm (Fixture ID: PDF-10) Tj ET
+BT /F1 10.5 Tf 1 0 0 1 54.00 700.00 Tm (Intended upload: Scan Lease \(PDF\) - OCR / manual-review stress case) Tj ET
+BT /F2 11.5 Tf 1 0 0 1 54.00 678.00 Tm (Left Column - Rent Terms) Tj ET
+BT /F2 11.5 Tf 1 0 0 1 330.00 678.00 Tm (Right Column - Expense Terms) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 660.00 Tm (Tenant: Cedar Point Imaging Center) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 646.00 Tm (Premises: 6,150 RSF) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 632.00 Tm (Term starts 02/15/2027) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 618.00 Tm (Term ends 02/14/2032) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 604.00 Tm (Lease Year 1 Base Rent) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 590.00 Tm (17,250.00 monthly) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 576.00 Tm (Lease Year 2 Base Rent) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 562.00 Tm (17,940.00 monthly) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 548.00 Tm (Lease Year 3 Base Rent) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 534.00 Tm (18,657.60 monthly) Tj ET
+BT /F1 11 Tf 1 0 0 1 330.00 660.00 Tm (Operating Expense Recovery) Tj ET
+BT /F1 11 Tf 1 0 0 1 330.00 646.00 Tm (2,440.00 monthly) Tj ET
+BT /F1 11 Tf 1 0 0 1 330.00 632.00 Tm (Fire Insurance) Tj ET
+BT /F1 11 Tf 1 0 0 1 330.00 618.00 Tm (390.00 monthly) Tj ET
+BT /F1 11 Tf 1 0 0 1 330.00 604.00 Tm (R.E. Taxes) Tj ET
+BT /F1 11 Tf 1 0 0 1 330.00 590.00 Tm (1,210.00 monthly) Tj ET
+BT /F1 11 Tf 1 0 0 1 330.00 576.00 Tm (General Admin Fee) Tj ET
+BT /F1 11 Tf 1 0 0 1 330.00 562.00 Tm (145.00 monthly) Tj ET
+BT /F1 11 Tf 1 0 0 1 330.00 548.00 Tm (Notes: columns intentionally split) Tj ET
+BT /F1 11 Tf 1 0 0 1 330.00 534.00 Tm (for OCR stress testing.) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 508.00 Tm (- This layout is intentionally non-tabular and split across columns.) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 494.00 Tm (- Manual review is likely still necessary even if OCR extracts many values correctly.) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 480.00 Tm (- Useful for confirming that low-confidence or manual-fallback behavior remains) Tj ET
+BT /F1 11 Tf 1 0 0 1 54.00 466.00 Tm (  available.) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R /F3 3 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Type /Catalog /Pages 4 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000085 00000 n 
+0000000160 00000 n 
+0000000228 00000 n 
+0000000285 00000 n 
+0000002502 00000 n 
+0000002648 00000 n 
+trailer
+<< /Size 8 /Root 7 0 R >>
+startxref
+2697
+%%EOF

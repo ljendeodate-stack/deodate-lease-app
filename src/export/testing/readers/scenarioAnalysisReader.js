@@ -109,6 +109,8 @@ export function readScenarioAnalysisWorkbook(workbookBytes, processedRows) {
       exitAdditionalRent: readCell(scenarioSheet, 'E37'),
     },
     cells: {
+      freeRentLeaseSchedule: readCell(scenarioSheet, 'F9'),
+      abatementLeaseSchedule: readCell(scenarioSheet, 'F10'),
       currentRemainingObligation: readCell(scenarioSheet, 'F5'),
       currentRemainingBase: readCell(scenarioSheet, 'F6'),
       currentRemainingNets: readCell(scenarioSheet, 'F7'),
@@ -120,12 +122,26 @@ export function readScenarioAnalysisWorkbook(workbookBytes, processedRows) {
       leaseObligationFv: readCell(scenarioSheet, 'F21'),
       fullLeaseFv: readCell(scenarioSheet, 'F29'),
       exitRemainingObligation: readCell(scenarioSheet, 'F40'),
+      renegotiationFreeRentModest: readCell(scenarioSheet, 'G23'),
+      renegotiationFreeRentMaterial: readCell(scenarioSheet, 'H23'),
+      renegotiationFreeRentSignificant: readCell(scenarioSheet, 'I23'),
+      renegotiationAbatementModest: readCell(scenarioSheet, 'G24'),
+      renegotiationAbatementMaterial: readCell(scenarioSheet, 'H24'),
+      renegotiationAbatementSignificant: readCell(scenarioSheet, 'I24'),
     },
     formulaSemantics: {
       currentRemainingUsesApproximateLookup: usesApproximateDateLookup(readCell(scenarioSheet, 'F5').formula ?? ''),
       snapshotBaseUsesApproximateLookup: usesApproximateDateLookup(readCell(scenarioSheet, 'F16').formula ?? ''),
       snapshotAdditionalRentUsesApproximateLookup: usesApproximateDateLookup(readCell(scenarioSheet, 'F18').formula ?? ''),
       additionalRentTargetsTotalNnn: /'Lease Schedule'!\$[A-Z]+\$\d+:\$[A-Z]+\$\d+/i.test(readCell(scenarioSheet, 'F18').formula ?? ''),
+      freeRentLinksToLeaseScheduleTotal: /^'Lease Schedule'!\$[A-Z]+\$\d+$/i.test(readCell(scenarioSheet, 'F9').formula ?? ''),
+      abatementLinksToLeaseScheduleTotal: /^'Lease Schedule'!\$[A-Z]+\$\d+$/i.test(readCell(scenarioSheet, 'F10').formula ?? ''),
+      renegotiationFreeRentDiscountsLeaseScheduleTotal: ['G23', 'H23', 'I23'].every((addr) =>
+        /^'Lease Schedule'!\$[A-Z]+\$\d+\*\(1-[A-Z]15\)$/i.test(readCell(scenarioSheet, addr).formula ?? '')
+      ),
+      renegotiationAbatementDiscountsLeaseScheduleTotal: ['G24', 'H24', 'I24'].every((addr) =>
+        /^'Lease Schedule'!\$[A-Z]+\$\d+\*\(1-[A-Z]15\)$/i.test(readCell(scenarioSheet, addr).formula ?? '')
+      ),
       analysisDateDefaultsToSchedule: /^'Lease Schedule'!\$C\$\d+$/i.test(effectiveDateCell.formula ?? ''),
       // Exit row 35: each column must apply its buyout % — =$F$16*(1-X34), not a flat copy of F35
       exitBaseRentFormulasApplyDiscount: ['F35', 'G35', 'H35', 'I35', 'J35'].every((addr) =>

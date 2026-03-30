@@ -3,7 +3,7 @@
  * Manual rent schedule entry with flexible period format support.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   parsePeriodString,
   parseRentString,
@@ -17,6 +17,20 @@ let nextId = 1;
 
 function newRow() {
   return { id: nextId++, periodStr: '', rentStr: '' };
+}
+
+export function buildEditableRowsFromPeriods(periodRows = []) {
+  if (!Array.isArray(periodRows) || periodRows.length === 0) {
+    return [newRow(), newRow(), newRow()];
+  }
+
+  return periodRows.map((period) => ({
+    id: nextId++,
+    periodStr: period.periodStart && period.periodEnd
+      ? `${fmtMDY(period.periodStart)}-${fmtMDY(period.periodEnd)}`
+      : period.periodStart ? fmtMDY(period.periodStart) : '',
+    rentStr: !isNaN(period.monthlyRent) ? String(period.monthlyRent) : '',
+  }));
 }
 
 function fmtDate(date) {
@@ -116,6 +130,10 @@ export default function ScheduleEditor({
   scheduleMaterializationMode = null,
 }) {
   const hasInitialRows = Array.isArray(initialPeriodRows) && initialPeriodRows.length > 0;
+  const preferredCandidate = useMemo(
+    () => (semanticSchedule?.candidates ?? []).find((candidate) => candidate.id === semanticSchedule?.preferredCandidateId) ?? null,
+    [semanticSchedule],
+  );
 
   const [entryMode, setEntryMode] = useState(initialEntryMode ?? (hasInitialRows ? 'manual' : 'quick'));
   const [quickForm, setQuickForm] = useState({
@@ -128,20 +146,19 @@ export default function ScheduleEditor({
   const [quickError, setQuickError] = useState('');
 
   const [rows, setRows] = useState(() => {
-    if (hasInitialRows) {
-      return initialPeriodRows.map((period) => ({
-        id: nextId++,
-        periodStr: period.periodStart && period.periodEnd
-          ? `${fmtMDY(period.periodStart)}-${fmtMDY(period.periodEnd)}`
-          : period.periodStart ? fmtMDY(period.periodStart) : '',
-        rentStr: !isNaN(period.monthlyRent) ? String(period.monthlyRent) : '',
-      }));
-    }
-    return [newRow(), newRow(), newRow()];
+    return buildEditableRowsFromPeriods(initialPeriodRows);
   });
   const [showBulkPaste, setShowBulkPaste] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [bulkParseWarnings, setBulkParseWarnings] = useState([]);
+
+  useEffect(() => {
+    setRows(buildEditableRowsFromPeriods(initialPeriodRows));
+  }, [hasInitialRows, initialPeriodRows]);
+
+  useEffect(() => {
+    setEntryMode(initialEntryMode ?? (hasInitialRows ? 'manual' : 'quick'));
+  }, [initialEntryMode, hasInitialRows]);
 
   function updateQuickForm(field, value) {
     setQuickForm((prev) => ({ ...prev, [field]: value }));
@@ -301,6 +318,53 @@ export default function ScheduleEditor({
               {scheduleMaterializationMode === 'semantic' && hasInitialRows ? ' The rows below are derived from these semantic terms.' : ''}
             </p>
           )}
+        </div>
+      )}
+
+      {!hasInitialRows && preferredCandidate?.terms?.length > 0 && (
+        <div className="rounded-[1rem] border border-app-border bg-app-panel px-4 py-4 space-y-3">
+          <p className="text-sm font-semibold text-txt-primary">Detected schedule terms</p>
+          <div className="overflow-x-auto rounded-[0.9rem] border border-app-border bg-app-chrome">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-app-panel-strong text-[0.68rem] uppercase tracking-[0.18em] text-txt-dim">
+                  <th className="px-3 py-3 text-left font-semibold">Range</th>
+                  <th className="px-3 py-3 text-left font-semibold">Monthly Base Rent</th>
+                  <th className="px-3 py-3 text-left font-semibold">Source</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-app-border">
+                {preferredCandidate.terms.map((term, index) => {
+                  let rangeLabel = '';
+                  if (preferredCandidate.representationType === 'relative_month_ranges') {
+                    rangeLabel = `Months ${term.startMonth}-${term.endMonth}`;
+                  } else if (preferredCandidate.representationType === 'lease_year_ranges') {
+                    rangeLabel = `Lease Years ${term.startLeaseYear}-${term.endLeaseYear}`;
+                  } else {
+                    rangeLabel = `${term.periodStart ?? ''}${term.periodEnd ? ` - ${term.periodEnd}` : ''}`;
+                  }
+
+                  return (
+                    <tr key={`${rangeLabel}-${index}`} className={index % 2 === 0 ? 'bg-app-chrome' : 'bg-app-surface'}>
+                      <td className="px-3 py-3 text-txt-primary">{rangeLabel}</td>
+                      <td className="px-3 py-3 font-mono text-txt-primary">
+                        {Number(term.monthlyRent ?? 0).toLocaleString('en-US', {
+                          style: 'currency',
+                          currency: 'USD',
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </td>
+                      <td className="px-3 py-3 text-txt-muted">{term.sourceText ?? 'Detected from OCR text'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-txt-dim">
+            These terms were detected from the lease language. Enter Rent Commencement Date in the assumptions step to materialize dated rows when needed.
+          </p>
         </div>
       )}
 

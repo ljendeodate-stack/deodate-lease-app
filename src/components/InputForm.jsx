@@ -365,9 +365,12 @@ export default function InputForm({
 
       {notices?.length > 0 && (
         <div className="rounded-[1.1rem] border border-status-warn-border bg-status-warn-bg/92 p-4 space-y-1">
-          {notices.map((notice, i) => (
-            <p key={i} className="text-sm text-status-warn-text">{notice}</p>
-          ))}
+          <p className="text-sm font-semibold text-status-warn-title">Flagged assumption issues</p>
+          <ol className="list-decimal space-y-1 pl-5">
+            {notices.map((notice, i) => (
+              <li key={i} className="text-sm text-status-warn-text">{notice}</li>
+            ))}
+          </ol>
         </div>
       )}
 
