@@ -12,16 +12,19 @@
  * must gate processing on explicit user confirmation of all extracted fields.
  */
 
+import { parseLeaseDate } from '../engine/yearMonth.js';
 import { analyzeScheduleSemantics } from '../engine/scheduleSemantics.js';
+import { parseBulkPasteText, inferEndDates, toCanonicalPeriodRows } from '../engine/periodParser.js';
 import { extractDocumentTextFromFile } from './documentText.js';
+import { applyCanonicalOneTimeItems, mergeOneTimeItemCollections, normalizeOneTimeItem } from './oneTimeItems.js';
 
-const OCR_PROVIDER = (import.meta.env.VITE_OCR_PROVIDER || 'anthropic').toLowerCase();
+const OCR_PROVIDER = (import.meta.env?.VITE_OCR_PROVIDER || 'anthropic').toLowerCase();
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_MODEL = 'claude-opus-4-6';
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/responses';
-const OPENAI_MODEL = import.meta.env.VITE_OPENAI_OCR_MODEL || 'gpt-4o';
+const OPENAI_MODEL = import.meta.env?.VITE_OPENAI_OCR_MODEL || 'gpt-4o';
 
 /**
  * @typedef {Object} NNNChargeExtraction
@@ -254,7 +257,7 @@ function bufferToBase64(buffer) {
 
 function normalizeSearchText(value) {
   return String(value ?? '')
-    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[\u2012\u2013\u2014\u2212]/g, '-')
     .replace(/\u00a0/g, ' ')
     .replace(/[^\S\r\n]+/g, ' ')
     .trim()
@@ -265,6 +268,27 @@ function pushUnique(list, value) {
   if (!Array.isArray(list) || !value) return;
   if (!list.includes(value)) list.push(value);
 }
+
+function removeValue(list, value) {
+  if (!Array.isArray(list) || !value) return;
+  const index = list.indexOf(value);
+  if (index >= 0) list.splice(index, 1);
+}
+
+const WORD_NUMBER_MAP = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+};
 
 const MONTH_NAME_TO_NUMBER = {
   january: '01',
@@ -286,7 +310,6 @@ const DATE_LED_LINE = new RegExp(`^\\s*${NAMED_DATE_CAPTURE}\\s+through\\s+${NAM
 const FROM_THROUGH_LINE = new RegExp(`\\$\\s*([\\d,]+(?:\\.\\d{1,2})?).*?\\bfrom\\s+${NAMED_DATE_CAPTURE}\\s+through\\s+${NAMED_DATE_CAPTURE}`, 'i');
 const BEGINNING_AMOUNT_LINE = new RegExp(`\\bbeginning\\s+${NAMED_DATE_CAPTURE},?.*?\\$\\s*([\\d,]+(?:\\.\\d{1,2})?)`, 'i');
 const DATE_LED_START = new RegExp(`^\\s*${NAMED_DATE_CAPTURE}`, 'i');
-
 function escapeRegex(value) {
   return String(value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -294,6 +317,16 @@ function escapeRegex(value) {
 function moneyToNumber(value) {
   const amount = Number(String(value ?? '').replace(/[^\d.]/g, ''));
   return Number.isFinite(amount) ? amount : null;
+}
+
+function countToNumber(primaryValue, parentheticalValue = null) {
+  const parenthetical = Number(parentheticalValue);
+  if (Number.isInteger(parenthetical) && parenthetical > 0) return parenthetical;
+
+  const numericValue = Number(primaryValue);
+  if (Number.isInteger(numericValue) && numericValue > 0) return numericValue;
+
+  return WORD_NUMBER_MAP[String(primaryValue ?? '').trim().toLowerCase()] ?? null;
 }
 
 function toMDY(monthName, day, year) {
@@ -306,6 +339,486 @@ function mdyToTimestamp(value) {
   const match = String(value ?? '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (!match) return Number.NaN;
   return new Date(Number(match[3]), Number(match[1]) - 1, Number(match[2])).getTime();
+}
+
+function splitDocumentLines(documentText = '') {
+  return String(documentText ?? '')
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function buildDocumentWindows(documentText = '', maxLines = 3) {
+  const lines = splitDocumentLines(documentText);
+  const windows = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    for (let span = 1; span <= maxLines && i + span <= lines.length; span += 1) {
+      windows.push(lines.slice(i, i + span).join(' '));
+    }
+  }
+
+  return windows;
+}
+
+function splitEconomicClauses(documentText = '') {
+  return String(documentText ?? '')
+    .split(/(?:\r?\n+|(?<=[.;])\s+)/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function ensureOneTimeChargeCollections(result) {
+  const merged = mergeOneTimeItemCollections(result);
+  return {
+    oneTimeItems: merged,
+    oneTimeCharges: merged,
+  };
+}
+
+function hasMatchingOneTimeCharge(charges, targetCharge) {
+  const normalizedTarget = normalizeOneTimeItem(targetCharge, { source: 'deterministic' });
+  if (!normalizedTarget) return false;
+
+  return (charges ?? []).some((charge) =>
+    normalizeSearchText(charge?.label) === normalizeSearchText(normalizedTarget.label)
+    && Number(charge?.amount ?? 0).toFixed(2) === Number(normalizedTarget.amount ?? 0).toFixed(2)
+    && Number(charge?.sign ?? 1) === Number(normalizedTarget.sign ?? 1)
+    && normalizeSearchText(charge?.dueDate) === normalizeSearchText(normalizedTarget.dueDate),
+  );
+}
+
+function hasOneTimeChargeByLabel(charges, targetLabel) {
+  const normalizedTarget = normalizeSearchText(targetLabel);
+  return (charges ?? []).some((charge) => normalizeSearchText(charge?.label) === normalizedTarget);
+}
+
+function appendRecoveredOneTimeCharge(repaired, charge) {
+  const normalized = normalizeOneTimeItem(charge, { source: 'deterministic' });
+  if (!normalized) return false;
+
+  const collections = ensureOneTimeChargeCollections(repaired);
+  if (hasMatchingOneTimeCharge(collections.oneTimeItems, normalized) || hasMatchingOneTimeCharge(collections.oneTimeCharges, normalized)) {
+    repaired.oneTimeItems = collections.oneTimeItems;
+    repaired.oneTimeCharges = collections.oneTimeCharges;
+    return false;
+  }
+
+  const merged = applyCanonicalOneTimeItems({
+    ...repaired,
+    oneTimeItems: [...collections.oneTimeItems, normalized],
+    oneTimeCharges: [...collections.oneTimeCharges, normalized],
+  });
+  repaired.oneTimeItems = merged.oneTimeItems;
+  repaired.oneTimeCharges = merged.oneTimeCharges;
+  return true;
+}
+
+function formatParsedDate(date) {
+  if (!date || Number.isNaN(date.getTime?.())) return null;
+  return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
+const FLEXIBLE_DATE_PATTERN = /\b(?:\d{1,2}\/\d{1,2}\/\d{2,4}|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2},?\s+\d{2,4})\b/gi;
+
+function extractDueDateOrTrigger(windowText = '') {
+  const dateMatches = windowText.match(FLEXIBLE_DATE_PATTERN) ?? [];
+  for (const candidate of dateMatches) {
+    const parsed = parseLeaseDate(candidate);
+    if (parsed) {
+      return {
+        dueDate: formatParsedDate(parsed),
+        triggerText: null,
+      };
+    }
+  }
+
+  const triggerMatch = windowText.match(/\b(?:at|upon|after|within)\b[\s\S]{0,80}?(?:lease execution|execution of (?:this )?lease|occupancy|opening|substantial completion|completion|delivery|receipt of invoices?|receipt of lien releases?|certificate of occupancy|co\b|commencement|rent commencement)\b/i)
+    ?? windowText.match(/\b(?:lease execution|execution of (?:this )?lease|occupancy|opening|substantial completion|completion|delivery|receipt of invoices?|receipt of lien releases?|certificate of occupancy|co\b|commencement|rent commencement)\b[\s\S]{0,80}/i);
+
+  return {
+    dueDate: null,
+    triggerText: triggerMatch?.[0]?.replace(/\s+/g, ' ').trim() || null,
+  };
+}
+
+function extractAmountCandidates(windowText = '') {
+  const matches = [];
+  const regex = /\(\$\s*([\d,]+(?:\.\d{1,2})?)\)|\$\s*([\d,]+(?:\.\d{1,2})?)|([\d,]+(?:\.\d{1,2})?)\s+dollars?\b/gi;
+
+  let match = regex.exec(windowText);
+  while (match) {
+    const raw = match[1] ?? match[2] ?? match[3];
+    const amount = moneyToNumber(raw);
+    const precedingCharacter = windowText[Math.max(0, match.index - 1)] ?? '';
+    const isFractionTail = match[3] && precedingCharacter === '/';
+    if (!isFractionTail && amount != null && amount >= 50) {
+      matches.push({
+        amount,
+        index: match.index,
+        rawText: match[0],
+      });
+    }
+    match = regex.exec(windowText);
+  }
+
+  return matches;
+}
+
+function deriveTrancheQualifier(beforeContext = '', afterContext = '') {
+  const before = normalizeSearchText(beforeContext);
+  const after = normalizeSearchText(afterContext);
+  const combined = `${before} ${after}`.trim();
+  const percentMatch = combined.match(/\b(\d{1,3})%\b/);
+
+  if (/\btenant broker\b/.test(combined)) return 'Tenant Broker';
+  if (/\blandlord broker\b/.test(combined)) return 'Landlord Broker';
+  if (/\bparking\b/.test(combined) && /\bdeposit\b/.test(combined)) return 'Parking';
+
+  const cues = [
+    { label: 'Initial Funding', match: /(?:^|\s)(initial|first)(?:\s|$)/, source: `${before.slice(-30)} ${after.slice(0, 30)}` },
+    { label: 'Final Funding', match: /(?:^|\s)(final|remaining|balance)(?:\s|$)/, source: `${before.slice(-30)} ${after.slice(0, 30)}` },
+  ]
+    .map((entry) => ({
+      ...entry,
+      index: normalizeSearchText(entry.source).search(entry.match),
+    }))
+    .filter((entry) => entry.index >= 0)
+    .sort((left, right) => left.index - right.index);
+
+  if (cues.length > 0) return cues[0].label;
+  if (percentMatch) return `${percentMatch[1]}% Tranche`;
+  return null;
+}
+
+const ONE_TIME_ITEM_SPECS = [
+  {
+    label: 'Security Deposit',
+    aliases: [/\bsecurity deposit\b/i],
+    sign: 1,
+  },
+  {
+    label: 'Tenant Improvement Allowance',
+    aliases: [/\b(?:tenant improvement allowance|improvement allowance|tenant allowance|tia)\b/i],
+    sign: -1,
+  },
+  {
+    label: 'Landlord Work Contribution',
+    aliases: [/\b(?:landlord work contribution|landlord contribution|work allowance|landlord work allowance)\b/i],
+    sign: -1,
+  },
+  {
+    label: 'Moving Allowance',
+    aliases: [/\b(?:moving allowance|move-?in allowance|relocation allowance)\b/i],
+    sign: -1,
+  },
+  {
+    label: 'Lease Commission',
+    aliases: [/\b(?:tenant broker commission|landlord broker commission|broker(?:age)? commission|leasing commission|lease commission)\b/i],
+    sign: -1,
+  },
+  {
+    label: 'Parking Deposit',
+    aliases: [/\bparking deposit\b/i],
+    sign: 1,
+  },
+  {
+    label: 'Letter of Credit',
+    aliases: [/\bletter of credit\b/i],
+    sign: 1,
+  },
+  {
+    label: 'HVAC Charge Order',
+    aliases: [/\bhvac\b[\s\S]{0,30}\b(?:charge[- ]?order|change[- ]?order|allowance|fee|cost)\b/i],
+    sign: 1,
+  },
+];
+
+function detectOneTimeEconomicItems(documentText = '') {
+  const clauses = splitEconomicClauses(documentText);
+  const recoveredItems = [];
+  const seen = new Set();
+
+  const containsAliasForOtherSpec = (clauseText, activeSpec) =>
+    ONE_TIME_ITEM_SPECS.some((spec) =>
+      spec !== activeSpec && spec.aliases.some((pattern) => pattern.test(clauseText))
+    );
+
+  for (let clauseIndex = 0; clauseIndex < clauses.length; clauseIndex += 1) {
+    const clauseText = clauses[clauseIndex];
+
+    for (const spec of ONE_TIME_ITEM_SPECS) {
+      if (!spec.aliases.some((pattern) => pattern.test(clauseText))) continue;
+
+      const relevantClauses = [clauseText];
+      for (let nextIndex = clauseIndex + 1; nextIndex < Math.min(clauses.length, clauseIndex + 3); nextIndex += 1) {
+        const nextClause = clauses[nextIndex];
+        if (containsAliasForOtherSpec(nextClause, spec)) break;
+        relevantClauses.push(nextClause);
+      }
+
+      for (const relevantClause of relevantClauses) {
+        const amountMatches = extractAmountCandidates(relevantClause);
+        if (amountMatches.length === 0) continue;
+
+        for (const amountMatch of amountMatches) {
+          const beforeContext = relevantClause.slice(Math.max(0, amountMatch.index - 45), amountMatch.index);
+          const afterContext = relevantClause.slice(amountMatch.index, Math.min(relevantClause.length, amountMatch.index + 55));
+          const context = `${beforeContext}${afterContext}`;
+          const trancheQualifier = deriveTrancheQualifier(beforeContext, afterContext);
+          const trigger = extractDueDateOrTrigger(context);
+          const label = trancheQualifier && !normalizeSearchText(spec.label).includes(normalizeSearchText(trancheQualifier))
+            ? `${spec.label} - ${trancheQualifier}`
+            : spec.label;
+          const notes = [trigger.triggerText, trancheQualifier && trancheQualifier !== 'Parking' ? `Recovered tranche: ${trancheQualifier}.` : null]
+            .filter(Boolean)
+            .join(' ');
+          const item = normalizeOneTimeItem({
+            label,
+            amount: amountMatch.amount,
+            dueDate: trigger.dueDate,
+            sign: spec.sign,
+            source: 'deterministic',
+            confidence: trigger.dueDate ? 0.88 : 0.8,
+            evidenceText: relevantClause,
+            notes: notes || null,
+          });
+          if (!item) continue;
+
+          const key = [
+            normalizeSearchText(item.label),
+            item.sign,
+            item.amount.toFixed(2),
+            normalizeSearchText(item.dueDate),
+            normalizeSearchText(item.notes),
+          ].join('::');
+          if (seen.has(key)) continue;
+          seen.add(key);
+          recoveredItems.push(item);
+        }
+      }
+    }
+  }
+
+  return recoveredItems;
+}
+
+function buildFreeRentEvents(monthCount, evidenceText) {
+  return Array.from({ length: monthCount }, (_, index) => ({
+    monthNumber: index + 1,
+    value: null,
+    valueMode: null,
+    date: null,
+    label: 'Conditionally Excused Rent',
+    rawText: evidenceText,
+    assumptionNote: 'Generated from lease text stating that Monthly Base Rent is excused for the first full calendar months of the Term.',
+  }));
+}
+
+function mergeFreeRentEvents(existingEvents = [], recoveredFreeRent = null) {
+  const baseEvents = Array.isArray(existingEvents) ? existingEvents.map((event) => ({ ...event })) : [];
+  if (!recoveredFreeRent?.monthCount) return baseEvents;
+
+  const recoveredEvents = buildFreeRentEvents(recoveredFreeRent.monthCount, recoveredFreeRent.evidenceText);
+  const existingMonthKeys = new Set(
+    baseEvents
+      .map((event) => Number(event?.monthNumber))
+      .filter((value) => Number.isInteger(value) && value > 0),
+  );
+
+  for (const event of recoveredEvents) {
+    if (existingMonthKeys.has(event.monthNumber)) continue;
+    baseEvents.push(event);
+  }
+
+  return baseEvents.sort((left, right) => {
+    const leftMonth = Number(left?.monthNumber) || Number.POSITIVE_INFINITY;
+    const rightMonth = Number(right?.monthNumber) || Number.POSITIVE_INFINITY;
+    return leftMonth - rightMonth;
+  });
+}
+
+function detectPremisesSquareFootage(documentText = '') {
+  const windows = buildDocumentWindows(documentText, 2);
+  for (const windowText of windows) {
+    const match = windowText.match(/\brentable area of the premises\b[\s:.-]{0,20}([\d,]+)\s+square feet\b/i)
+      ?? windowText.match(/\bthe rentable area of the premises is\b[\s:.-]{0,20}([\d,]+)\s+square feet\b/i);
+    if (!match) continue;
+
+    const value = Number(match[1].replace(/,/g, ''));
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+
+  return null;
+}
+
+function detectSecurityDepositAmount(documentText = '') {
+  const windows = buildDocumentWindows(documentText, 3);
+  for (const windowText of windows) {
+    const match = windowText.match(/\bsecurity deposit\b[\s\S]{0,160}?\(\$\s*([\d,]+(?:\.\d{1,2})?)\)/i)
+      ?? windowText.match(/\bsecurity deposit\b[\s\S]{0,100}?\$\s*([\d,]+(?:\.\d{1,2})?)/i);
+    if (!match) continue;
+
+    const amount = moneyToNumber(match[1]);
+    if (amount != null && amount > 0) {
+      return {
+        amount,
+        evidenceText: windowText,
+      };
+    }
+  }
+
+  return null;
+}
+
+function detectLeadingFreeRentMonths(documentText = '') {
+  const windows = buildDocumentWindows(documentText, 4);
+  for (const windowText of windows) {
+    if (!/\b(excused|free rent|abat(?:ed|ement))\b/i.test(windowText)) continue;
+    if (!/\bmonthly base rent\b/i.test(windowText)) continue;
+
+    const match = windowText.match(/\bfirst\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?:\s*\(\s*(\d+)\s*\))?\s+full calendar months?\s+of\s+the\s+term\b/i);
+    if (!match) continue;
+
+    const monthCount = countToNumber(match[1], match[2]);
+    if (!Number.isInteger(monthCount) || monthCount <= 0) continue;
+
+    return {
+      monthCount,
+      evidenceText: windowText,
+    };
+  }
+
+  return null;
+}
+
+function explicitScheduleWindowLooksLikeRate(windowText = '') {
+  return /\bannual(?:ly)?\b|\bper year\b|\byearly\b|\bper\s+(?:rentable\s+|usable\s+|gross\s+|leasable\s+)?square\s+f(?:oo)?t\b|\b(?:rsf|usf|psf)\b|\/\s*sf\b|\/\s*rsf\b|\/\s*usf\b|\bpercent\b|%|\bescalat(?:e|ed|ion|es)\b|\bincrease(?:s|d)?\b/i.test(windowText);
+}
+
+function extractExplicitNumericRangeCandidate(primaryLine = '', continuationLine = '') {
+  const prefixMatch = primaryLine.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})\s*(?:-|–|—|to|through)\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+  if (!prefixMatch) return null;
+
+  const sameLineTail = primaryLine.slice(prefixMatch.index + prefixMatch[0].length);
+  const continuationTail = continuationLine ? ` ${continuationLine.trim()}` : '';
+  const candidateTail = `${sameLineTail}${continuationTail}`;
+  if (explicitScheduleWindowLooksLikeRate(candidateTail)) return null;
+
+  const amountMatch = candidateTail.match(/^[\s\t|:;-]{0,40}(?:monthly|per month)?[\s\t|:;-]{0,16}\$?\s*([\d,]+(?:\.\d{1,2})?)(?!\s*%)/i);
+  if (!amountMatch) return null;
+
+  const startDate = parseLeaseDate(prefixMatch[1]);
+  const endDate = parseLeaseDate(prefixMatch[2]);
+  const monthlyRent = moneyToNumber(amountMatch[1]);
+  if (!startDate || !endDate || monthlyRent == null || monthlyRent < 100) return null;
+
+  return {
+    periodStart: formatParsedDate(startDate),
+    periodEnd: formatParsedDate(endDate),
+    monthlyRent,
+  };
+}
+
+function detectExplicitDatedRentSchedule(documentText = '') {
+  const lines = String(documentText ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const rows = [];
+  const seen = new Set();
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const row = extractExplicitNumericRangeCandidate(lines[index], lines[index + 1] ?? '');
+    if (!row) continue;
+
+    const key = `${row.periodStart}:${row.periodEnd}:${row.monthlyRent.toFixed(2)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(row);
+  }
+
+  return rows.sort((left, right) => {
+    const leftTime = parseLeaseDate(left.periodStart)?.getTime() ?? 0;
+    const rightTime = parseLeaseDate(right.periodStart)?.getTime() ?? 0;
+    return leftTime - rightTime;
+  });
+}
+
+export function repairDirectLeaseFactSemantics(result, documentText) {
+  const repaired = {
+    ...applyCanonicalOneTimeItems(result),
+    confidenceFlags: Array.isArray(result?.confidenceFlags) ? [...result.confidenceFlags] : [],
+    notices: Array.isArray(result?.notices) ? [...result.notices] : [],
+    freeRentEvents: Array.isArray(result?.freeRentEvents)
+      ? result.freeRentEvents.map((event) => ({ ...event }))
+      : [],
+  };
+
+  const currentSquareFootage = Number(repaired.squareFootage);
+  if (!Number.isFinite(currentSquareFootage) || currentSquareFootage <= 0) {
+    const recoveredSquareFootage = detectPremisesSquareFootage(documentText);
+    if (Number.isFinite(recoveredSquareFootage) && recoveredSquareFootage > 0) {
+      repaired.squareFootage = recoveredSquareFootage;
+      removeValue(repaired.confidenceFlags, 'squareFootage');
+      pushUnique(repaired.notices, 'Rentable square footage was recovered directly from lease text after OCR left the field blank.');
+    }
+  }
+
+  if (!(Number(repaired.securityDeposit) > 0) && !hasOneTimeChargeByLabel(ensureOneTimeChargeCollections(repaired).oneTimeItems, 'Security Deposit')) {
+    const recoveredDeposit = detectSecurityDepositAmount(documentText);
+    if (recoveredDeposit?.amount) {
+      repaired.securityDeposit = recoveredDeposit.amount;
+      if (!repaired.securityDepositDate) repaired.securityDepositDate = null;
+      appendRecoveredOneTimeCharge(repaired, {
+        label: 'Security Deposit',
+        amount: recoveredDeposit.amount,
+        dueDate: null,
+        sign: 1,
+        confidence: 0.92,
+        evidenceText: recoveredDeposit.evidenceText,
+        notes: 'Recovered directly from lease text after OCR omitted the deposit.',
+      });
+      pushUnique(repaired.notices, 'Security deposit was recovered directly from lease text after OCR omitted the one-time charge.');
+    }
+  }
+
+  const recoveredFreeRent = detectLeadingFreeRentMonths(documentText);
+  if (recoveredFreeRent?.monthCount) {
+    const beforeCount = repaired.freeRentEvents.length;
+    repaired.freeRentEvents = mergeFreeRentEvents(repaired.freeRentEvents, recoveredFreeRent);
+    const appendedCount = repaired.freeRentEvents.length - beforeCount;
+    if (appendedCount > 0) {
+      pushUnique(
+        repaired.notices,
+        `${appendedCount} free-rent month${appendedCount === 1 ? '' : 's'} were recovered directly from lease text to complete the OCR concession set.`,
+      );
+    }
+  }
+
+  const existingOneTimeItems = mergeOneTimeItemCollections(repaired);
+  const recoveredOneTimeItems = detectOneTimeEconomicItems(documentText);
+  let appendedCount = 0;
+  for (const item of recoveredOneTimeItems) {
+    const alreadyPresent = existingOneTimeItems.some((existing) => (
+      normalizeSearchText(existing.label) === normalizeSearchText(item.label)
+      && Number(existing.amount).toFixed(2) === Number(item.amount).toFixed(2)
+      && (existing.sign ?? 1) === (item.sign ?? 1)
+    ));
+    if (alreadyPresent) continue;
+    if (appendRecoveredOneTimeCharge(repaired, item)) {
+      existingOneTimeItems.push(item);
+      appendedCount += 1;
+    }
+  }
+  if (appendedCount > 0) {
+    pushUnique(
+      repaired.notices,
+      `${appendedCount} one-time economic item${appendedCount === 1 ? '' : 's'} were recovered deterministically from lease text after OCR omission or schema drift.`,
+    );
+  }
+
+  return applyCanonicalOneTimeItems(repaired);
 }
 
 function buildRecurringChargeSearchTerms(charge) {
@@ -508,7 +1021,7 @@ function inferRecurringChargeRoute(labelText) {
 
 export function detectNarrativeRecurringCharges(documentText = '') {
   const lines = String(documentText ?? '')
-    .split(/\r?\n+/)
+    .split(/(?:\r?\n+|(?<=\.)\s+|(?<=;)\s+)/)
     .map((line) => line.trim())
     .filter(Boolean);
 
@@ -516,10 +1029,35 @@ export function detectNarrativeRecurringCharges(documentText = '') {
   const seen = new Set();
   const leadingEscPattern = /\b(?<label>nnn|cam(?:s)?|common area maintenance|operating expenses?|insurance|property insurance|real estate taxes?|taxes|additional rent)\b[\s,:-]*(?:escalat(?:e|ed|es)?[\s,:-]*)?(?:(?<esc>\d+(?:\.\d+)?)%\s*(?:every|per)\s*(?<cadenceValue>\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*(?<cadenceUnit>year|years|month|months))?[\s,;-]*(?:amt|amount|monthly|per month|month|at)?[\s:$-]*(?<amount>\d[\d,]*(?:\.\d{1,2})?)/i;
   const trailingEscPattern = /\b(?<label>nnn|cam(?:s)?|common area maintenance|operating expenses?|insurance|property insurance|real estate taxes?|taxes|additional rent)\b[\s,:-]*(?:amount|amt)?[\s:$-]*(?<amount>\d[\d,]*(?:\.\d{1,2})?)[\s,;-]*(?:per|\/)?\s*(?:month|monthly)?[\s,;-]*(?:escalat(?:e|ed|es)?|increase(?:s|d)?)?[\s,:-]*(?<esc>\d+(?:\.\d+)?)%\s*(?:every|per)\s*(?<cadenceValue>\d+|one|two|three|four|five|six|seven|eight|nine|ten)?\s*(?<cadenceUnit>year|years|month|months)/i;
+  const obligationOnlyPattern = /\b(?<label>operating expenses?|common area maintenance|cam(?:s)?|insurance|property insurance|real estate taxes?|taxes|additional rent|security services?|management fee|administrative fee|service charge)\b[\s\S]{0,90}?\b(?:tenant shall pay|tenant shall reimburse|shall pay as additional rent|shall reimburse landlord|payable monthly|payable annually|additional rent)\b/i;
 
   for (const line of lines) {
     const match = line.match(leadingEscPattern) ?? line.match(trailingEscPattern);
-    if (!match?.groups?.amount) continue;
+    if (!match?.groups?.amount) {
+      const obligationMatch = line.match(obligationOnlyPattern);
+      if (!obligationMatch?.groups?.label) continue;
+
+      const route = inferRecurringChargeRoute(obligationMatch.groups.label);
+      const key = `${route.bucketKey ?? route.label}:obligation-only`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      charges.push({
+        label: route.label,
+        bucketKey: route.bucketKey,
+        canonicalType: route.canonicalType,
+        year1: null,
+        amountBasis: 'unknown',
+        escPct: null,
+        chargeStart: null,
+        escStart: null,
+        confidence: 0.48,
+        evidenceText: line,
+        sourceKind: 'narrative_obligation',
+        cadenceMonths: null,
+      });
+      continue;
+    }
 
     const route = inferRecurringChargeRoute(match.groups.label);
     const year1 = moneyToNumber(match.groups.amount);
@@ -702,7 +1240,10 @@ export function repairExtractionSemantics(result, documentText) {
   return repairScheduleSemantics(
     repairRecurringChargeOverrideSemantics(
       repairNarrativeRecurringChargeSemantics(
-        repairSfBasedRentSemantics(result, documentText),
+        repairSfBasedRentSemantics(
+          repairDirectLeaseFactSemantics(result, documentText),
+          documentText,
+        ),
         documentText,
       ),
       documentText,
@@ -720,6 +1261,36 @@ export function repairScheduleSemantics(result, documentText) {
       ? result.rentSchedule.map((row) => ({ ...row }))
       : [],
   };
+
+  if (repaired.rentSchedule.length === 0) {
+    const recoveredExplicitSchedule = detectExplicitDatedRentSchedule(documentText);
+    if (recoveredExplicitSchedule.length > 0) {
+      repaired.rentSchedule = recoveredExplicitSchedule;
+      pushUnique(
+        repaired.notices,
+        'Base-rent schedule was recovered directly from explicit dated rent rows in lease text after OCR omitted the structured schedule.',
+      );
+    }
+  }
+
+  // Secondary fallback: LLM returned rows but none have parseable dates (hallucinated or
+  // malformed output). Run the text-regex extraction so the explicit schedule is not silently
+  // suppressed by a junk LLM row.
+  if (repaired.rentSchedule.length > 0) {
+    const parseableCount = repaired.rentSchedule.filter(
+      (row) => parseLeaseDate(row.periodStart) || parseLeaseDate(row.periodEnd),
+    ).length;
+    if (parseableCount === 0) {
+      const recoveredExplicitSchedule = detectExplicitDatedRentSchedule(documentText);
+      if (recoveredExplicitSchedule.length > 0) {
+        repaired.rentSchedule = recoveredExplicitSchedule;
+        pushUnique(
+          repaired.notices,
+          'OCR rent schedule dates could not be parsed; base-rent schedule was recovered directly from explicit dated rent rows in lease text.',
+        );
+      }
+    }
+  }
 
   const scheduleNormalization = analyzeScheduleSemantics({
     documentText,
@@ -814,6 +1385,8 @@ function emptyExtractionResult(notices = []) {
     rentSchedule: [],
     leaseName: null,
     squareFootage: null,
+    oneTimeItems: [],
+    oneTimeCharges: [],
     freeRentEvents: [],
     abatementEvents: [],
     abatementEndDate: null,
@@ -846,10 +1419,10 @@ ${normalizedText}`;
 }
 
 function normalizeExtractionResult(result, documentText, notices = []) {
-  const normalized = {
+  const normalized = applyCanonicalOneTimeItems({
     ...emptyExtractionResult(),
     ...(result ?? {}),
-  };
+  });
 
   normalized.confidenceFlags = normalized.confidenceFlags ?? [];
   normalized.notices = [...notices, ...(normalized.notices ?? [])];
@@ -859,7 +1432,7 @@ function normalizeExtractionResult(result, documentText, notices = []) {
   normalized.abatementEvents = Array.isArray(normalized.abatementEvents) ? normalized.abatementEvents : [];
   normalized.recurringCharges = Array.isArray(normalized.recurringCharges) ? normalized.recurringCharges : [];
 
-  const repaired = repairExtractionSemantics(normalized, documentText);
+  const repaired = applyCanonicalOneTimeItems(repairExtractionSemantics(normalized, documentText));
   const flagCount = repaired.confidenceFlags.length;
   repaired.overallConfidence = flagCount === 0 ? 'high' : flagCount <= 3 ? 'medium' : 'low';
   return repaired;
@@ -1097,7 +1670,7 @@ async function extractOCRText(base64PDF) {
 }
 
 async function extractFromAnthropic(base64PDF) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  const apiKey = import.meta.env?.VITE_ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === 'your_api_key_here') {
     throw new Error('VITE_ANTHROPIC_API_KEY is not configured. Set it in the .env file.');
   }
@@ -1147,7 +1720,7 @@ async function extractFromAnthropic(base64PDF) {
 }
 
 async function extractPromptFromAnthropic(prompt) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  const apiKey = import.meta.env?.VITE_ANTHROPIC_API_KEY;
   if (!apiKey || apiKey === 'your_api_key_here') {
     throw new Error('VITE_ANTHROPIC_API_KEY is not configured. Set it in the .env file.');
   }
@@ -1189,7 +1762,7 @@ async function extractPromptFromAnthropic(prompt) {
 }
 
 async function extractFromOpenAI(base64PDF) {
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  const apiKey = import.meta.env?.VITE_OPENAI_API_KEY;
   if (!apiKey || apiKey === 'your_api_key_here') {
     throw new Error('VITE_OPENAI_API_KEY is not configured. Set it in the .env file.');
   }
@@ -1233,7 +1806,7 @@ async function extractFromOpenAI(base64PDF) {
 }
 
 async function extractPromptFromOpenAI(prompt) {
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  const apiKey = import.meta.env?.VITE_OPENAI_API_KEY;
   if (!apiKey || apiKey === 'your_api_key_here') {
     throw new Error('VITE_OPENAI_API_KEY is not configured. Set it in the .env file.');
   }
@@ -1292,6 +1865,6 @@ function extractOutputText(data) {
 }
 
 function hasConfiguredOpenAIKey() {
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  const apiKey = import.meta.env?.VITE_OPENAI_API_KEY;
   return Boolean(apiKey && apiKey !== 'your_api_key_here');
 }
