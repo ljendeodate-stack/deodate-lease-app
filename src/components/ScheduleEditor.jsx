@@ -11,7 +11,7 @@ import {
   parseBulkPasteText,
   toCanonicalPeriodRows,
 } from '../engine/periodParser.js';
-import { addMonthsAnchored, toISOLocal } from '../engine/yearMonth.js';
+import { toISOLocal } from '../engine/yearMonth.js';
 
 let nextId = 1;
 
@@ -44,25 +44,10 @@ function fmtMDY(date) {
   return `${mm}/${dd}/${date.getFullYear()}`;
 }
 
-function resolveQuickEntryExpiration(commence, expire) {
-  if (
-    commence &&
-    expire &&
-    expire.getDate() === commence.getDate() &&
-    expire.getTime() > commence.getTime()
-  ) {
-    const anchoredNextMonth = addMonthsAnchored(expire, 1);
-    const effectiveExpire = new Date(anchoredNextMonth.getTime() - 86400000);
-    effectiveExpire.setHours(0, 0, 0, 0);
-    return effectiveExpire;
-  }
-
-  return expire;
-}
-
 function generatePeriodsFromQuickEntry(commence, expire, year1Rent, escRate) {
   const periods = [];
-  const effectiveExpire = resolveQuickEntryExpiration(commence, expire);
+  const effectiveExpire = new Date(expire);
+  effectiveExpire.setHours(0, 0, 0, 0);
   let yearStart = new Date(commence);
   yearStart.setHours(0, 0, 0, 0);
   let yearIdx = 0;
