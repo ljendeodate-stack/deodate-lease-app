@@ -56,6 +56,13 @@ function buildDetectedOneTimeItems(result) {
   return [];
 }
 
+function formatSignedOneTimeAmount(item) {
+  const amount = Number(item?.amount);
+  if (!Number.isFinite(amount)) return '';
+  const sign = item?.sign === -1 ? -1 : item?.sign === 1 ? 1 : (amount < 0 ? -1 : 1);
+  return String(Math.abs(amount) * sign);
+}
+
 function resolveRecurringOverrideTargetKey(overrideHint, builtCharges) {
   if (overrideHint?.bucketKey) {
     const byBucket = builtCharges.find((charge) => charge.key === overrideHint.bucketKey);
@@ -161,9 +168,7 @@ export function buildPrepopulatedFormFromOCR(result, rows = []) {
     oneTimeItems: (result.oneTimeItems?.length ? result.oneTimeItems : detectedOneTimeItems).map((item) => ({
       label: item.label ?? item.name ?? '',
       date: item.dueDate ?? item.date ?? '',
-      amount: item.amount != null
-        ? String(Math.abs(item.amount) * (item.sign === -1 ? -1 : 1))
-        : '',
+      amount: formatSignedOneTimeAmount(item),
     })),
   };
 

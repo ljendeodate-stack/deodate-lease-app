@@ -183,6 +183,35 @@ describe('resolveLeaseScheduleLayout', () => {
     expect(Number(dateRangeMatch[2]) - Number(dateRangeMatch[1]) + 1).toBe(11);
   });
 
+  it('keeps unused NRC export slots blank instead of seeding hard-coded labels', () => {
+    const rows = [
+      {
+        periodStart: '2026-01-01',
+        periodEnd: '2026-01-31',
+        leaseMonth: 1,
+        leaseYear: 1,
+        scheduledBaseRent: 10000,
+        baseRentApplied: 10000,
+        oneTimeItemAmounts: {},
+      },
+    ];
+
+    const params = {
+      squareFootage: 1000,
+      nnnMode: 'individual',
+      oneTimeItems: [
+        { label: 'Broker Fee', date: '2026-01-01', amount: 5000 },
+      ],
+    };
+
+    const model = buildExportModel(rows, params, 'blank-nrc-slots');
+    const otEntries = model.assumptions.oneTimeItems;
+
+    expect(otEntries).toHaveLength(11);
+    expect(otEntries[0]).toMatchObject({ label: 'Broker Fee', amount: 5000, date: '2026-01-01' });
+    expect(otEntries.slice(1).every((item) => item.label === '' && item.amount === 0 && item.date === null)).toBe(true);
+  });
+
   it('defaults rentCommencementDate to commencementDate when not provided', () => {
     const rows = [
       {

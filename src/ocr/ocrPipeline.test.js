@@ -120,6 +120,61 @@ describe('synthetic OCR pipeline', () => {
     expect(effSfYear1.v).toBe(2.25);
   });
 
+  it('preserves detected one-time wording variants through form, preview, and export without seeded NRC labels', () => {
+    const variantResult = {
+      leaseName: 'Synthetic NRC Variants Lease',
+      sfRequired: false,
+      squareFootage: 18000,
+      confidenceFlags: [],
+      notices: [],
+      rentSchedule: [
+        { periodStart: '01/01/2026', periodEnd: '12/31/2026', monthlyRent: 25000 },
+      ],
+      recurringCharges: [],
+      oneTimeCharges: [
+        { label: 'Tenant Improvement Allowance (TIA)', amount: -50000, dueDate: '01/15/2026' },
+        { label: 'Landlord Work Contribution', amount: -12000, dueDate: '02/01/2026' },
+        { label: 'Parking Deposit', amount: 3500, dueDate: '03/01/2026' },
+        { label: 'Signage Allowance', amount: -2500, dueDate: '04/01/2026' },
+      ],
+    };
+
+    const {
+      prepopulated,
+      processedRows,
+      exportModel,
+    } = runSyntheticOcrFlow(
+      variantResult,
+      [
+        'Tenant Improvement Allowance (TIA): Landlord shall fund $50,000.00 on January 15, 2026.',
+        'Landlord Work Contribution: $12,000.00 payable February 1, 2026.',
+        'Parking Deposit: Tenant shall deposit $3,500.00 on March 1, 2026.',
+        'Signage Allowance: Landlord credit of $2,500.00 on April 1, 2026.',
+      ].join('\n'),
+      'synthetic-nrc-variants',
+    );
+
+    expect(prepopulated.formState.oneTimeItems).toEqual([
+      { label: 'Tenant Improvement Allowance (TIA)', date: '01/15/2026', amount: '-50000' },
+      { label: 'Landlord Work Contribution', date: '02/01/2026', amount: '-12000' },
+      { label: 'Parking Deposit', date: '03/01/2026', amount: '3500' },
+      { label: 'Signage Allowance', date: '04/01/2026', amount: '-2500' },
+    ]);
+
+    expect(processedRows[0].oneTimeItemAmounts['Tenant Improvement Allowance (TIA)']).toBe(-50000);
+    expect(processedRows[1].oneTimeItemAmounts['Landlord Work Contribution']).toBe(-12000);
+    expect(processedRows[2].oneTimeItemAmounts['Parking Deposit']).toBe(3500);
+    expect(processedRows[3].oneTimeItemAmounts['Signage Allowance']).toBe(-2500);
+
+    expect(exportModel.assumptions.oneTimeItems.slice(0, 4).map((item) => item.label)).toEqual([
+      'Tenant Improvement Allowance (TIA)',
+      'Landlord Work Contribution',
+      'Parking Deposit',
+      'Signage Allowance',
+    ]);
+    expect(exportModel.assumptions.oneTimeItems.slice(4).every((item) => item.label === '')).toBe(true);
+  });
+
   it('flows an irregular stepped rent schedule through to hardcoded workbook rent cells', () => {
     const irregularResult = {
       leaseName: 'Synthetic Irregular Step Lease',

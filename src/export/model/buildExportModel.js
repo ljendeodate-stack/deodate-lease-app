@@ -4,35 +4,14 @@ import { INLINE_SCENARIO_COLUMNS } from '../derived/inlineScenarioColumns.js';
 const NRC_SLOT_COUNT = 11;
 const CONCESSION_SLOT_COUNT = 10;
 
-const DEFAULT_NRC_LABELS = [
-  'Tenant Improvement Allowance',
-  'Landlord Work',
-  'Leasing Commission',
-  'HVAC Upgrade',
-  'After-Hours HVAC',
-  'Roof Curb Installation',
-  'Parking',
-  'Moving Allowance',
-  'Signage',
-  'Additional NRC 1',
-  'Additional NRC 2',
-];
-
 function padNrcItems(items) {
   const result = items.slice(0, NRC_SLOT_COUNT).map((item) => ({
     label: item.label ?? '',
     date: item.date ?? null,
     amount: Number(item.amount) || 0,
   }));
-  const usedLabels = new Set(result.map((item) => item.label));
-  for (const defaultLabel of DEFAULT_NRC_LABELS) {
-    if (result.length >= NRC_SLOT_COUNT) break;
-    if (!usedLabels.has(defaultLabel)) {
-      result.push({ label: defaultLabel, date: null, amount: 0 });
-    }
-  }
   while (result.length < NRC_SLOT_COUNT) {
-    result.push({ label: `NRC Item ${result.length + 1}`, date: null, amount: 0 });
+    result.push({ label: '', date: null, amount: 0 });
   }
   return result;
 }

@@ -974,6 +974,33 @@ DOCUMENT TEXT:
 ${normalizedText}`;
 }
 
+function normalizeOneTimeItem(item) {
+  if (!item || typeof item !== 'object') return null;
+
+  const label = String(item.label ?? item.name ?? '').trim();
+  if (!label) return null;
+
+  const amount = item.amount != null ? Number(item.amount) : null;
+  const resolvedSign = item.sign === -1 ? -1 : item.sign === 1 ? 1 : (Number.isFinite(amount) && amount < 0 ? -1 : 1);
+  return {
+    label,
+    amount: Number.isFinite(amount) ? amount : null,
+    dueDate: item.dueDate ?? item.date ?? null,
+    sign: resolvedSign,
+    notes: item.notes ?? null,
+  };
+}
+
+function normalizeOneTimeItems(result) {
+  const canonical = Array.isArray(result?.oneTimeItems) ? result.oneTimeItems : [];
+  if (canonical.length > 0) {
+    return canonical.map(normalizeOneTimeItem).filter(Boolean);
+  }
+
+  const legacy = Array.isArray(result?.oneTimeCharges) ? result.oneTimeCharges : [];
+  return legacy.map(normalizeOneTimeItem).filter(Boolean);
+}
+
 function normalizeExtractionResult(result, documentText, notices = []) {
   const normalized = {
     ...emptyExtractionResult(),
@@ -987,6 +1014,7 @@ function normalizeExtractionResult(result, documentText, notices = []) {
   normalized.freeRentEvents = Array.isArray(normalized.freeRentEvents) ? normalized.freeRentEvents : [];
   normalized.abatementEvents = Array.isArray(normalized.abatementEvents) ? normalized.abatementEvents : [];
   normalized.recurringCharges = Array.isArray(normalized.recurringCharges) ? normalized.recurringCharges : [];
+  normalized.oneTimeItems = normalizeOneTimeItems(normalized);
 
   const repaired = repairExtractionSemantics(normalized, documentText);
   const flagCount = repaired.confidenceFlags.length;
