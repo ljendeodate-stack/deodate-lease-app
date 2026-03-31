@@ -1,0 +1,133 @@
+[1mdiff --git a/src/export/model/buildExportModel.js b/src/export/model/buildExportModel.js[m
+[1mindex 1c213ca..17b0ab6 100644[m
+[1m--- a/src/export/model/buildExportModel.js[m
+[1m+++ b/src/export/model/buildExportModel.js[m
+[36m@@ -311,22 +311,6 @@[m [mfunction buildAssumptionEntries(assumptions, activeCategories) {[m
+     entries.push({ id: `${category.key}_escRate`, label: category.assumptionLabels.escRate, kind: 'input', format: 'pct', value: catData.escRate });[m
+   }[m
+ [m
+[31m-  entries.push({ id: 'section_abatement', label: 'ABATEMENT', kind: 'heading' });[m
+[31m-  entries.push({ id: 'abatementStart', label: 'Abatement Start Date', kind: 'date', format: 'date', value: assumptions.abatementStart ?? null });[m
+[31m-  entries.push({ id: 'abatementEnd', label: 'Abatement End Date', kind: 'date', format: 'date', value: assumptions.abatementEndDate ?? null });[m
+[31m-  entries.push({ id: 'abatementAmount', label: 'Monthly Abatement Amount', kind: 'input', format: 'currency', value: assumptions.abatementAmount ?? 0 });[m
+[31m-  entries.push({ id: 'abatementMonths', label: 'Full Abatement Months', kind: 'input', format: 'int', value: assumptions.fullAbatementMonths ?? 0 });[m
+[31m-  entries.push({ id: 'abatementPct', label: 'Abatement Percentage (%)', kind: 'input', format: 'pct', value: assumptions.abatementPct ?? 0 });[m
+[31m-  entries.push({ id: 'abatementPartialFactor', label: 'Abatement Partial Month Factor', kind: 'input', format: 'pct', value: assumptions.abatementPartialFactor ?? 1 });[m
+[31m-  entries.push({ id: 'additionalAbatementFlag', label: 'Additional Abatement Periods', kind: 'input', format: 'int', value: 0 });[m
+[31m-[m
+[31m-  entries.push({ id: 'section_freeRent', label: 'FREE RENT', kind: 'heading' });[m
+[31m-  entries.push({ id: 'freeRentStart', label: 'Free Rent Start Date', kind: 'date', format: 'date', value: assumptions.freeRentStart ?? null });[m
+[31m-  entries.push({ id: 'freeRentEnd', label: 'Free Rent End Date', kind: 'date', format: 'date', value: assumptions.freeRentEndDate ?? null });[m
+[31m-  entries.push({ id: 'freeRentMonths', label: 'Free Rent Months', kind: 'input', format: 'int', value: assumptions.freeRentMonths ?? 0 });[m
+[31m-  entries.push({ id: 'freeRentPct', label: 'Free Rent Percentage (%)', kind: 'input', format: 'pct', value: assumptions.freeRentPct ?? 0 });[m
+[31m-  entries.push({ id: 'additionalFreeRentFlag', label: 'Additional Free Rent Periods', kind: 'input', format: 'int', value: 0 });[m
+[31m-[m
+   entries.push({ id: 'section_nonRecurring', label: 'NON-RECURRING CHARGES', kind: 'heading' });[m
+   for (const [index, item] of (assumptions.oneTimeItems ?? []).entries()) {[m
+     entries.push({[m
+[1mdiff --git a/src/export/resolvers/resolveLeaseScheduleLayout.test.js b/src/export/resolvers/resolveLeaseScheduleLayout.test.js[m
+[1mindex 333b5da..6fa3e1a 100644[m
+[1m--- a/src/export/resolvers/resolveLeaseScheduleLayout.test.js[m
+[1m+++ b/src/export/resolvers/resolveLeaseScheduleLayout.test.js[m
+[36m@@ -51,9 +51,9 @@[m [mdescribe('resolveLeaseScheduleLayout', () => {[m
+     const model = buildExportModel(rows, params, 'spec-check');[m
+     const layout = resolveLeaseScheduleLayout(model);[m
+ [m
+[31m-    // Legacy left-side assumptions remain in place, and the layout now also[m
+[31m-    // exposes right-side concession tables for month-number inputs.[m
+[31m-    expect(layout.assumptionEntries).toHaveLength(47);[m
+[32m+[m[32m    // Left-side assumptions no longer include ABATEMENT/FREE RENT sections;[m
+[32m+[m[32m    // those are handled exclusively by the right-side concession tables.[m
+[32m+[m[32m    expect(layout.assumptionEntries).toHaveLength(33);[m
+     // Row positions: assumptionStartRow(5) + index[m
+     expect(layout.cellMap.squareFootage).toBe('$C$7');           // index 2[m
+     expect(layout.cellMap.totalLeaseTerm).toBe('$C$12');         // index 7[m
+[36m@@ -84,13 +84,13 @@[m [mdescribe('resolveLeaseScheduleLayout', () => {[m
+     expect(layout.freeRentTable.amountRange).toBe('$I$20:$I$29');[m
+     expect(layout.freeRentTable.totalAmountAddress).toBe('$I$30');[m
+ [m
+[31m-    expect(layout.leftAssumptionLastRow).toBe(51);[m
+[31m-    expect(layout.assumptionLastRow).toBe(51);[m
+[31m-    expect(layout.scenarioGroupRow).toBe(53);[m
+[31m-    expect(layout.headerRow).toBe(54);[m
+[31m-    expect(layout.firstDataRow).toBe(55);[m
+[31m-    expect(layout.totalsRow).toBe(57);[m
+[31m-    expect(layout.noteRow).toBe(59);[m
+[32m+[m[32m    expect(layout.leftAssumptionLastRow).toBe(37);[m
+[32m+[m[32m    expect(layout.assumptionLastRow).toBe(37);[m
+[32m+[m[32m    expect(layout.scenarioGroupRow).toBe(39);[m
+[32m+[m[32m    expect(layout.headerRow).toBe(40);[m
+[32m+[m[32m    expect(layout.firstDataRow).toBe(41);[m
+[32m+[m[32m    expect(layout.totalsRow).toBe(43);[m
+[32m+[m[32m    expect(layout.noteRow).toBe(45);[m
+ [m
+     // NRC ranges should span the 11 OT entries[m
+     expect(layout.nrcDateRange).toBeDefined();[m
+[36m@@ -139,13 +139,13 @@[m [mdescribe('resolveLeaseScheduleLayout', () => {[m
+     const model = buildExportModel(rows, params, 'aggregate-case');[m
+     const layout = resolveLeaseScheduleLayout(model);[m
+ [m
+[31m-    // Aggregate mode keeps the legacy left-side footprint; concession inputs remain in the right-side tables.[m
+[31m-    expect(layout.assumptionEntries).toHaveLength(47);[m
+[32m+[m[32m    // Aggregate mode: ABATEMENT/FREE RENT left-side sections removed; concession inputs in right-side tables.[m
+[32m+[m[32m    expect(layout.assumptionEntries).toHaveLength(33);[m
+     expect(layout.cellMap.nnnAgg_year1).toBe('$C$19');    // index 14[m
+     expect(layout.cellMap.nnnAgg_escRate).toBe('$C$24');  // index 19[m
+     expect(layout.cellMap.security_year1).toBe('$C$20');  // index 15[m
+[31m-    expect(layout.scenarioGroupRow).toBe(53);[m
+[31m-    expect(layout.headerRow).toBe(54);[m
+[32m+[m[32m    expect(layout.scenarioGroupRow).toBe(39);[m
+[32m+[m[32m    expect(layout.headerRow).toBe(40);[m
+     expect(layout.colByKey.nnnAggregate.letter).toBe('G');[m
+     expect(layout.colByKey.totalNNN.letter).toBe('I');[m
+   });[m
+[1mdiff --git a/src/export/specs/leaseScheduleSpec.js b/src/export/specs/leaseScheduleSpec.js[m
+[1mindex 27e4a5f..82e769c 100644[m
+[1m--- a/src/export/specs/leaseScheduleSpec.js[m
+[1m+++ b/src/export/specs/leaseScheduleSpec.js[m
+[36m@@ -72,7 +72,7 @@[m [mexport function buildLeaseScheduleSpec(assump, rows, otLabels, filename, L, reg)[m
+       { hpt: 16 },   // row 2 — subtitle[m
+       { hpt: 14 },   // row 3 — generated date[m
+       {},             // row 4 — blank[m
+[31m-      ...Array(22 + 2 * chargeCount + Math.max(otCount, 1)).fill({ hpt: 18 }), // assumption rows[m
+[32m+[m[32m      ...Array(14 + 2 * chargeCount + Math.max(otCount, 1)).fill({ hpt: 18 }), // assumption rows[m
+       {},             // blank separator[m
+       { hpt: 44 },   // header row[m
+     ],[m
+[36m@@ -209,31 +209,19 @@[m [mfunction buildAssumptionsSection(assump, charges, otLabels) {[m
+     addRow(18 + N + idx, `${label} Annual Escalation Rate (%)`, inputCell(ch.escRate, FMT.pct, vFill));[m
+   });[m
+ [m
+[31m-  // ── Section 4: Abatement (rows (18+2N)–(22+2N)) ─────────────────────────[m
+[31m-  addHeading(18 + 2*N, 'ABATEMENT');[m
+[31m-  addRow(19 + 2*N, 'Abatement Full-Month Count',               inputCell(assump.fullAbatementMonths, FMT.int, vFill));[m
+[31m-  addRow(20 + 2*N, 'Abatement End Date',                       dateCell(assump.abatementEndDate ?? null, vFill));[m
+[31m-  addRow(21 + 2*N, 'Abatement Percentage (%)',                  inputCell((assump.abatementPct ?? 0) / 100, FMT.pct, vFill));[m
+[31m-  addRow(22 + 2*N, 'Abatement Partial-Month Proration Factor',  inputCell(assump.abatementPartialFactor, FMT.factor, vFill));[m
+[31m-[m
+[31m-  // ── Section 5: Free Rent (rows (23+2N)–(25+2N)) ──────────────────────────[m
+[31m-  addHeading(23 + 2*N, 'FREE RENT');[m
+[31m-  addRow(24 + 2*N, 'Free Rent Months',   inputCell(assump.freeRentMonths ?? 0, FMT.int, vFill));[m
+[31m-  addRow(25 + 2*N, 'Free Rent End Date', dateCell(assump.freeRentEndDate ?? null, vFill));[m
+[31m-[m
+[31m-  // ── Section 6: Non-Recurring Charges (rows (26+2N)+) ─────────────────────[m
+[31m-  addHeading(26 + 2*N, 'NON-RECURRING CHARGES');[m
+[32m+[m[32m  // ── Section 4: Non-Recurring Charges (rows (18+2N)+) ────────────────────[m
+[32m+[m[32m  addHeading(18 + 2*N, 'NON-RECURRING CHARGES');[m
+   const otItems = assump.oneTimeItems ?? [];[m
+   if (otItems.length === 0) {[m
+     // Show a "(none)" placeholder row so the section always has at least one row[m
+[31m-    cells.push({ col: 1, row: 27 + 2*N, cell: {[m
+[32m+[m[32m    cells.push({ col: 1, row: 19 + 2*N, cell: {[m
+       t: 's', v: '(none)',[m
+       s: { ...labelStyle, font: { ...FONT_B, color: { rgb: 'AAAAAA' }, sz: 10, italic: true } },[m
+     }});[m
+[31m-    cells.push({ col: 2, row: 27 + 2*N, cell: { t: 's', v: '', s: { ...labelStyle } } });[m
+[32m+[m[32m    cells.push({ col: 2, row: 19 + 2*N, cell: { t: 's', v: '', s: { ...labelStyle } } });[m
+   } else {[m
+     otItems.forEach((item, idx) => {[m
+[31m-      const r = 27 + 2*N + idx;[m
+[32m+[m[32m      const r = 19 + 2*N + idx;[m
+       cells.push({ col: 1, row: r, cell: { t: 's', v: item.label || '', s: labelStyle } });[m
+       cells.push({ col: 2, row: r, cell: { ...dateCell(item.date ?? null, vFill), s: { ...dateCell(item.date ?? null, vFill).s, border: ASSUMPTION_BORDER } } });[m
+       // Amount in col 3 (D)[m

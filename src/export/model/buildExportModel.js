@@ -311,22 +311,6 @@ function buildAssumptionEntries(assumptions, activeCategories) {
     entries.push({ id: `${category.key}_escRate`, label: category.assumptionLabels.escRate, kind: 'input', format: 'pct', value: catData.escRate });
   }
 
-  entries.push({ id: 'section_abatement', label: 'ABATEMENT', kind: 'heading' });
-  entries.push({ id: 'abatementStart', label: 'Abatement Start Date', kind: 'date', format: 'date', value: assumptions.abatementStart ?? null });
-  entries.push({ id: 'abatementEnd', label: 'Abatement End Date', kind: 'date', format: 'date', value: assumptions.abatementEndDate ?? null });
-  entries.push({ id: 'abatementAmount', label: 'Monthly Abatement Amount', kind: 'input', format: 'currency', value: assumptions.abatementAmount ?? 0 });
-  entries.push({ id: 'abatementMonths', label: 'Full Abatement Months', kind: 'input', format: 'int', value: assumptions.fullAbatementMonths ?? 0 });
-  entries.push({ id: 'abatementPct', label: 'Abatement Percentage (%)', kind: 'input', format: 'pct', value: assumptions.abatementPct ?? 0 });
-  entries.push({ id: 'abatementPartialFactor', label: 'Abatement Partial Month Factor', kind: 'input', format: 'pct', value: assumptions.abatementPartialFactor ?? 1 });
-  entries.push({ id: 'additionalAbatementFlag', label: 'Additional Abatement Periods', kind: 'input', format: 'int', value: 0 });
-
-  entries.push({ id: 'section_freeRent', label: 'FREE RENT', kind: 'heading' });
-  entries.push({ id: 'freeRentStart', label: 'Free Rent Start Date', kind: 'date', format: 'date', value: assumptions.freeRentStart ?? null });
-  entries.push({ id: 'freeRentEnd', label: 'Free Rent End Date', kind: 'date', format: 'date', value: assumptions.freeRentEndDate ?? null });
-  entries.push({ id: 'freeRentMonths', label: 'Free Rent Months', kind: 'input', format: 'int', value: assumptions.freeRentMonths ?? 0 });
-  entries.push({ id: 'freeRentPct', label: 'Free Rent Percentage (%)', kind: 'input', format: 'pct', value: assumptions.freeRentPct ?? 0 });
-  entries.push({ id: 'additionalFreeRentFlag', label: 'Additional Free Rent Periods', kind: 'input', format: 'int', value: 0 });
-
   entries.push({ id: 'section_nonRecurring', label: 'NON-RECURRING CHARGES', kind: 'heading' });
   for (const [index, item] of (assumptions.oneTimeItems ?? []).entries()) {
     entries.push({

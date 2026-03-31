@@ -51,9 +51,9 @@ describe('resolveLeaseScheduleLayout', () => {
     const model = buildExportModel(rows, params, 'spec-check');
     const layout = resolveLeaseScheduleLayout(model);
 
-    // Legacy left-side assumptions remain in place, and the layout now also
-    // exposes right-side concession tables for month-number inputs.
-    expect(layout.assumptionEntries).toHaveLength(47);
+    // Left-side assumptions no longer include ABATEMENT/FREE RENT sections;
+    // those are handled exclusively by the right-side concession tables.
+    expect(layout.assumptionEntries).toHaveLength(33);
     // Row positions: assumptionStartRow(5) + index
     expect(layout.cellMap.squareFootage).toBe('$C$7');           // index 2
     expect(layout.cellMap.totalLeaseTerm).toBe('$C$12');         // index 7
@@ -84,13 +84,13 @@ describe('resolveLeaseScheduleLayout', () => {
     expect(layout.freeRentTable.amountRange).toBe('$I$20:$I$29');
     expect(layout.freeRentTable.totalAmountAddress).toBe('$I$30');
 
-    expect(layout.leftAssumptionLastRow).toBe(51);
-    expect(layout.assumptionLastRow).toBe(51);
-    expect(layout.scenarioGroupRow).toBe(53);
-    expect(layout.headerRow).toBe(54);
-    expect(layout.firstDataRow).toBe(55);
-    expect(layout.totalsRow).toBe(57);
-    expect(layout.noteRow).toBe(59);
+    expect(layout.leftAssumptionLastRow).toBe(37);
+    expect(layout.assumptionLastRow).toBe(37);
+    expect(layout.scenarioGroupRow).toBe(39);
+    expect(layout.headerRow).toBe(40);
+    expect(layout.firstDataRow).toBe(41);
+    expect(layout.totalsRow).toBe(43);
+    expect(layout.noteRow).toBe(45);
 
     // NRC ranges should span the 11 OT entries
     expect(layout.nrcDateRange).toBeDefined();
@@ -139,13 +139,13 @@ describe('resolveLeaseScheduleLayout', () => {
     const model = buildExportModel(rows, params, 'aggregate-case');
     const layout = resolveLeaseScheduleLayout(model);
 
-    // Aggregate mode keeps the legacy left-side footprint; concession inputs remain in the right-side tables.
-    expect(layout.assumptionEntries).toHaveLength(47);
+    // Aggregate mode: ABATEMENT/FREE RENT left-side sections removed; concession inputs in right-side tables.
+    expect(layout.assumptionEntries).toHaveLength(33);
     expect(layout.cellMap.nnnAgg_year1).toBe('$C$19');    // index 14
     expect(layout.cellMap.nnnAgg_escRate).toBe('$C$24');  // index 19
     expect(layout.cellMap.security_year1).toBe('$C$20');  // index 15
-    expect(layout.scenarioGroupRow).toBe(53);
-    expect(layout.headerRow).toBe(54);
+    expect(layout.scenarioGroupRow).toBe(39);
+    expect(layout.headerRow).toBe(40);
     expect(layout.colByKey.nnnAggregate.letter).toBe('G');
     expect(layout.colByKey.totalNNN.letter).toBe('I');
   });
