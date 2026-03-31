@@ -157,9 +157,10 @@ function normalizeExplicitAbatementEvent(event, index, rows = []) {
   const monthNumber = explicitMonthNumber ?? datedMonthNumber;
   const effectiveDate = resolveDateFromMonthNumber(rows, monthNumber) ?? parseFormDate(event?.date);
   if (!effectiveDate || !monthNumber) return null;
-  const valueMode = event?.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT
-    ? CONCESSION_VALUE_MODES.FIXED_AMOUNT
-    : CONCESSION_VALUE_MODES.PERCENT;
+  const valueMode = event?.valueMode === CONCESSION_VALUE_MODES.PERCENT ||
+    event?.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT
+    ? event.valueMode
+    : null;
   const value = Number(event?.value);
   if (!Number.isFinite(value)) return null;
   return {
@@ -208,9 +209,14 @@ function normalizeLegacyConcessionEvent(event, index, leaseStartDate, rows = [])
   const type = event?.type === CONCESSION_TYPES.FREE_RENT
     ? CONCESSION_TYPES.FREE_RENT
     : CONCESSION_TYPES.ABATEMENT;
-  const valueMode = event?.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT
-    ? CONCESSION_VALUE_MODES.FIXED_AMOUNT
-    : CONCESSION_VALUE_MODES.PERCENT;
+  const valueMode = type === CONCESSION_TYPES.FREE_RENT
+    ? CONCESSION_VALUE_MODES.PERCENT
+    : (
+      event?.valueMode === CONCESSION_VALUE_MODES.PERCENT ||
+      event?.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT
+        ? event.valueMode
+        : null
+    );
   const value = type === CONCESSION_TYPES.FREE_RENT
     ? 100
     : (Number(event?.value) || 0);
@@ -402,13 +408,15 @@ function toDetectedAbatementFormEvent(event, rows = [], index = 0) {
   if (!monthNumber || !resolvedDate) return null;
   const value = Number(event?.value);
   if (!Number.isFinite(value)) return null;
+  const valueMode = event?.valueMode === CONCESSION_VALUE_MODES.PERCENT ||
+    event?.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT
+    ? event.valueMode
+    : null;
   return {
     id: event?.id ?? `ocr_abatement_${index + 1}`,
     monthNumber: String(monthNumber),
     value: String(value),
-    valueMode: event?.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT
-      ? CONCESSION_VALUE_MODES.FIXED_AMOUNT
-      : CONCESSION_VALUE_MODES.PERCENT,
+    valueMode,
     label: event?.label ?? 'Imported Abatement',
     source: event?.source ?? 'ocr',
     confidence: event?.confidence ?? 'medium',

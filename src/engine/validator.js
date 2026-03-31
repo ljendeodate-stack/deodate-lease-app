@@ -149,17 +149,28 @@ function validateConcessionEvents(params, rows, errors, warnings) {
 
     const value = Number(event?.value);
     if (event?.value === '' || event?.value === undefined || event?.value === null) {
-      pushIssue(errors, `${fieldBase}.value`, 'Abatement percentage is required.', 'error');
+      pushIssue(errors, `${fieldBase}.value`, 'Abatement value is required.', 'error');
       return;
     }
     if (!Number.isFinite(value)) {
-      pushIssue(errors, `${fieldBase}.value`, 'Abatement percentage must be a number.', 'error');
+      pushIssue(errors, `${fieldBase}.value`, 'Abatement value must be a number.', 'error');
       return;
     }
 
-    const valueMode = event?.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT
-      ? CONCESSION_VALUE_MODES.FIXED_AMOUNT
-      : CONCESSION_VALUE_MODES.PERCENT;
+    const valueMode = event?.valueMode;
+
+    if (
+      valueMode !== CONCESSION_VALUE_MODES.PERCENT &&
+      valueMode !== CONCESSION_VALUE_MODES.FIXED_AMOUNT
+    ) {
+      pushIssue(
+        errors,
+        `${fieldBase}.valueMode`,
+        'Abatement value mode must be percent or fixed amount.',
+        'error',
+      );
+      return;
+    }
 
     if (valueMode === CONCESSION_VALUE_MODES.PERCENT && (value < 0 || value > 100)) {
       pushIssue(errors, `${fieldBase}.value`, 'Abatement percentage must be between 0 and 100.', 'error');

@@ -264,7 +264,7 @@ function applyExplicitConcession(event, scheduledBaseRent, periodFactor) {
     appliedBaseRent = 0;
   } else if (event.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT) {
     appliedBaseRent = Math.max(0, periodAdjustedBaseRent - (Number(event.value) || 0));
-  } else {
+  } else if (event.valueMode === CONCESSION_VALUE_MODES.PERCENT) {
     appliedBaseRent = periodAdjustedBaseRent * (1 - clampPercent(event.value) / 100);
   }
 
@@ -322,7 +322,7 @@ function applyLegacyWindowConcession(event, periodStart, periodEnd, scheduledBas
     discountedAmount = periodAdjustedBaseRent * (1 - overlapFraction);
   } else if (event.valueMode === CONCESSION_VALUE_MODES.FIXED_AMOUNT) {
     discountedAmount = Math.max(0, periodAdjustedBaseRent - ((Number(event.value) || 0) * overlapFraction));
-  } else {
+  } else if (event.valueMode === CONCESSION_VALUE_MODES.PERCENT) {
     discountedAmount = periodAdjustedBaseRent * (1 - (clampPercent(event.value) / 100) * overlapFraction);
   }
 

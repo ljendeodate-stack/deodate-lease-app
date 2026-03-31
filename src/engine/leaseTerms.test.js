@@ -32,4 +32,20 @@ describe('buildOCRConcessionForms', () => {
     expect(result.freeRentEvents[0]).toMatchObject({ date: '01/01/2030' });
     expect(result.freeRentEvents[1]).toMatchObject({ date: '02/01/2030' });
   });
+
+  it('preserves missing value mode on OCR abatement events instead of defaulting to percent', () => {
+    const result = buildOCRConcessionForms({
+      abatementEvents: [
+        { monthNumber: 2, value: 2000, valueMode: null, date: '02/10/2030', label: 'Imported Dollar Abatement' },
+      ],
+    }, rows);
+
+    expect(result.abatementEvents).toHaveLength(1);
+    expect(result.abatementEvents[0]).toMatchObject({
+      monthNumber: '2',
+      value: '2000',
+      valueMode: null,
+      date: '02/01/2030',
+    });
+  });
 });

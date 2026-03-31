@@ -280,6 +280,36 @@ describe('dated concession events', () => {
     expect(result[1].baseRentApplied).toBe(10000);
   });
 
+  it('applies a fixed-dollar abatement only to the resolved target row', () => {
+    const rows = expand(makePeriods('01/01/2030', '03/31/2030', 10000));
+    const params = baseParams({
+      concessionEvents: [
+        { id: 'abatement_fixed_1', type: 'abatement', scope: 'monthly_row', effectiveDate: parseMDYStrict('03/05/2030'), valueMode: 'fixed_amount', value: 50 },
+      ],
+    });
+
+    const result = calculateAllCharges(rows, params);
+    expect(result[2].baseRentApplied).toBe(9950);
+    expect(result[2].abatementAmount).toBe(50);
+    expect(result[2].concessionValueMode).toBe('fixed_amount');
+    expect(result[1].baseRentApplied).toBe(10000);
+  });
+
+  it('does not apply an abatement when value mode is missing', () => {
+    const rows = expand(makePeriods('01/01/2030', '03/31/2030', 10000));
+    const params = baseParams({
+      concessionEvents: [
+        { id: 'abatement_missing_mode_1', type: 'abatement', scope: 'monthly_row', effectiveDate: parseMDYStrict('03/05/2030'), value: 50 },
+      ],
+    });
+
+    const result = calculateAllCharges(rows, params);
+    expect(result[2].baseRentApplied).toBe(10000);
+    expect(result[2].abatementAmount).toBe(0);
+    expect(result[2].concessionType).toBe('abatement');
+    expect(result[2].concessionValueMode).toBeNull();
+  });
+
   it('lets an explicit dated event override an overlapping legacy window', () => {
     const rows = expand(makePeriods('01/01/2030', '03/31/2030', 10000));
     const params = baseParams({

@@ -62,19 +62,46 @@ describe('validateParams', () => {
     expect(result.errors.map((error) => error.field)).toContain('abatementEvents.0.monthNumber');
   });
 
-  it('validates malformed concession month numbers and abatement percentages', () => {
+  it('validates malformed concession month numbers and percent abatements', () => {
     const result = validateParams(
       {
         squareFootage: '1000',
         nnnMode: 'individual',
         freeRentEvents: [{ monthNumber: 'abc' }],
-        abatementEvents: [{ monthNumber: '1', value: '150' }],
+        abatementEvents: [{ monthNumber: '1', value: '150', valueMode: 'percent' }],
       },
       rows,
     );
 
     expect(result.errors.map((error) => error.field)).toContain('freeRentEvents.0.monthNumber');
     expect(result.errors.map((error) => error.field)).toContain('abatementEvents.0.value');
+  });
+
+  it('requires an explicit abatement value mode', () => {
+    const result = validateParams(
+      {
+        squareFootage: '1000',
+        nnnMode: 'individual',
+        abatementEvents: [{ monthNumber: '1', value: '50' }],
+      },
+      rows,
+    );
+
+    expect(result.errors.map((error) => error.field)).toContain('abatementEvents.0.valueMode');
+  });
+
+  it('allows fixed-dollar abatement values above 100', () => {
+    const result = validateParams(
+      {
+        squareFootage: '1000',
+        nnnMode: 'individual',
+        abatementEvents: [{ monthNumber: '1', value: '5000', valueMode: 'fixed_amount' }],
+      },
+      rows,
+    );
+
+    expect(result.errors.map((error) => error.field)).not.toContain('abatementEvents.0.value');
+    expect(result.errors.map((error) => error.field)).not.toContain('abatementEvents.0.valueMode');
   });
 
   it('validates recurring override amounts and duplicate target rows', () => {
