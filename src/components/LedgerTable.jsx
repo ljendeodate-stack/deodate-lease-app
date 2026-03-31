@@ -24,6 +24,11 @@ import {
 const PAGE_SIZE = 25;
 const GROUP_HEADER_TOP_PX = 0;
 const COLUMN_HEADER_TOP_PX = 34;
+const LEASE_SCHEDULE_GROUP = {
+  key: 'leaseSchedule',
+  title: 'Lease Schedule',
+  previewFill: '#1F3864',
+};
 
 function Th({ children, className = '', stickyTop = COLUMN_HEADER_TOP_PX, style = {} }) {
   return (
@@ -100,16 +105,45 @@ function deriveChargeColumns(rows) {
   ];
 }
 
+function deriveScenarioGroups(columns) {
+  const groups = [];
+
+  for (const column of columns) {
+    const lastGroup = groups[groups.length - 1];
+
+    if (lastGroup?.key === column.scenarioGroup) {
+      lastGroup.columns.push(column);
+      continue;
+    }
+
+    groups.push({
+      key: column.scenarioGroup,
+      title: column.scenarioGroup === 'renego'
+        ? INLINE_SCENARIO_RENEGO_GROUP_TITLE
+        : INLINE_SCENARIO_EXIT_GROUP_TITLE,
+      previewFill: column.scenarioGroup === 'renego'
+        ? INLINE_SCENARIO_RENEGO_GROUP_PREVIEW
+        : INLINE_SCENARIO_EXIT_GROUP_PREVIEW,
+      columns: [column],
+    });
+  }
+
+  return groups;
+}
+
 export default function LedgerTable({ rows = [] }) {
   const [page, setPage] = useState(0);
   const [expandedIdx, setExpandedIdx] = useState(null);
 
   const chargeColumns = useMemo(() => deriveChargeColumns(rows), [rows]);
   const scenarioColumns = INLINE_SCENARIO_COLUMNS;
-  const renegoScenarioColumns = scenarioColumns.filter((column) => column.scenarioGroup === 'renego');
-  const exitScenarioColumns = scenarioColumns.filter((column) => column.scenarioGroup === 'exit');
+  const scenarioGroups = useMemo(() => deriveScenarioGroups(scenarioColumns), [scenarioColumns]);
   const totalColSpan = 10 + chargeColumns.length + 7 + scenarioColumns.length;
-  const scheduleColSpan = totalColSpan - scenarioColumns.length;
+  const staticColumnsCount = totalColSpan - scenarioColumns.length;
+  const columnGroups = [
+    { ...LEASE_SCHEDULE_GROUP, colSpan: staticColumnsCount },
+    ...scenarioGroups.map((group) => ({ ...group, colSpan: group.columns.length })),
+  ];
   const totalPages = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
@@ -125,27 +159,16 @@ export default function LedgerTable({ rows = [] }) {
         <table className="min-w-full border-separate border-spacing-0">
           <thead>
             <tr>
-              <th
-                colSpan={scheduleColSpan}
-                className="sticky border-b border-app-border px-3 py-2 text-left text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-white"
-                style={{ top: `${GROUP_HEADER_TOP_PX}px`, backgroundColor: '#1F3864' }}
-              >
-                Lease Schedule
-              </th>
-              <th
-                colSpan={renegoScenarioColumns.length}
-                className="sticky border-b border-app-border px-3 py-2 text-left text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-white"
-                style={{ top: `${GROUP_HEADER_TOP_PX}px`, backgroundColor: INLINE_SCENARIO_RENEGO_GROUP_PREVIEW }}
-              >
-                {INLINE_SCENARIO_RENEGO_GROUP_TITLE}
-              </th>
-              <th
-                colSpan={exitScenarioColumns.length}
-                className="sticky border-b border-app-border px-3 py-2 text-left text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-white"
-                style={{ top: `${GROUP_HEADER_TOP_PX}px`, backgroundColor: INLINE_SCENARIO_EXIT_GROUP_PREVIEW }}
-              >
-                {INLINE_SCENARIO_EXIT_GROUP_TITLE}
-              </th>
+              {columnGroups.map((group) => (
+                <th
+                  key={group.key}
+                  colSpan={group.colSpan}
+                  className="sticky border-b border-app-border px-3 py-2 text-left text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-white"
+                  style={{ top: `${GROUP_HEADER_TOP_PX}px`, backgroundColor: group.previewFill }}
+                >
+                  {group.title}
+                </th>
+              ))}
             </tr>
             <tr>
               <Th />
@@ -168,15 +191,15 @@ export default function LedgerTable({ rows = [] }) {
               <Th>Total Remaining</Th>
               <Th>NNN Remaining</Th>
               <Th>Base Remaining</Th>
-              {scenarioColumns.map((column, index) => (
+              {scenarioGroups.flatMap((group) => group.columns.map((column, index) => (
                 <Th
                   key={column.key}
-                  className={`whitespace-normal text-white min-w-[14rem] ${index === 0 || scenarioColumns[index - 1]?.scenarioGroup !== column.scenarioGroup ? 'border-l-4 border-l-white/60' : ''}`}
+                  className={`whitespace-normal text-white min-w-[14rem] ${index === 0 ? 'border-l-4 border-l-white/60' : ''}`}
                   style={{ backgroundColor: column.previewHeaderFill }}
                 >
                   {column.previewHeader}
                 </Th>
-              ))}
+              )))}
             </tr>
           </thead>
           <tbody>
@@ -270,15 +293,15 @@ export default function LedgerTable({ rows = [] }) {
                     <Td>{formatDollar(row.totalObligationRemaining)}</Td>
                     <Td>{formatDollar(row.totalNNNRemaining)}</Td>
                     <Td>{formatDollar(row.totalBaseRentRemaining)}</Td>
-                    {scenarioColumns.map((column, index) => (
+                    {scenarioGroups.flatMap((group) => group.columns.map((column, index) => (
                       <Td
                         key={column.key}
-                        className={`font-semibold ${index === 0 || scenarioColumns[index - 1]?.scenarioGroup !== column.scenarioGroup ? 'border-l-4 border-l-white/70' : ''}`}
+                        className={`font-semibold ${index === 0 ? 'border-l-4 border-l-white/70' : ''}`}
                         style={{ backgroundColor: column.previewBodyFill }}
                       >
                         {formatDollar(inlineScenarioValues[column.key] ?? 0)}
                       </Td>
-                    ))}
+                    )))}
                   </tr>
                   {isExpanded && (
                     <tr>
