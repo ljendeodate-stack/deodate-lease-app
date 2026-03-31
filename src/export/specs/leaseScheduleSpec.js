@@ -72,7 +72,7 @@ export function buildLeaseScheduleSpec(assump, rows, otLabels, filename, L, reg)
       { hpt: 16 },   // row 2 — subtitle
       { hpt: 14 },   // row 3 — generated date
       {},             // row 4 — blank
-      ...Array(22 + 2 * chargeCount + Math.max(otCount, 1)).fill({ hpt: 18 }), // assumption rows
+      ...Array(14 + 2 * chargeCount + Math.max(otCount, 1)).fill({ hpt: 18 }), // assumption rows
       {},             // blank separator
       { hpt: 44 },   // header row
     ],
@@ -209,31 +209,19 @@ function buildAssumptionsSection(assump, charges, otLabels) {
     addRow(18 + N + idx, `${label} Annual Escalation Rate (%)`, inputCell(ch.escRate, FMT.pct, vFill));
   });
 
-  // ── Section 4: Abatement (rows (18+2N)–(22+2N)) ─────────────────────────
-  addHeading(18 + 2*N, 'ABATEMENT');
-  addRow(19 + 2*N, 'Abatement Full-Month Count',               inputCell(assump.fullAbatementMonths, FMT.int, vFill));
-  addRow(20 + 2*N, 'Abatement End Date',                       dateCell(assump.abatementEndDate ?? null, vFill));
-  addRow(21 + 2*N, 'Abatement Percentage (%)',                  inputCell((assump.abatementPct ?? 0) / 100, FMT.pct, vFill));
-  addRow(22 + 2*N, 'Abatement Partial-Month Proration Factor',  inputCell(assump.abatementPartialFactor, FMT.factor, vFill));
-
-  // ── Section 5: Free Rent (rows (23+2N)–(25+2N)) ──────────────────────────
-  addHeading(23 + 2*N, 'FREE RENT');
-  addRow(24 + 2*N, 'Free Rent Months',   inputCell(assump.freeRentMonths ?? 0, FMT.int, vFill));
-  addRow(25 + 2*N, 'Free Rent End Date', dateCell(assump.freeRentEndDate ?? null, vFill));
-
-  // ── Section 6: Non-Recurring Charges (rows (26+2N)+) ─────────────────────
-  addHeading(26 + 2*N, 'NON-RECURRING CHARGES');
+  // ── Section 4: Non-Recurring Charges (rows (18+2N)+) ────────────────────
+  addHeading(18 + 2*N, 'NON-RECURRING CHARGES');
   const otItems = assump.oneTimeItems ?? [];
   if (otItems.length === 0) {
     // Show a "(none)" placeholder row so the section always has at least one row
-    cells.push({ col: 1, row: 27 + 2*N, cell: {
+    cells.push({ col: 1, row: 19 + 2*N, cell: {
       t: 's', v: '(none)',
       s: { ...labelStyle, font: { ...FONT_B, color: { rgb: 'AAAAAA' }, sz: 10, italic: true } },
     }});
-    cells.push({ col: 2, row: 27 + 2*N, cell: { t: 's', v: '', s: { ...labelStyle } } });
+    cells.push({ col: 2, row: 19 + 2*N, cell: { t: 's', v: '', s: { ...labelStyle } } });
   } else {
     otItems.forEach((item, idx) => {
-      const r = 27 + 2*N + idx;
+      const r = 19 + 2*N + idx;
       cells.push({ col: 1, row: r, cell: { t: 's', v: item.label || '', s: labelStyle } });
       cells.push({ col: 2, row: r, cell: { ...dateCell(item.date ?? null, vFill), s: { ...dateCell(item.date ?? null, vFill).s, border: ASSUMPTION_BORDER } } });
       // Amount in col 3 (D)
