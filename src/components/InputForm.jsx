@@ -4,7 +4,8 @@
  * Human-in-the-loop: confirm button is the only trigger for processing.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import DatePicker from './DatePicker.jsx';
 import ValidationBanner from './ValidationBanner.jsx';
 import { formatDollar } from '../utils/formatUtils.js';
 import {
@@ -20,6 +21,14 @@ import {
   emptyRecurringOverrideForm,
   RECURRING_OVERRIDE_TARGETS,
 } from '../engine/leaseTerms.js';
+import { addMonthsAnchored, parseMDYStrict } from '../engine/yearMonth.js';
+import {
+  formatLeaseMonthLabel,
+  formatLeaseMonthRange,
+  getLeaseMonthNumber,
+  getLeaseMonthRange,
+  getLeaseStartDate,
+} from '../utils/leaseMonthUtils.js';
 
 function SectionBox({ title, hint, children, actions }) {
   return (
@@ -115,6 +124,29 @@ function fmtISO(isoStr) {
   return `${match[2]}/${match[3]}/${match[1]}`;
 }
 
+function buildPreviewRangeLabel(term, anchorDate, representationType) {
+  const startMonth = representationType === 'lease_year_ranges'
+    ? ((term.startYear - 1) * 12) + 1
+    : term.startMonth;
+  const endMonth = representationType === 'lease_year_ranges'
+    ? term.endYear * 12
+    : term.endMonth;
+
+  const startDate = addMonthsAnchored(anchorDate, startMonth - 1);
+  const endDate = new Date(addMonthsAnchored(anchorDate, endMonth));
+  endDate.setDate(endDate.getDate() - 1);
+  endDate.setHours(0, 0, 0, 0);
+
+  return {
+    startMonthNumber: startMonth,
+    label: representationType === 'lease_year_ranges'
+      ? `Lease Years ${term.startYear}-${term.endYear}`
+      : `Months ${term.startMonth}-${term.endMonth}`,
+    dateRange: `${fmtISO(startDate)} - ${fmtISO(endDate)}`,
+    rent: term.monthlyRent,
+  };
+}
+
 function normalizeMonthNumber(value) {
   if (value === '' || value === null || value === undefined) return null;
   const parsed = Number(value);
@@ -194,6 +226,31 @@ export default function InputForm({
   useEffect(() => {
     onDraftChange?.(form);
   }, [form, onDraftChange]);
+
+  const shouldShowSemanticAnchorPreview = scheduleMaterializationMode === 'semantic'
+    && schedulePeriodRows.length === 0;
+  const anchorPreviewRows = useMemo(() => {
+    if (!shouldShowSemanticAnchorPreview) return [];
+    const preferred = (semanticSchedule?.candidates ?? []).find((candidate) => candidate.id === semanticSchedule?.preferredCandidateId);
+    const representationType = preferred?.representationType;
+    if (!preferred || !Array.isArray(preferred.terms)) return [];
+    if (!['relative_month_ranges', 'lease_year_ranges'].includes(representationType)) return [];
+
+    const anchorDate = parseMDYStrict(form.rentCommencementDate);
+    if (!anchorDate) return [];
+
+    return preferred.terms.map((term) => buildPreviewRangeLabel(term, anchorDate, representationType));
+  }, [form.rentCommencementDate, semanticSchedule, shouldShowSemanticAnchorPreview]);
+  const scheduleLeaseStartDate = useMemo(() => getLeaseStartDate(schedulePeriodRows), [schedulePeriodRows]);
+  const schedulePeriodRowsWithLeaseMonths = useMemo(() => (
+    schedulePeriodRows.map((period) => ({
+      ...period,
+      leaseMonthNumber: getLeaseMonthNumber(scheduleLeaseStartDate, period.periodStart),
+      leaseMonthRange: formatLeaseMonthRange(
+        getLeaseMonthRange(scheduleLeaseStartDate, period.periodStart, period.periodEnd),
+      ),
+    }))
+  ), [scheduleLeaseStartDate, schedulePeriodRows]);
 
   function setTop(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -419,19 +476,59 @@ export default function InputForm({
               hint="If rent obligations begin on a date different from lease commencement, enter it here."
               error={fieldErrors['rentCommencementDate']}
             >
-              <TextInput
+              <DatePicker
                 value={form.rentCommencementDate}
                 onChange={(value) => setTop('rentCommencementDate', value)}
                 placeholder="MM/DD/YYYY (optional)"
                 error={fieldErrors['rentCommencementDate']}
+                leaseMonthLabel={formatLeaseMonthLabel(form.rentCommencementDate ? 1 : null)}
               />
             </FieldRow>
+
+            {anchorPreviewRows.length > 0 && (
+              <div className="md:col-span-2 rounded-[1rem] border border-accent/30 bg-accent/5 px-4 py-3 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent-soft">Schedule Date Mapping</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[0.65rem] uppercase tracking-[0.16em] text-txt-dim">
+                        <th className="py-1 pr-3 text-left font-semibold">Start Month #</th>
+                        <th className="py-1 pr-3 text-left font-semibold">Period</th>
+                        <th className="py-1 pr-3 text-left font-semibold">Resolved Dates</th>
+                        <th className="py-1 text-left font-semibold">Monthly Rent</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {anchorPreviewRows.map((row, index) => (
+                        <tr key={`${row.label}-${index}`} className="border-t border-accent/10">
+                          <td className="py-1.5 pr-3 font-mono text-xs text-txt-primary">{row.startMonthNumber}</td>
+                          <td className="py-1.5 pr-3 font-mono text-xs text-txt-primary">{row.label}</td>
+                          <td className="py-1.5 pr-3 font-mono text-xs text-txt-primary">{row.dateRange}</td>
+                          <td className="py-1.5 font-mono text-xs text-txt-primary">{formatDollar(row.rent)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[0.65rem] text-txt-dim">
+                  Dates are computed from Rent Commencement Date. Submit to generate the full monthly schedule.
+                </p>
+              </div>
+            )}
+
+            {shouldShowSemanticAnchorPreview && anchorPreviewRows.length === 0 && semanticSchedule?.materializationStatus === 'needs_anchor' && (
+              <div className="md:col-span-2 rounded-[1rem] border border-status-warn-border bg-status-warn-bg/60 px-4 py-3">
+                <p className="text-xs text-status-warn-text">
+                  Select a Rent Commencement Date above to map the detected month-based schedule onto calendar dates.
+                </p>
+              </div>
+            )}
 
             <FieldRow
               label="Effective Date of Analysis"
               hint="As-of date used to compute remaining obligations in the summary panel."
             >
-              <TextInput
+              <DatePicker
                 value={form.effectiveAnalysisDate}
                 onChange={(value) => setTop('effectiveAnalysisDate', value)}
                 placeholder="MM/DD/YYYY (optional)"
@@ -591,13 +688,13 @@ export default function InputForm({
                   placeholder="0"
                   error={fieldErrors[`charges.${idx}.escPct`]}
                 />
-                <TextInput
+                <DatePicker
                   value={charge.escStart}
                   onChange={(value) => updateCharge(idx, 'escStart', value)}
                   placeholder="MM/DD/YYYY"
                   error={fieldErrors[`charges.${idx}.escStart`]}
                 />
-                <TextInput
+                <DatePicker
                   value={charge.chargeStart}
                   onChange={(value) => updateCharge(idx, 'chargeStart', value)}
                   placeholder="MM/DD/YYYY"
@@ -623,14 +720,14 @@ export default function InputForm({
                   <p className="section-kicker">Loaded from Schedule</p>
                   <h5 className="mt-1 text-sm font-semibold text-txt-primary">Base Rent Schedule</h5>
                 </div>
-                {schedulePeriodRows.length > 0 && (
+                {schedulePeriodRowsWithLeaseMonths.length > 0 && (
                   <span className="text-xs text-txt-dim">
-                    {schedulePeriodRows.length} period{schedulePeriodRows.length !== 1 ? 's' : ''}
+                    {schedulePeriodRowsWithLeaseMonths.length} period{schedulePeriodRowsWithLeaseMonths.length !== 1 ? 's' : ''}
                   </span>
                 )}
               </div>
 
-              {schedulePeriodRows.length === 0 ? (
+              {schedulePeriodRowsWithLeaseMonths.length === 0 ? (
                 <p className="mt-3 text-xs text-txt-dim">
                   The loaded schedule will appear here after the prior schedule step is confirmed.
                 </p>
@@ -640,14 +737,16 @@ export default function InputForm({
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-app-panel-strong text-[0.68rem] uppercase tracking-[0.18em] text-txt-dim">
+                          <th className="px-3 py-3 text-left font-semibold">Lease Months</th>
                           <th className="px-3 py-3 text-left font-semibold">Period Start</th>
                           <th className="px-3 py-3 text-left font-semibold">Period End</th>
                           <th className="px-3 py-3 text-right font-semibold">Monthly Base Rent</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-app-border">
-                        {schedulePeriodRows.map((period, idx) => (
+                        {schedulePeriodRowsWithLeaseMonths.map((period, idx) => (
                           <tr key={`${period.periodStart}-${period.periodEnd}-${idx}`} className={idx % 2 === 0 ? 'bg-app-panel' : 'bg-app-chrome'}>
+                            <td className="px-3 py-3 font-mono text-txt-primary">{period.leaseMonthRange || period.leaseMonthNumber || '-'}</td>
                             <td className="px-3 py-3 font-mono text-txt-primary">{fmtISO(period.periodStart)}</td>
                             <td className="px-3 py-3 font-mono text-txt-primary">{fmtISO(period.periodEnd)}</td>
                             <td className="px-3 py-3 text-right font-mono text-txt-primary">{formatDollar(period.monthlyRent)}</td>
@@ -696,7 +795,7 @@ export default function InputForm({
                         <option key={target.key} value={target.key}>{target.label}</option>
                       ))}
                     </SelectInput>
-                    <TextInput
+                    <DatePicker
                       value={override.date ?? ''}
                       onChange={(value) => updateRecurringOverride(idx, 'date', value)}
                       placeholder="MM/DD/YYYY"
@@ -934,7 +1033,7 @@ export default function InputForm({
                     }
                     placeholder="e.g. Key Money"
                   />
-                  <TextInput
+                  <DatePicker
                     value={item.date}
                     onChange={(value) =>
                       setForm((prev) => {

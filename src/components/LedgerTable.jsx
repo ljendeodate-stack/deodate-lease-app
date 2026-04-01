@@ -175,7 +175,7 @@ export default function LedgerTable({ rows = [] }) {
               <Th>Period Start</Th>
               <Th>Period End</Th>
               <Th>Year</Th>
-              <Th>Month</Th>
+              <Th>Lease Month #</Th>
               <Th>Scheduled Base</Th>
               <Th>Applied Base</Th>
               <Th>Abatement</Th>
@@ -227,7 +227,7 @@ export default function LedgerTable({ rows = [] }) {
                     <Td>{formatDateMDY(row.periodStart)}</Td>
                     <Td>{formatDateMDY(row.periodEnd)}</Td>
                     <Td className="font-mono text-txt-muted">{row.leaseYear}</Td>
-                    <Td className="font-mono text-txt-muted">{row.leaseMonth}</Td>
+                    <Td className="font-mono text-txt-primary">{row.leaseMonth ?? '-'}</Td>
                     <Td title={row.isIrregularBaseRent ? irregularTitle : undefined}>
                       {row.isIrregularBaseRent && <IrregularFlag />}
                       <span className={row.isIrregularBaseRent ? 'font-semibold text-status-err-title' : ''}>

@@ -360,6 +360,44 @@ describe('repairExtractionSemantics', () => {
     );
   });
 
+  it('drops null-dated OCR rows and preserves semantic month-bucket guidance', () => {
+    const repaired = repairExtractionSemantics(
+      {
+        leaseName: 'Month Bucket Semantic Guard',
+        sfRequired: false,
+        squareFootage: null,
+        confidenceFlags: [],
+        notices: [],
+        rentSchedule: [
+          { periodStart: null, periodEnd: null, monthlyRent: 0 },
+          { periodStart: null, periodEnd: null, monthlyRent: 23149.25 },
+          { periodStart: null, periodEnd: null, monthlyRent: 25464.18 },
+        ],
+        recurringCharges: [],
+      },
+      [
+        'Rent Commencement shall be determined later.',
+        'Months 1-6: $0.00 monthly',
+        'Months 7-60: $23,149.25 monthly',
+        'Months 61-120: $25,464.18 monthly',
+      ].join('\n'),
+    );
+
+    expect(repaired.rentSchedule).toEqual([]);
+    expect(repaired.scheduleNormalization).toMatchObject({
+      preferredRepresentationType: 'relative_month_ranges',
+      materializationStatus: 'needs_anchor',
+      summaryLines: [
+        'Months 1-6: $0.00 monthly',
+        'Months 7-60: $23,149.25 monthly',
+        'Months 61-120: $25,464.18 monthly',
+      ],
+    });
+    expect(repaired.notices).toContain(
+      'A semantic rent schedule was detected, but a base-rent anchor date is still needed. Enter Rent Commencement Date to materialize the dated schedule.',
+    );
+  });
+
   it('recovers explicit dated rows when date range and amount are separated by wide column spacing', () => {
     const repaired = repairExtractionSemantics(
       {

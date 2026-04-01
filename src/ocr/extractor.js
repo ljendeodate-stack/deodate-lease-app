@@ -846,6 +846,8 @@ export function repairScheduleSemantics(result, documentText) {
           repaired.notices,
           'OCR rent schedule dates could not be parsed; base-rent schedule was recovered directly from explicit dated rent rows in lease text.',
         );
+      } else {
+        repaired.rentSchedule = [];
       }
     }
   }
@@ -858,7 +860,7 @@ export function repairScheduleSemantics(result, documentText) {
     },
   });
 
-  const usedSemanticSchedule = repaired.rentSchedule.length === 0 && scheduleNormalization.derivedRentSchedule.length > 0;
+  const usedSemanticSchedule = !hasUsableDatedRentSchedule(repaired.rentSchedule) && scheduleNormalization.derivedRentSchedule.length > 0;
   repaired.scheduleNormalization = {
     ...scheduleNormalization,
     usedAsRentSchedule: usedSemanticSchedule,
