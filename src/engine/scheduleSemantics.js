@@ -1,4 +1,5 @@
 import { addMonthsAnchored, parseMDYStrict } from './yearMonth.js';
+import { normalizeScheduleTextForParsing } from '../utils/scheduleTextNormalization.js';
 
 export const SCHEDULE_REPRESENTATION_TYPES = {
   DATED_PERIODS: 'dated_periods',
@@ -73,9 +74,7 @@ const WORD_TO_NUMBER = {
 };
 
 function normalizeSearchText(value) {
-  return String(value ?? '')
-    .replace(/[\u2013\u2014]/g, '-')
-    .replace(/\u00a0/g, ' ')
+  return normalizeScheduleTextForParsing(value)
     .replace(/[^\S\r\n]+/g, ' ')
     .trim()
     .toLowerCase();
@@ -560,9 +559,11 @@ function buildCandidateSummaryLines(candidate) {
   }
 
   if (candidate.representationType === SCHEDULE_REPRESENTATION_TYPES.DATED_PERIODS) {
-    return candidate.terms.map((term) =>
-      `${term.periodStart} through ${term.periodEnd}: $${term.monthlyRent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} monthly`,
-    );
+    return candidate.terms
+      .filter((term) => term.periodStart != null && term.periodEnd != null)
+      .map((term) =>
+        `${term.periodStart} through ${term.periodEnd}: $${term.monthlyRent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} monthly`,
+      );
   }
 
   return [];
@@ -575,7 +576,7 @@ function extractCandidateTerms(documentText, pattern, type) {
 
   for (const window of windows) {
     pattern.lastIndex = 0;
-    let match = pattern.exec(window.original);
+    let match = pattern.exec(window.normalized);
 
     while (match) {
       const startValue = Number(match[1]);
@@ -603,7 +604,7 @@ function extractCandidateTerms(documentText, pattern, type) {
         }
       }
 
-      match = pattern.exec(window.original);
+      match = pattern.exec(window.normalized);
     }
   }
 
@@ -613,16 +614,29 @@ function extractCandidateTerms(documentText, pattern, type) {
 function buildDatedPeriodCandidate(existingRentSchedule = []) {
   if (!Array.isArray(existingRentSchedule) || existingRentSchedule.length === 0) return null;
 
+  const usableTerms = existingRentSchedule
+    .map((term) => {
+      const periodStart = parseDateLike(term.periodStart);
+      const periodEnd = parseDateLike(term.periodEnd);
+      const monthlyRent = Number(term.monthlyRent);
+      if (!periodStart || !periodEnd || !Number.isFinite(monthlyRent)) return null;
+
+      return {
+        periodStart: formatMDY(periodStart),
+        periodEnd: formatMDY(periodEnd),
+        monthlyRent,
+        sourceText: `${formatMDY(periodStart)} through ${formatMDY(periodEnd)}`,
+      };
+    })
+    .filter(Boolean);
+
+  if (usableTerms.length === 0) return null;
+
   return {
     id: 'dated_periods_1',
     scope: 'base_rent',
     representationType: SCHEDULE_REPRESENTATION_TYPES.DATED_PERIODS,
-    terms: existingRentSchedule.map((term) => ({
-      periodStart: term.periodStart,
-      periodEnd: term.periodEnd,
-      monthlyRent: Number(term.monthlyRent),
-      sourceText: `${term.periodStart} through ${term.periodEnd}`,
-    })),
+    terms: usableTerms,
     anchorRule: null,
     confidence: 0.95,
   };
@@ -878,6 +892,13 @@ function candidateScore(candidate, contextDates) {
   let score = candidate.confidence ?? 0.5;
   if (materialized.periodRows.length > 0) score += 0.05;
   if (materialized.unresolvedDependencies.length > 0) score -= Math.min(0.12, materialized.unresolvedDependencies.length * 0.04);
+  if (
+    candidate.representationType === SCHEDULE_REPRESENTATION_TYPES.DATED_PERIODS &&
+    materialized.periodRows.length === 0 &&
+    candidate.terms.length > 0
+  ) {
+    score -= 0.3;
+  }
   return score;
 }
 

@@ -13,6 +13,8 @@
  * No UI dependencies. All functions are pure.
  */
 
+import { normalizeScheduleTextForParsing } from '../utils/scheduleTextNormalization.js';
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -39,7 +41,7 @@ function expandYear(yy) {
  * @returns {string}
  */
 function normalizeLine(line) {
-  let s = line;
+  let s = normalizeScheduleTextForParsing(line);
   // Remove spaces before a slash when the preceding char is a digit
   s = s.replace(/(?<=\d)\s+(?=\/)/g, '');
   // Remove spaces after a slash when the following char is a digit
@@ -126,7 +128,7 @@ function parseDateToken(s) {
  * }}
  */
 export function parsePeriodString(str) {
-  const s = (str ?? '').trim();
+  const s = normalizeLine((str ?? '').trim());
 
   // "Year N" relative label — can't auto-resolve dates
   const yearLabelMatch = s.match(/^[Yy]ear\s+(\d+)$/);

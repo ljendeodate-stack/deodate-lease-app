@@ -59,6 +59,48 @@ describe('scheduleSemantics', () => {
     });
   });
 
+  it('ignores null-dated OCR schedule rows when semantic month buckets are available', () => {
+    const documentText = [
+      'Months 1-6: $0.00 monthly',
+      'Months 7-60: $23,149.25 monthly',
+      'Months 61-120: $25,464.18 monthly',
+    ].join('\n');
+
+    const analysis = analyzeScheduleSemantics({
+      documentText,
+      existingRentSchedule: [
+        { periodStart: null, periodEnd: null, monthlyRent: 0 },
+        { periodStart: null, periodEnd: null, monthlyRent: 23149.25 },
+        { periodStart: null, periodEnd: null, monthlyRent: 25464.18 },
+      ],
+    });
+
+    expect(analysis.preferredRepresentationType).toBe('relative_month_ranges');
+    expect(analysis.materializationStatus).toBe('needs_anchor');
+    expect(analysis.summaryLines).toEqual([
+      'Months 1-6: $0.00 monthly',
+      'Months 7-60: $23,149.25 monthly',
+      'Months 61-120: $25,464.18 monthly',
+    ]);
+  });
+
+  it('normalizes Word-style dash separators before extracting month-bucket rent schedules', () => {
+    const documentText = [
+      'Months 1–6: $0.00 monthly',
+      'Months 7–60: $23,149.25 monthly',
+      'Months 61–120: $25,464.18 monthly',
+    ].join('\n');
+
+    const analysis = analyzeScheduleSemantics({ documentText });
+
+    expect(analysis.preferredRepresentationType).toBe('relative_month_ranges');
+    expect(analysis.summaryLines).toEqual([
+      'Months 1-6: $0.00 monthly',
+      'Months 7-60: $23,149.25 monthly',
+      'Months 61-120: $25,464.18 monthly',
+    ]);
+  });
+
   it('captures composite later-of schedule start rules for downstream normalization', () => {
     const rules = extractScheduleStartRules(
       'Base Rent shall commence on the later of the Delivery Date and the Permit Issuance Date.',

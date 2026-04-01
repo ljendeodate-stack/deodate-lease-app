@@ -35,6 +35,7 @@ describe('LedgerTable', () => {
     const html = renderToStaticMarkup(<LedgerTable rows={[SAMPLE_ROW]} />);
 
     expect(html).toContain('Lease Schedule');
+    expect(html).toContain('Lease Month #');
     expect(html).toContain('Renegotiation');
     expect(html).toContain('Exit');
     expect(html).toContain('Renego: (base rent only) Modest (10%)');

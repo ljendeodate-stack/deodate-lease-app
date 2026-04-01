@@ -4,19 +4,26 @@
  */
 
 import { useState, useMemo, useEffect } from 'react';
+import DatePicker from './DatePicker.jsx';
 import {
   parsePeriodString,
   parseRentString,
-  inferEndDates,
   parseBulkPasteText,
   toCanonicalPeriodRows,
 } from '../engine/periodParser.js';
 import { toISOLocal } from '../engine/yearMonth.js';
+import {
+  formatLeaseMonthLabel,
+  formatLeaseMonthRange,
+  getLeaseMonthNumber,
+  getLeaseMonthRange,
+  getLeaseStartDate,
+} from '../utils/leaseMonthUtils.js';
 
 let nextId = 1;
 
 function newRow() {
-  return { id: nextId++, periodStr: '', rentStr: '' };
+  return { id: nextId++, startDate: '', endDate: '', rentStr: '' };
 }
 
 export function buildEditableRowsFromPeriods(periodRows = []) {
@@ -26,9 +33,8 @@ export function buildEditableRowsFromPeriods(periodRows = []) {
 
   return periodRows.map((period) => ({
     id: nextId++,
-    periodStr: period.periodStart && period.periodEnd
-      ? `${fmtMDY(period.periodStart)}-${fmtMDY(period.periodEnd)}`
-      : period.periodStart ? fmtMDY(period.periodStart) : '',
+    startDate: period.periodStart ? fmtMDY(period.periodStart) : '',
+    endDate: period.periodEnd ? fmtMDY(period.periodEnd) : '',
     rentStr: !isNaN(period.monthlyRent) ? String(period.monthlyRent) : '',
   }));
 }
@@ -82,8 +88,8 @@ function generatePeriodsFromQuickEntry(commence, expire, year1Rent, escRate) {
 function ParsedPreview({ parsed, periodStr }) {
   if (!periodStr && !parsed?.start) return null;
 
-  if (parsed?.isRelative) {
-    return <span className="text-txt-dim">Year {parsed.relativeYear}; enter actual dates.</span>;
+  if (parsed?.warning) {
+    return <span className="text-status-err-text">{parsed.warning}</span>;
   }
 
   if (parsed?.start && parsed?.end) {
@@ -99,11 +105,101 @@ function ParsedPreview({ parsed, periodStr }) {
     return <span className="text-status-warn-text">Start accepted; end will be inferred from the next row.</span>;
   }
 
-  if (periodStr) {
-    return <span className="text-status-err-text">Unrecognized format.</span>;
-  }
-
   return null;
+}
+
+function addDaysLocal(date, days) {
+  if (!date || Number.isNaN(date.getTime?.())) return null;
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+export function buildParsedRows(rows) {
+  const intermediate = rows.map((row) => {
+    const startInput = String(row.startDate ?? '').trim();
+    const endInput = String(row.endDate ?? '').trim();
+    const startParsed = parsePeriodString(startInput);
+    const endParsed = parsePeriodString(endInput);
+    const { rent, hasAsterisk } = parseRentString(row.rentStr);
+
+    const warning = [
+      startInput && !startParsed.start ? 'Enter a valid start date.' : null,
+      endInput && !endParsed.start ? 'Enter a valid end date.' : null,
+      row.rentStr.trim() !== '' && isNaN(rent) ? 'Enter a valid monthly base rent.' : null,
+    ].filter(Boolean).join(' ');
+
+    return {
+      start: startParsed.start,
+      end: endParsed.start,
+      monthlyRent: rent,
+      hasAsterisk,
+      warning: warning || null,
+      _id: row.id,
+      _startInput: startInput,
+      _endInput: endInput,
+      _startValid: Boolean(startParsed.start),
+      _endValid: endInput ? Boolean(endParsed.start) : true,
+    };
+  });
+
+  const withInferredEnds = intermediate.map((row, idx) => {
+    if (row.end || !row.start || row._endInput !== '') {
+      return { ...row, endInferred: false };
+    }
+
+    let inferredEnd = null;
+    for (let i = idx + 1; i < intermediate.length; i += 1) {
+      if (intermediate[i].start) {
+        inferredEnd = new Date(intermediate[i].start.getTime() - 86400000);
+        inferredEnd.setHours(0, 0, 0, 0);
+        break;
+      }
+    }
+
+    return {
+      ...row,
+      end: inferredEnd,
+      endInferred: inferredEnd !== null,
+    };
+  });
+
+  return withInferredEnds.map((row, idx) => {
+    const warnings = [];
+    if (row.warning) warnings.push(row.warning);
+    if (row.start && row.end && row.end.getTime() < row.start.getTime()) {
+      warnings.push('End date must be on or after the start date.');
+    }
+    if (idx > 0 && row.start) {
+      const previous = withInferredEnds[idx - 1];
+      const previousBoundary = previous?.end ?? previous?.start ?? null;
+      if (previousBoundary && row.start.getTime() <= previousBoundary.getTime()) {
+        warnings.push(`Start date must be after the previous row ends (${fmtMDY(previousBoundary)}).`);
+      }
+    }
+
+    return {
+      ...row,
+      warning: warnings.join(' ').trim() || null,
+    };
+  });
+}
+
+export function buildRowCalendarConstraints(rows) {
+  const parsedRows = buildParsedRows(rows);
+  return parsedRows.map((row, idx) => {
+    const previous = idx > 0 ? parsedRows[idx - 1] : null;
+    const next = idx < parsedRows.length - 1 ? parsedRows[idx + 1] : null;
+    const previousBoundary = previous?.end ?? previous?.start ?? null;
+    const nextStart = next?.start ?? null;
+
+    return {
+      minStartDate: previousBoundary ? addDaysLocal(previousBoundary, 1) : null,
+      minEndDate: row.start ?? null,
+      maxEndDate: nextStart ? addDaysLocal(nextStart, -1) : null,
+    };
+  });
 }
 
 export default function ScheduleEditor({
@@ -206,20 +302,16 @@ export default function ScheduleEditor({
   }
 
   const parsedRows = useMemo(() => {
-    const intermediate = rows.map((row) => {
-      const period = parsePeriodString(row.periodStr);
-      const { rent, hasAsterisk } = parseRentString(row.rentStr);
-      return {
-        ...period,
-        monthlyRent: rent,
-        hasAsterisk,
-        _id: row.id,
-      };
-    });
-    return inferEndDates(intermediate);
+    return buildParsedRows(rows);
   }, [rows]);
+  const rowCalendarConstraints = useMemo(() => buildRowCalendarConstraints(rows), [rows]);
+  const manualLeaseStartDate = useMemo(() => getLeaseStartDate(parsedRows), [parsedRows]);
+  const quickPreviewLeaseStartDate = useMemo(() => getLeaseStartDate(quickPreview), [quickPreview]);
+  const quickCommenceParsed = useMemo(() => parsePeriodString(quickForm.commenceDate).start, [quickForm.commenceDate]);
+  const quickExpireParsed = useMemo(() => parsePeriodString(quickForm.expireDate).start, [quickForm.expireDate]);
 
-  const validCount = parsedRows.filter((row) => row.start && row.end && !isNaN(row.monthlyRent)).length;
+  const blockingRowWarnings = parsedRows.filter((row) => Boolean(row.warning));
+  const validCount = parsedRows.filter((row) => row.start && row.end && !isNaN(row.monthlyRent) && !row.warning).length;
   const abatementHinted = parsedRows.some((row) => row.hasAsterisk);
 
   function addRow() {
@@ -241,7 +333,8 @@ export default function ScheduleEditor({
 
     const loaded = parsed.map((period) => ({
       id: nextId++,
-      periodStr: period.periodStr,
+      startDate: period.start ? fmtMDY(period.start) : '',
+      endDate: period.end ? fmtMDY(period.end) : '',
       rentStr: period.rentStr,
     }));
     setRows(loaded.length > 0 ? loaded : [newRow()]);
@@ -324,9 +417,11 @@ export default function ScheduleEditor({
                   if (preferredCandidate.representationType === 'relative_month_ranges') {
                     rangeLabel = `Months ${term.startMonth}-${term.endMonth}`;
                   } else if (preferredCandidate.representationType === 'lease_year_ranges') {
-                    rangeLabel = `Lease Years ${term.startLeaseYear}-${term.endLeaseYear}`;
+                    rangeLabel = `Lease Years ${term.startYear}-${term.endYear}`;
                   } else {
-                    rangeLabel = `${term.periodStart ?? ''}${term.periodEnd ? ` - ${term.periodEnd}` : ''}`;
+                    rangeLabel = (term.periodStart || term.periodEnd)
+                      ? `${term.periodStart ?? ''}${term.periodEnd ? ` - ${term.periodEnd}` : ''}`
+                      : 'Dates pending';
                   }
 
                   return (
@@ -364,22 +459,21 @@ export default function ScheduleEditor({
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold uppercase tracking-[0.16em] text-txt-dim">Lease Commencement Date</label>
-                <input
-                  type="text"
+                <DatePicker
                   value={quickForm.commenceDate}
-                  onChange={(e) => updateQuickForm('commenceDate', e.target.value)}
+                  onChange={(value) => updateQuickForm('commenceDate', value)}
                   placeholder="MM/DD/YYYY"
-                  className="field-dark"
+                  leaseMonthLabel={formatLeaseMonthLabel(quickCommenceParsed ? 1 : null)}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold uppercase tracking-[0.16em] text-txt-dim">Lease Expiration Date</label>
-                <input
-                  type="text"
+                <DatePicker
                   value={quickForm.expireDate}
-                  onChange={(e) => updateQuickForm('expireDate', e.target.value)}
+                  onChange={(value) => updateQuickForm('expireDate', value)}
                   placeholder="MM/DD/YYYY"
-                  className="field-dark"
+                  minDate={quickCommenceParsed ? addDaysLocal(quickCommenceParsed, 1) : null}
+                  leaseMonthLabel={formatLeaseMonthLabel(getLeaseMonthNumber(quickCommenceParsed, quickExpireParsed))}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -432,6 +526,7 @@ export default function ScheduleEditor({
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-app-panel-strong text-[0.68rem] uppercase tracking-[0.18em] text-txt-dim">
+                      <th className="px-3 py-3 text-left font-semibold">Lease Months</th>
                       <th className="px-3 py-3 text-left font-semibold">Year</th>
                       <th className="px-3 py-3 text-left font-semibold">Period Start</th>
                       <th className="px-3 py-3 text-left font-semibold">Period End</th>
@@ -441,6 +536,15 @@ export default function ScheduleEditor({
                   <tbody className="divide-y divide-app-border">
                     {quickPreview.map((period, idx) => (
                       <tr key={idx} className={idx % 2 === 0 ? 'bg-app-chrome' : 'bg-app-surface'}>
+                        <td className="px-3 py-3 font-mono text-txt-primary">
+                          {formatLeaseMonthRange(
+                            getLeaseMonthRange(
+                              quickPreviewLeaseStartDate,
+                              period.periodStart,
+                              period.periodEnd,
+                            ),
+                          ) || '-'}
+                        </td>
                         <td className="px-3 py-3 font-mono text-txt-muted">{idx + 1}</td>
                         <td className="px-3 py-3 font-mono text-txt-primary">{fmtDate(period.periodStart)}</td>
                         <td className="px-3 py-3 font-mono text-txt-primary">{fmtDate(period.periodEnd)}</td>
@@ -468,7 +572,8 @@ export default function ScheduleEditor({
               <div>
                 <p className="section-kicker">Manual Capture</p>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-txt-muted">
-                  Enter periods directly, paste a schedule block, or adjust OCR-loaded rows before proceeding.
+                  Use the calendar fields below to correct start and end dates directly. Open Bulk Paste only if you
+                  want to import a schedule block first.
                 </p>
               </div>
               <button
@@ -482,13 +587,6 @@ export default function ScheduleEditor({
                 {showBulkPaste ? 'Close Paste Panel' : 'Bulk Paste'}
               </button>
             </div>
-
-            <div className="mt-5 rounded-[1rem] border border-app-border bg-app-chrome px-4 py-4 text-xs text-txt-muted space-y-2">
-              <p className="font-display text-sm font-semibold text-txt-primary">Accepted period formats</p>
-              <p><code className="rounded border border-app-border-strong bg-app-panel px-1.5 py-0.5 text-txt-primary">3/1/18-2/28/19</code> or <code className="rounded border border-app-border-strong bg-app-panel px-1.5 py-0.5 text-txt-primary">3/1/18 - 2/28/19</code> for explicit start and end dates.</p>
-              <p><code className="rounded border border-app-border-strong bg-app-panel px-1.5 py-0.5 text-txt-primary">3/1/18</code> for a single start date; the end will be inferred from the next row.</p>
-              <p>Two-digit years are interpreted as 00-49 =&gt; 2000-2049, 50-99 =&gt; 1950-1999. Rent values can include $ signs, commas, and an asterisk to flag potential abatement.</p>
-            </div>
           </div>
 
           {showBulkPaste && (
@@ -497,6 +595,12 @@ export default function ScheduleEditor({
               <p className="mt-3 text-sm text-txt-muted">
                 One row per line. Separate the period and rent using a tab or at least two spaces.
               </p>
+              <div className="mt-4 rounded-[1rem] border border-app-border bg-app-chrome px-4 py-4 text-xs text-txt-muted space-y-2">
+                <p className="font-display text-sm font-semibold text-txt-primary">Accepted period formats</p>
+                <p><code className="rounded border border-app-border-strong bg-app-panel px-1.5 py-0.5 text-txt-primary">3/1/18-2/28/19</code> or <code className="rounded border border-app-border-strong bg-app-panel px-1.5 py-0.5 text-txt-primary">3/1/18 - 2/28/19</code> for explicit start and end dates.</p>
+                <p><code className="rounded border border-app-border-strong bg-app-panel px-1.5 py-0.5 text-txt-primary">3/1/18</code> for a single start date; the end will be inferred from the next row.</p>
+                <p>Two-digit years are interpreted as 00-49 =&gt; 2000-2049, 50-99 =&gt; 1950-1999. Rent values can include $ signs, commas, and an asterisk to flag potential abatement.</p>
+              </div>
               <pre className="mt-4 overflow-x-auto rounded-[1rem] border border-app-border bg-app-chrome px-3 py-3 text-xs text-txt-muted">{`3/1/18-2/28/19   $98,463.60*
 3/1/19-2/29/20   $101,417.51
 3/1/20-2/28/21   $104,460.03`}</pre>
@@ -530,27 +634,51 @@ export default function ScheduleEditor({
               <thead>
                 <tr className="bg-app-panel-strong text-[0.68rem] uppercase tracking-[0.18em] text-txt-dim">
                   <th className="px-3 py-3 text-left font-semibold">#</th>
-                  <th className="px-3 py-3 text-left font-semibold">Period</th>
+                  <th className="px-3 py-3 text-left font-semibold">Lease Months</th>
+                  <th className="px-3 py-3 text-left font-semibold">Start Date</th>
+                  <th className="px-3 py-3 text-left font-semibold">End Date</th>
                   <th className="px-3 py-3 text-left font-semibold">Monthly Base Rent</th>
-                  <th className="px-3 py-3 text-left font-semibold">Parsed As</th>
+                  <th className="px-3 py-3 text-left font-semibold">Status</th>
                   <th className="px-3 py-3 text-left font-semibold" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-app-border">
                 {rows.map((row, idx) => {
                   const parsed = parsedRows[idx];
-                  const periodBad = row.periodStr.trim() !== '' && !parsed?.start && !parsed?.isRelative;
+                  const constraints = rowCalendarConstraints[idx] ?? {};
+                  const leaseMonthNumber = getLeaseMonthNumber(manualLeaseStartDate, parsed?.start);
+                  const endMonthNumber = getLeaseMonthNumber(manualLeaseStartDate, parsed?.end);
+                  const leaseMonthRange = getLeaseMonthRange(manualLeaseStartDate, parsed?.start, parsed?.end);
+                  const startConflict = parsed?.warning?.includes('Start date must be after the previous row ends');
+                  const endConflict = parsed?.warning?.includes('End date must be on or after the start date');
+                  const startBad = (row.startDate.trim() !== '' && !parsed?._startValid) || startConflict;
+                  const endBad = (row.endDate.trim() !== '' && !parsed?._endValid) || endConflict;
                   const rentBad = row.rentStr.trim() !== '' && isNaN(parsed?.monthlyRent);
                   return (
                     <tr key={row.id} className={parsed?.hasAsterisk ? 'bg-status-warn-bg/35' : idx % 2 === 0 ? 'bg-app-chrome' : 'bg-app-surface'}>
                       <td className="px-3 py-3 align-top font-mono text-txt-dim">{idx + 1}</td>
+                      <td className="px-3 py-3 align-top font-mono text-txt-primary">
+                        {formatLeaseMonthRange(leaseMonthRange) || <span className="text-txt-faint">-</span>}
+                      </td>
                       <td className="px-3 py-3 align-top">
-                        <input
-                          type="text"
-                          value={row.periodStr}
-                          onChange={(e) => updateRow(row.id, 'periodStr', e.target.value)}
-                          placeholder="3/1/18-2/28/19"
-                          className={`field-dark ${periodBad ? 'border-status-warn-border bg-status-warn-bg/80' : ''}`}
+                        <DatePicker
+                          value={row.startDate}
+                          onChange={(value) => updateRow(row.id, 'startDate', value)}
+                          placeholder="MM/DD/YYYY"
+                          error={startBad}
+                          leaseMonthLabel={formatLeaseMonthLabel(leaseMonthNumber)}
+                          minDate={constraints.minStartDate}
+                        />
+                      </td>
+                      <td className="px-3 py-3 align-top">
+                        <DatePicker
+                          value={row.endDate}
+                          onChange={(value) => updateRow(row.id, 'endDate', value)}
+                          placeholder="MM/DD/YYYY"
+                          error={endBad}
+                          leaseMonthLabel={formatLeaseMonthLabel(endMonthNumber)}
+                          minDate={constraints.minEndDate}
+                          maxDate={constraints.maxEndDate}
                         />
                       </td>
                       <td className="px-3 py-3 align-top">
@@ -574,7 +702,7 @@ export default function ScheduleEditor({
                       </td>
                       <td className="px-3 py-3 align-top text-xs text-txt-muted">
                         <div className="pt-2">
-                          <ParsedPreview parsed={parsed} periodStr={row.periodStr} />
+                          <ParsedPreview parsed={parsed} periodStr={row.startDate || row.endDate} />
                         </div>
                       </td>
                       <td className="px-3 py-3 align-top">
@@ -606,13 +734,19 @@ export default function ScheduleEditor({
               <button
                 type="button"
                 onClick={handleConfirm}
-                disabled={validCount === 0}
+                disabled={validCount === 0 || blockingRowWarnings.length > 0}
                 className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {validCount > 0 ? 'Continue with Schedule' : 'Enter a Valid Period'}
+                {validCount > 0 && blockingRowWarnings.length === 0 ? 'Continue with Schedule' : 'Enter a Valid Period'}
               </button>
             </div>
           </div>
+
+          {blockingRowWarnings.length > 0 && (
+            <div className="rounded-[1rem] border border-status-err-border bg-status-err-bg/92 p-4 text-sm text-status-err-text">
+              Fix the highlighted date conflicts before continuing. Each new row must start after the prior row ends, and each end date must be on or after its start date.
+            </div>
+          )}
 
           {abatementHinted && (
             <div className="rounded-[1rem] border border-status-warn-border bg-status-warn-bg/92 p-4 text-sm text-status-warn-text">
