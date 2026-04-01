@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildEditableRowsFromPeriods, buildParsedRows } from './ScheduleEditor.jsx';
+import {
+  analyzePreserveMonthSpacing,
+  buildEditableRowsFromPeriods,
+  buildParsedRows,
+  buildRowsPreservingMonthSpacing,
+} from './ScheduleEditor.jsx';
 import { parseMDYStrict } from '../engine/yearMonth.js';
 
 describe('buildEditableRowsFromPeriods', () => {
@@ -45,5 +50,47 @@ describe('buildEditableRowsFromPeriods', () => {
     ]);
 
     expect(rows[1].warning).toContain('Start date must be after the previous row ends');
+  });
+
+  it('re-anchors dated schedule rows while preserving lease-month spacing', () => {
+    const rows = buildEditableRowsFromPeriods([
+      {
+        periodStart: parseMDYStrict('01/01/2030'),
+        periodEnd: parseMDYStrict('06/30/2030'),
+        monthlyRent: 0,
+      },
+      {
+        periodStart: parseMDYStrict('07/01/2030'),
+        periodEnd: parseMDYStrict('12/31/2034'),
+        monthlyRent: 23149.25,
+      },
+      {
+        periodStart: parseMDYStrict('01/01/2035'),
+        periodEnd: parseMDYStrict('12/31/2039'),
+        monthlyRent: 25464.18,
+      },
+    ]);
+
+    const transformed = buildRowsPreservingMonthSpacing(rows, '06/26/2024');
+
+    expect(transformed).toMatchObject([
+      { startDate: '06/26/2024', endDate: '12/25/2024', rentStr: '0' },
+      { startDate: '12/26/2024', endDate: '06/25/2029', rentStr: '23149.25' },
+      { startDate: '06/26/2029', endDate: '06/25/2034', rentStr: '25464.18' },
+    ]);
+  });
+
+  it('keeps preserve-month-spacing mode supplementary by refusing incomplete schedules', () => {
+    const analysis = analyzePreserveMonthSpacing([
+      { id: 1, startDate: '01/01/2030', endDate: '06/30/2030', rentStr: '1000' },
+      { id: 2, startDate: '07/01/2030', endDate: '', rentStr: '1200' },
+    ]);
+
+    expect(analysis.eligible).toBe(false);
+    expect(analysis.reason).toContain('end date is required');
+    expect(buildRowsPreservingMonthSpacing([
+      { id: 1, startDate: '01/01/2030', endDate: '06/30/2030', rentStr: '1000' },
+      { id: 2, startDate: '07/01/2030', endDate: '', rentStr: '1200' },
+    ], '06/26/2024')).toBeNull();
   });
 });
