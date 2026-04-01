@@ -11,7 +11,7 @@ import {
   parseBulkPasteText,
   toCanonicalPeriodRows,
 } from '../engine/periodParser.js';
-import { toISOLocal } from '../engine/yearMonth.js';
+import { addMonthsAnchored, parseMDYStrict, toISOLocal } from '../engine/yearMonth.js';
 import {
   formatLeaseMonthLabel,
   formatLeaseMonthRange,
@@ -114,6 +114,141 @@ function addDaysLocal(date, days) {
   next.setDate(next.getDate() + days);
   next.setHours(0, 0, 0, 0);
   return next;
+}
+
+function buildPreserveMonthSpacingDisabledReason(rowIndex, message) {
+  return `Row ${rowIndex + 1}: ${message}`;
+}
+
+export function analyzePreserveMonthSpacing(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return {
+      eligible: false,
+      reason: 'Load or enter dated schedule rows before using Preserve Month Spacing.',
+      parsedRows: [],
+      leaseStartDate: null,
+    };
+  }
+
+  const parsedRows = buildParsedRows(rows);
+  const leaseStartDate = getLeaseStartDate(parsedRows);
+
+  if (!leaseStartDate) {
+    return {
+      eligible: false,
+      reason: 'Enter a valid Month 1 start date in the schedule before using Preserve Month Spacing.',
+      parsedRows,
+      leaseStartDate: null,
+    };
+  }
+
+  for (let index = 0; index < parsedRows.length; index += 1) {
+    const row = parsedRows[index];
+    const source = rows[index] ?? {};
+    const startInput = String(source.startDate ?? '').trim();
+    const endInput = String(source.endDate ?? '').trim();
+
+    if (startInput && !row._startValid) {
+      return {
+        eligible: false,
+        reason: buildPreserveMonthSpacingDisabledReason(index, 'enter a valid start date first.'),
+        parsedRows,
+        leaseStartDate,
+      };
+    }
+
+    if (endInput && !row._endValid) {
+      return {
+        eligible: false,
+        reason: buildPreserveMonthSpacingDisabledReason(index, 'enter a valid end date first.'),
+        parsedRows,
+        leaseStartDate,
+      };
+    }
+
+    if (!row.start) {
+      return {
+        eligible: false,
+        reason: buildPreserveMonthSpacingDisabledReason(index, 'a start date is required to preserve month spacing.'),
+        parsedRows,
+        leaseStartDate,
+      };
+    }
+
+    if (!row.end) {
+      return {
+        eligible: false,
+        reason: buildPreserveMonthSpacingDisabledReason(index, 'an end date is required to preserve month spacing.'),
+        parsedRows,
+        leaseStartDate,
+      };
+    }
+
+    if (row.end.getTime() < row.start.getTime()) {
+      return {
+        eligible: false,
+        reason: buildPreserveMonthSpacingDisabledReason(index, 'end date must be on or after the start date.'),
+        parsedRows,
+        leaseStartDate,
+      };
+    }
+
+    if (index > 0) {
+      const previous = parsedRows[index - 1];
+      const previousBoundary = previous?.end ?? previous?.start ?? null;
+      if (previousBoundary && row.start.getTime() <= previousBoundary.getTime()) {
+        return {
+          eligible: false,
+          reason: buildPreserveMonthSpacingDisabledReason(index, 'start date must stay after the prior row ends.'),
+          parsedRows,
+          leaseStartDate,
+        };
+      }
+    }
+
+    const leaseMonthRange = getLeaseMonthRange(leaseStartDate, row.start, row.end);
+    if (
+      !Number.isInteger(leaseMonthRange?.startMonthNumber)
+      || !Number.isInteger(leaseMonthRange?.endMonthNumber)
+    ) {
+      return {
+        eligible: false,
+        reason: buildPreserveMonthSpacingDisabledReason(index, 'lease-month spacing could not be resolved from the current dates.'),
+        parsedRows,
+        leaseStartDate,
+      };
+    }
+  }
+
+  return {
+    eligible: true,
+    reason: null,
+    parsedRows,
+    leaseStartDate,
+  };
+}
+
+export function buildRowsPreservingMonthSpacing(rows, anchorDateInput) {
+  const analysis = analyzePreserveMonthSpacing(rows);
+  const anchorDate = anchorDateInput instanceof Date
+    ? anchorDateInput
+    : parseMDYStrict(String(anchorDateInput ?? '').trim());
+
+  if (!analysis.eligible || !anchorDate) return null;
+
+  return rows.map((row, index) => {
+    const parsed = analysis.parsedRows[index];
+    const leaseMonthRange = getLeaseMonthRange(analysis.leaseStartDate, parsed.start, parsed.end);
+    const nextStart = addMonthsAnchored(anchorDate, leaseMonthRange.startMonthNumber - 1);
+    const nextEndExclusive = addMonthsAnchored(anchorDate, leaseMonthRange.endMonthNumber);
+    const nextEnd = addDaysLocal(nextEndExclusive, -1);
+
+    return {
+      ...row,
+      startDate: fmtMDY(nextStart),
+      endDate: fmtMDY(nextEnd),
+    };
+  });
 }
 
 export function buildParsedRows(rows) {
@@ -232,9 +367,13 @@ export default function ScheduleEditor({
   const [showBulkPaste, setShowBulkPaste] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [bulkParseWarnings, setBulkParseWarnings] = useState([]);
+  const [preserveMonthSpacingEnabled, setPreserveMonthSpacingEnabled] = useState(false);
+  const [reanchorStartDate, setReanchorStartDate] = useState('');
 
   useEffect(() => {
     setRows(buildEditableRowsFromPeriods(initialPeriodRows));
+    setPreserveMonthSpacingEnabled(false);
+    setReanchorStartDate('');
   }, [hasInitialRows, initialPeriodRows]);
 
   useEffect(() => {
@@ -301,10 +440,23 @@ export default function ScheduleEditor({
     onConfirm(quickPreview, []);
   }
 
+  const preserveMonthSpacingAnalysis = useMemo(() => analyzePreserveMonthSpacing(rows), [rows]);
+  const sourceLeaseStartDate = preserveMonthSpacingAnalysis.leaseStartDate;
+  const transformedRows = useMemo(() => {
+    if (!preserveMonthSpacingEnabled) return null;
+    return buildRowsPreservingMonthSpacing(rows, reanchorStartDate);
+  }, [preserveMonthSpacingEnabled, reanchorStartDate, rows]);
+  const effectiveRows = preserveMonthSpacingEnabled && transformedRows ? transformedRows : rows;
+
+  useEffect(() => {
+    if (!sourceLeaseStartDate) return;
+    setReanchorStartDate((current) => current || fmtMDY(sourceLeaseStartDate));
+  }, [sourceLeaseStartDate]);
+
   const parsedRows = useMemo(() => {
-    return buildParsedRows(rows);
-  }, [rows]);
-  const rowCalendarConstraints = useMemo(() => buildRowCalendarConstraints(rows), [rows]);
+    return buildParsedRows(effectiveRows);
+  }, [effectiveRows]);
+  const rowCalendarConstraints = useMemo(() => buildRowCalendarConstraints(effectiveRows), [effectiveRows]);
   const manualLeaseStartDate = useMemo(() => getLeaseStartDate(parsedRows), [parsedRows]);
   const quickPreviewLeaseStartDate = useMemo(() => getLeaseStartDate(quickPreview), [quickPreview]);
   const quickCommenceParsed = useMemo(() => parsePeriodString(quickForm.commenceDate).start, [quickForm.commenceDate]);
@@ -345,11 +497,16 @@ export default function ScheduleEditor({
   }
 
   function handleConfirm() {
-    const canonical = toCanonicalPeriodRows(parsedRows);
-    const rowWarnings = parsedRows
+    const rowsForConfirm = preserveMonthSpacingEnabled && transformedRows ? transformedRows : rows;
+    const parsedRowsForConfirm = buildParsedRows(rowsForConfirm);
+    const canonical = toCanonicalPeriodRows(parsedRowsForConfirm);
+    const rowWarnings = parsedRowsForConfirm
       .map((row, i) => (row.warning ? `Row ${i + 1}: ${row.warning}` : null))
       .filter(Boolean);
-    onConfirm(canonical, rowWarnings);
+    const transformWarnings = preserveMonthSpacingEnabled && transformedRows
+      ? ['Manual Capture re-anchored the base-rent schedule from the selected Month 1 start date while preserving lease-month spacing.']
+      : [];
+    onConfirm(canonical, [...transformWarnings, ...rowWarnings]);
   }
 
   return (
@@ -587,6 +744,85 @@ export default function ScheduleEditor({
                 {showBulkPaste ? 'Close Paste Panel' : 'Bulk Paste'}
               </button>
             </div>
+
+            <div className="mt-5 rounded-[1rem] border border-app-border bg-app-chrome px-4 py-4 space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-txt-primary">Preserve Month Spacing</p>
+                    <span className="status-chip border-accent/30 bg-accent/10 text-accent-soft">
+                      Supplementary Transform
+                    </span>
+                  </div>
+                  <p className="max-w-2xl text-sm leading-6 text-txt-muted">
+                    Turn this on only when you have the correct Month 1 start date and want the current schedule rows
+                    re-dated while keeping their lease-month spacing intact. This transforms only the loaded schedule.
+                  </p>
+                </div>
+
+                <div className="segmented-control">
+                  <button
+                    type="button"
+                    onClick={() => setPreserveMonthSpacingEnabled(false)}
+                    className={`segmented-option ${!preserveMonthSpacingEnabled ? 'segmented-option-active' : ''}`}
+                  >
+                    Off
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!preserveMonthSpacingAnalysis.eligible) return;
+                      if (!reanchorStartDate && sourceLeaseStartDate) {
+                        setReanchorStartDate(fmtMDY(sourceLeaseStartDate));
+                      }
+                      setPreserveMonthSpacingEnabled(true);
+                    }}
+                    disabled={!preserveMonthSpacingAnalysis.eligible}
+                    className={`segmented-option ${preserveMonthSpacingEnabled ? 'segmented-option-active' : ''} disabled:cursor-not-allowed disabled:opacity-50`}
+                  >
+                    On
+                  </button>
+                </div>
+              </div>
+
+              {preserveMonthSpacingAnalysis.eligible ? (
+                <div className="grid gap-4 md:grid-cols-[minmax(0,240px)_1fr]">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold uppercase tracking-[0.16em] text-txt-dim">
+                      Month 1 Start Date
+                    </label>
+                    <DatePicker
+                      value={reanchorStartDate}
+                      onChange={setReanchorStartDate}
+                      placeholder="MM/DD/YYYY"
+                      leaseMonthLabel={formatLeaseMonthLabel(reanchorStartDate ? 1 : null)}
+                    />
+                  </div>
+
+                  <div className={`rounded-[1rem] border px-4 py-3 text-sm ${
+                    preserveMonthSpacingEnabled
+                      ? 'border-accent/30 bg-accent/5 text-txt-primary'
+                      : 'border-app-border bg-app-panel text-txt-muted'
+                  }`}>
+                    {preserveMonthSpacingEnabled ? (
+                      <p>
+                        The table below is previewing transformed dates from the selected Month 1 start date. Continue with
+                        Schedule will carry these dates into Assumptions, Results, and export.
+                      </p>
+                    ) : (
+                      <p>
+                        Leave this off to keep the current row-by-row editing behavior. Turn it on only for a schedule-wide
+                        date shift that preserves lease-month spacing.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-[1rem] border border-status-warn-border bg-status-warn-bg/75 px-4 py-3 text-sm text-status-warn-text">
+                  {preserveMonthSpacingAnalysis.reason}
+                </div>
+              )}
+            </div>
           </div>
 
           {showBulkPaste && (
@@ -643,7 +879,7 @@ export default function ScheduleEditor({
                 </tr>
               </thead>
               <tbody className="divide-y divide-app-border">
-                {rows.map((row, idx) => {
+                {effectiveRows.map((row, idx) => {
                   const parsed = parsedRows[idx];
                   const constraints = rowCalendarConstraints[idx] ?? {};
                   const leaseMonthNumber = getLeaseMonthNumber(manualLeaseStartDate, parsed?.start);
@@ -661,25 +897,47 @@ export default function ScheduleEditor({
                         {formatLeaseMonthRange(leaseMonthRange) || <span className="text-txt-faint">-</span>}
                       </td>
                       <td className="px-3 py-3 align-top">
-                        <DatePicker
-                          value={row.startDate}
-                          onChange={(value) => updateRow(row.id, 'startDate', value)}
-                          placeholder="MM/DD/YYYY"
-                          error={startBad}
-                          leaseMonthLabel={formatLeaseMonthLabel(leaseMonthNumber)}
-                          minDate={constraints.minStartDate}
-                        />
+                        {preserveMonthSpacingEnabled ? (
+                          <div className={`rounded-[1rem] border px-3 py-2 ${
+                            startBad ? 'border-status-err-border bg-status-err-bg/70' : 'border-app-border bg-app-chrome'
+                          }`}>
+                            <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-accent-soft">
+                              {formatLeaseMonthLabel(leaseMonthNumber) || 'Month pending'}
+                            </p>
+                            <p className="mt-1 font-mono text-sm text-txt-primary">{row.startDate || 'MM/DD/YYYY'}</p>
+                          </div>
+                        ) : (
+                          <DatePicker
+                            value={row.startDate}
+                            onChange={(value) => updateRow(row.id, 'startDate', value)}
+                            placeholder="MM/DD/YYYY"
+                            error={startBad}
+                            leaseMonthLabel={formatLeaseMonthLabel(leaseMonthNumber)}
+                            minDate={constraints.minStartDate}
+                          />
+                        )}
                       </td>
                       <td className="px-3 py-3 align-top">
-                        <DatePicker
-                          value={row.endDate}
-                          onChange={(value) => updateRow(row.id, 'endDate', value)}
-                          placeholder="MM/DD/YYYY"
-                          error={endBad}
-                          leaseMonthLabel={formatLeaseMonthLabel(endMonthNumber)}
-                          minDate={constraints.minEndDate}
-                          maxDate={constraints.maxEndDate}
-                        />
+                        {preserveMonthSpacingEnabled ? (
+                          <div className={`rounded-[1rem] border px-3 py-2 ${
+                            endBad ? 'border-status-err-border bg-status-err-bg/70' : 'border-app-border bg-app-chrome'
+                          }`}>
+                            <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-accent-soft">
+                              {formatLeaseMonthLabel(endMonthNumber) || 'Month pending'}
+                            </p>
+                            <p className="mt-1 font-mono text-sm text-txt-primary">{row.endDate || 'MM/DD/YYYY'}</p>
+                          </div>
+                        ) : (
+                          <DatePicker
+                            value={row.endDate}
+                            onChange={(value) => updateRow(row.id, 'endDate', value)}
+                            placeholder="MM/DD/YYYY"
+                            error={endBad}
+                            leaseMonthLabel={formatLeaseMonthLabel(endMonthNumber)}
+                            minDate={constraints.minEndDate}
+                            maxDate={constraints.maxEndDate}
+                          />
+                        )}
                       </td>
                       <td className="px-3 py-3 align-top">
                         <div className="flex items-start gap-2">
@@ -709,7 +967,8 @@ export default function ScheduleEditor({
                         <button
                           type="button"
                           onClick={() => removeRow(row.id)}
-                          className="text-sm font-medium leading-none text-status-err-text hover:text-status-err-title"
+                          disabled={preserveMonthSpacingEnabled}
+                          className="text-sm font-medium leading-none text-status-err-text hover:text-status-err-title disabled:cursor-not-allowed disabled:opacity-40"
                           title="Remove row"
                         >
                           x
@@ -723,7 +982,12 @@ export default function ScheduleEditor({
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <button type="button" onClick={addRow} className="btn-link">
+            <button
+              type="button"
+              onClick={addRow}
+              disabled={preserveMonthSpacingEnabled}
+              className="btn-link disabled:cursor-not-allowed disabled:opacity-40"
+            >
               + Add row
             </button>
 
@@ -734,7 +998,11 @@ export default function ScheduleEditor({
               <button
                 type="button"
                 onClick={handleConfirm}
-                disabled={validCount === 0 || blockingRowWarnings.length > 0}
+                disabled={
+                  validCount === 0
+                  || blockingRowWarnings.length > 0
+                  || (preserveMonthSpacingEnabled && (!preserveMonthSpacingAnalysis.eligible || !transformedRows))
+                }
                 className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {validCount > 0 && blockingRowWarnings.length === 0 ? 'Continue with Schedule' : 'Enter a Valid Period'}
@@ -758,6 +1026,12 @@ export default function ScheduleEditor({
           <p className="text-xs text-txt-dim">
             Rows missing an end date will have it inferred from the next row&apos;s start. The final row still requires an explicit end date.
           </p>
+
+          {preserveMonthSpacingEnabled && (
+            <p className="text-xs text-txt-dim">
+              Preserve Month Spacing is on. Date cells are locked to the transformed preview above; turn it off to return to row-by-row date editing.
+            </p>
+          )}
         </div>
       )}
     </div>

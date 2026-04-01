@@ -649,17 +649,16 @@ export default function InputForm({
 
         <SectionBox
           title="Escalation Assumptions"
-          hint="Annual escalation rates and optional start dates for each recurring charge."
+          hint="Annual escalation rates and optional billing start dates for each recurring charge. Use Recurring Overrides for dated irregular changes."
         >
-          <div className="mb-2 grid grid-cols-[1fr_110px_160px_160px] gap-x-2">
+          <div className="mb-2 grid grid-cols-[1fr_110px_160px] gap-x-2">
             <ColumnHeader>Charge</ColumnHeader>
             <ColumnHeader>Annual Rate (%)</ColumnHeader>
-            <ColumnHeader>Escalation Start</ColumnHeader>
             <ColumnHeader>Billing Start</ColumnHeader>
           </div>
 
           {form.nnnMode === 'aggregate' && (
-            <div className="grid grid-cols-[1fr_110px_160px_160px] items-center gap-x-2 border-b border-app-border py-2">
+            <div className="grid grid-cols-[1fr_110px_160px] items-center gap-x-2 border-b border-app-border py-2">
               <span className="text-sm text-txt-primary">NNN - Aggregate</span>
               <TextInput
                 type="number"
@@ -669,14 +668,13 @@ export default function InputForm({
                 error={fieldErrors['nnnAggregate.escPct']}
               />
               <span className="py-2 text-xs text-txt-dim">-</span>
-              <span className="py-2 text-xs text-txt-dim">-</span>
             </div>
           )}
 
           {charges.map((charge, idx) => {
             if (form.nnnMode === 'aggregate' && charge.canonicalType === CANONICAL_TYPES.NNN) return null;
             return (
-              <div key={charge.key} className="grid grid-cols-[1fr_110px_160px_160px] items-center gap-x-2 border-b border-app-border py-2 last:border-0">
+              <div key={charge.key} className="grid grid-cols-[1fr_110px_160px] items-center gap-x-2 border-b border-app-border py-2 last:border-0">
                 <span className="truncate text-sm text-txt-primary">
                   {charge.displayLabel || charge.key}
                   <ConfidenceFlag flagged={flag(`${charge.key}.escPct`) || flag(`charges.${idx}.escPct`)} />
@@ -689,12 +687,6 @@ export default function InputForm({
                   error={fieldErrors[`charges.${idx}.escPct`]}
                 />
                 <DatePicker
-                  value={charge.escStart}
-                  onChange={(value) => updateCharge(idx, 'escStart', value)}
-                  placeholder="MM/DD/YYYY"
-                  error={fieldErrors[`charges.${idx}.escStart`]}
-                />
-                <DatePicker
                   value={charge.chargeStart}
                   onChange={(value) => updateCharge(idx, 'chargeStart', value)}
                   placeholder="MM/DD/YYYY"
@@ -705,7 +697,7 @@ export default function InputForm({
           })}
 
           <p className="mt-3 text-xs text-txt-dim">
-            Leave Escalation Start and Billing Start blank to anchor from lease commencement.
+            Leave Billing Start blank to start the charge from lease commencement. Use Recurring Overrides for dated irregular charge changes.
           </p>
         </SectionBox>
 
