@@ -93,4 +93,32 @@ describe('InputForm semantic schedule preview', () => {
     expect(html).toContain('06/26/2024');
     expect(html).toContain('12/25/2024');
   });
+
+  it('hides Escalation Start while keeping Billing Start visible in the assumptions UI', () => {
+    const html = renderToStaticMarkup(
+      <InputForm
+        initialValues={{}}
+        confidenceFlags={[]}
+        notices={[]}
+        validationErrors={[]}
+        sfRequired={false}
+        leaseStartDate={parseMDYStrict('06/26/2024')}
+        leaseEndDate={parseMDYStrict('06/25/2029')}
+        resolvedRows={[]}
+        schedulePeriodRows={[]}
+        scheduledBaseRent={null}
+        expandedRowCount={0}
+        semanticSchedule={null}
+        scheduleMaterializationMode={null}
+        onSubmit={noop}
+        onBack={noop}
+        onBackToSchedule={noop}
+        onDraftChange={noop}
+        isProcessing={false}
+      />,
+    );
+
+    expect(html).toContain('Billing Start');
+    expect(html).not.toContain('Escalation Start');
+  });
 });
