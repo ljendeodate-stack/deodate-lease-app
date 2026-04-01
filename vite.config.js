@@ -6,7 +6,9 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'node',
+    include: ['src/**/*.test.{js,jsx}'],
     exclude: [
+      '**/node_modules/**',
       '**/.codex/**',
       '**/.claude/**',
       '**/dist/**',
