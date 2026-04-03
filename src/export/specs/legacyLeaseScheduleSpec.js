@@ -328,7 +328,7 @@ function buildAssumptionsSection(assumptionEntries, cellMap, layout = null, assu
   renderConcessionTable(
     layout.abatementTable,
     assumptions.abatementConcessions ?? [],
-    ['Abatement option months', 'Date', 'Month #', 'abatement (USD)', '% of base rent @ date'],
+    ['Abatement option months', 'Date', 'Month #', 'abatement (USD)', 'abatement factor'],
     true,
   );
   renderConcessionTable(
