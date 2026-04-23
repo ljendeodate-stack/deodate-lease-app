@@ -9,6 +9,7 @@ import {
   buildRowsPreservingMonthSpacing,
   formatRentInputValue,
 } from './ScheduleEditor.jsx';
+import { parseRentString } from '../engine/periodParser.js';
 import { parseMDYStrict } from '../engine/yearMonth.js';
 
 describe('buildEditableRowsFromPeriods', () => {
@@ -108,6 +109,7 @@ describe('buildEditableRowsFromPeriods', () => {
   it('formats manual rent input values with commas without changing the parsed amount', () => {
     expect(formatRentInputValue('98463.60')).toBe('98,463.60');
     expect(formatRentInputValue('$98463.60*')).toBe('$98,463.60*');
+    expect(parseRentString(formatRentInputValue('98463.60')).rent).toBe(98463.6);
     expect(buildParsedRows([
       { id: 1, startDate: '06/26/2024', endDate: '12/25/2024', rentStr: '98,463.60' },
     ])[0].monthlyRent).toBe(98463.6);
