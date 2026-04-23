@@ -612,6 +612,10 @@ export default function ScheduleEditor({
     setQuickError('');
   }
 
+  function setQuickFormDisplayValue(field, value) {
+    setQuickForm((prev) => ({ ...prev, [field]: value }));
+  }
+
   function handleQuickGenerate() {
     setQuickError('');
     setQuickPreview([]);
@@ -921,7 +925,10 @@ export default function ScheduleEditor({
                   type="text"
                   value={quickForm.year1Rent}
                   onChange={(e) => updateQuickForm('year1Rent', e.target.value)}
+                  onFocus={() => setQuickFormDisplayValue('year1Rent', stripRentGrouping(quickForm.year1Rent))}
+                  onBlur={() => setQuickFormDisplayValue('year1Rent', formatRentInputValue(quickForm.year1Rent))}
                   placeholder="e.g. $98,463.60"
+                  data-testid="quick-year1-rent"
                   className="field-dark"
                 />
               </div>

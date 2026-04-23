@@ -14,6 +14,10 @@ async function expectScheduleCell(page, text) {
   await expect(page.locator('td').filter({ hasText: new RegExp(`^${text.replace(/\//g, '\\/')}$`) }).first()).toBeVisible();
 }
 
+async function expectCurrencyCell(page, text) {
+  await expect(page.locator('td').filter({ hasText: new RegExp(`^\\$${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }).first()).toBeVisible();
+}
+
 async function fillDateSchedule(page) {
   await row(page, 0).getByPlaceholder('MM/DD/YYYY').first().fill('06/26/2024');
   await row(page, 0).getByPlaceholder('MM/DD/YYYY').nth(1).fill('06/25/2025');
@@ -30,6 +34,23 @@ async function fillDateSchedule(page) {
   await page.getByTestId('row-3-rent').fill('1400');
   await page.getByTestId('row-3-rent').blur();
 }
+
+test('formats quick-entry Year 1 rent with commas and preserves the generated amount', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open Schedule Editor' }).click();
+  await page.getByRole('button', { name: 'Quick Entry' }).click();
+
+  await page.getByPlaceholder('MM/DD/YYYY').first().fill('06/26/2024');
+  await page.getByPlaceholder('MM/DD/YYYY').nth(1).fill('06/25/2026');
+  await page.getByTestId('quick-year1-rent').fill('98463.60');
+  await page.getByTestId('quick-year1-rent').blur();
+  await expect(page.getByTestId('quick-year1-rent')).toHaveValue('98,463.60');
+  await page.getByPlaceholder('e.g. 3').fill('3');
+
+  await page.getByRole('button', { name: 'Generate Schedule Preview' }).click();
+  await expect(page.getByText('Generated Schedule')).toBeVisible();
+  await expectCurrencyCell(page, '98,463.60');
+});
 
 test('supports month-number entry, predictive end fill, and comma-formatted rent input', async ({ page }) => {
   await openManualEditor(page);
