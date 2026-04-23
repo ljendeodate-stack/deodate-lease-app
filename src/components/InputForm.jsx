@@ -670,6 +670,25 @@ export default function InputForm({
           title="Escalation Assumptions"
           hint="Annual escalation rates and optional billing start dates for each recurring charge. Use Recurring Overrides for dated irregular changes."
         >
+          <div
+            className="mb-4 rounded-[1rem] border border-status-err-border bg-status-err-bg/92 px-4 py-3 shadow-panel"
+            style={{
+              boxShadow: '0 0 0 1px rgba(255, 157, 172, 0.18), 0 0 26px rgba(255, 77, 109, 0.28), inset 0 0 18px rgba(255, 77, 109, 0.08)',
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="status-chip border-status-err-border bg-status-err-bg text-status-err-title">
+                Precaution
+              </span>
+              <p className="text-sm font-semibold text-status-err-title">
+                Lease Schedule only: annually defined escalations stay dynamic formulas in Excel.
+              </p>
+            </div>
+            <p className="mt-2 text-sm text-status-err-text">
+              Non-annual or irregular escalations, including dated recurring overrides, export as hardcoded resolved values to match the preview.
+            </p>
+          </div>
+
           <div className="mb-2 grid grid-cols-[1fr_110px_160px] gap-x-2">
             <ColumnHeader>Charge</ColumnHeader>
             <ColumnHeader>Annual Rate (%)</ColumnHeader>

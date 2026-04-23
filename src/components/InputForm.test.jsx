@@ -149,6 +149,8 @@ describe('InputForm semantic schedule preview', () => {
     expect(html).toContain('>Precaution<');
     expect(html).toContain('Enter a small non-zero placeholder amount now if you may need this NNN or recurring charge later.');
     expect(html).toContain('Blank or $0 rows are intentionally omitted from preview/export.');
+    expect(html).toContain('Lease Schedule only: annually defined escalations stay dynamic formulas in Excel.');
+    expect(html).toContain('Non-annual or irregular escalations, including dated recurring overrides, export as hardcoded resolved values to match the preview.');
   });
 
   it('shows the recurring-charge precaution copy in aggregate mode', () => {
@@ -178,6 +180,8 @@ describe('InputForm semantic schedule preview', () => {
     expect(html).toContain('>Precaution<');
     expect(html).toContain('Enter a small non-zero placeholder amount now if you may need this NNN or recurring charge later.');
     expect(html).toContain('Blank or $0 rows are intentionally omitted from preview/export.');
+    expect(html).toContain('Lease Schedule only: annually defined escalations stay dynamic formulas in Excel.');
+    expect(html).toContain('Non-annual or irregular escalations, including dated recurring overrides, export as hardcoded resolved values to match the preview.');
     expect(html).toContain('Aggregate NNN mode: a single combined NNN estimate replaces individual CAMS, Insurance, and Taxes line items.');
   });
 });
