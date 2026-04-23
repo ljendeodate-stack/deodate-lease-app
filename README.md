@@ -35,6 +35,8 @@ npm run dev
 
 Opens at [http://localhost:5173](http://localhost:5173)
 
+On Windows, you can also double-click `Start Dev.cmd` in the repo root to launch the dev server and open the app in your browser.
+
 ---
 
 ## Build
