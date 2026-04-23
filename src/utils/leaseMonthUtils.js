@@ -1,4 +1,5 @@
 import {
+  addMonthsAnchored,
   countMonthsInclusive,
   parseISODate,
   parseMDYStrict,
@@ -41,6 +42,25 @@ export function getLeaseMonthRange(leaseStartLike, periodStartLike, periodEndLik
     startMonthNumber,
     endMonthNumber,
   };
+}
+
+export function getLeaseMonthStartDate(leaseStartLike, monthNumber) {
+  const leaseStart = parseLeaseMonthDate(leaseStartLike);
+  const normalizedMonthNumber = Number(monthNumber);
+  if (!leaseStart || !Number.isInteger(normalizedMonthNumber) || normalizedMonthNumber <= 0) {
+    return null;
+  }
+
+  return addMonthsAnchored(leaseStart, normalizedMonthNumber - 1);
+}
+
+export function getLeaseMonthEndDate(leaseStartLike, monthNumber) {
+  const monthStart = getLeaseMonthStartDate(leaseStartLike, monthNumber);
+  if (!monthStart) return null;
+
+  const monthEnd = new Date(addMonthsAnchored(monthStart, 1).getTime() - 86400000);
+  monthEnd.setHours(0, 0, 0, 0);
+  return monthEnd;
 }
 
 export function formatLeaseMonthLabel(monthNumber) {

@@ -3,10 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   formatLeaseMonthLabel,
   formatLeaseMonthRange,
+  getLeaseMonthEndDate,
   getLeaseMonthRange,
   getLeaseMonthNumber,
+  getLeaseMonthStartDate,
   getLeaseStartDate,
 } from './leaseMonthUtils.js';
+import { parseMDYStrict } from '../engine/yearMonth.js';
 
 describe('leaseMonthUtils', () => {
   it('computes anchored lease month numbers from the earliest valid schedule date', () => {
@@ -34,5 +37,10 @@ describe('leaseMonthUtils', () => {
       endMonthNumber: 4,
     });
     expect(formatLeaseMonthRange(range)).toBe('1-4');
+  });
+
+  it('resolves anchored lease month boundaries back into calendar dates', () => {
+    expect(getLeaseMonthStartDate('06/26/2024', 13)?.getTime()).toBe(parseMDYStrict('06/26/2025')?.getTime());
+    expect(getLeaseMonthEndDate('06/26/2024', 19)?.getTime()).toBe(parseMDYStrict('01/25/2026')?.getTime());
   });
 });
