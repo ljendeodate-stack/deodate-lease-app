@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "test:semantic-export": "node scripts/semantic-export/runScenarioChecks.mjs",
     "test:watch": "vitest",
     "semantic-export:check": "node scripts/semantic-export/runScenarioChecks.mjs",
@@ -25,6 +26,7 @@
     "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
     "jsdom": "^29.0.1",

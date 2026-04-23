@@ -15,15 +15,56 @@ import { addMonthsAnchored, parseMDYStrict, toISOLocal } from '../engine/yearMon
 import {
   formatLeaseMonthLabel,
   formatLeaseMonthRange,
+  getLeaseMonthEndDate,
   getLeaseMonthNumber,
   getLeaseMonthRange,
+  getLeaseMonthStartDate,
   getLeaseStartDate,
 } from '../utils/leaseMonthUtils.js';
 
 let nextId = 1;
 
 function newRow() {
-  return { id: nextId++, startDate: '', endDate: '', rentStr: '' };
+  return { id: nextId++, startDate: '', endDate: '', rentStr: '', endDateSource: 'manual' };
+}
+
+function insertThousandsSeparators(value) {
+  return String(value ?? '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function stripRentGrouping(value) {
+  return String(value ?? '').replace(/,/g, '');
+}
+
+export function formatRentInputValue(value) {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return '';
+
+  const hasCurrency = trimmed.includes('$');
+  const hasAsterisk = trimmed.includes('*');
+  let cleaned = trimmed.replace(/[$,*\s]/g, '');
+  cleaned = stripRentGrouping(cleaned);
+
+  if (!cleaned) return '';
+
+  const negative = cleaned.startsWith('-');
+  const unsigned = negative ? cleaned.slice(1) : cleaned;
+  const match = unsigned.match(/^(\d*)(\.\d*)?$/);
+  if (!match) return trimmed;
+
+  const integerPart = match[1] || '0';
+  const decimalPart = match[2] ?? '';
+  const formattedNumber = `${negative ? '-' : ''}${insertThousandsSeparators(integerPart)}${decimalPart}`;
+
+  return `${hasCurrency ? '$' : ''}${formattedNumber}${hasAsterisk ? '*' : ''}`;
+}
+
+function normalizeEditableRow(row) {
+  return {
+    ...row,
+    rentStr: formatRentInputValue(row.rentStr),
+    endDateSource: row.endDateSource === 'auto' ? 'auto' : 'manual',
+  };
 }
 
 export function buildEditableRowsFromPeriods(periodRows = []) {
@@ -36,7 +77,8 @@ export function buildEditableRowsFromPeriods(periodRows = []) {
     startDate: period.periodStart ? fmtMDY(period.periodStart) : '',
     endDate: period.periodEnd ? fmtMDY(period.periodEnd) : '',
     rentStr: !isNaN(period.monthlyRent) ? String(period.monthlyRent) : '',
-  }));
+    endDateSource: 'manual',
+  })).map(normalizeEditableRow);
 }
 
 function fmtDate(date) {
@@ -114,6 +156,190 @@ function addDaysLocal(date, days) {
   next.setDate(next.getDate() + days);
   next.setHours(0, 0, 0, 0);
   return next;
+}
+
+function parseRowStartDate(row) {
+  return parsePeriodString(String(row?.startDate ?? '').trim()).start;
+}
+
+function getMonthAnchorDate(rows = []) {
+  return parseRowStartDate(rows[0] ?? null);
+}
+
+export function applyAutoEndDatesToRows(rows = []) {
+  const normalizedRows = rows.map(normalizeEditableRow);
+  const parsedStarts = normalizedRows.map((row) => parseRowStartDate(row));
+
+  return normalizedRows.map((row, index) => {
+    const nextStart = index < parsedStarts.length - 1 ? parsedStarts[index + 1] : null;
+    const shouldAutoFill = row.endDateSource === 'auto' || String(row.endDate ?? '').trim() === '';
+
+    if (!shouldAutoFill) {
+      return row;
+    }
+
+    if (!nextStart) {
+      return {
+        ...row,
+        endDate: '',
+        endDateSource: 'auto',
+      };
+    }
+
+    return {
+      ...row,
+      endDate: fmtMDY(addDaysLocal(nextStart, -1)),
+      endDateSource: 'auto',
+    };
+  });
+}
+
+function clampMonthNumber(value, minMonth = null, maxMonth = null) {
+  const numericValue = Number(value);
+  if (!Number.isInteger(numericValue) || numericValue <= 0) return null;
+  if (Number.isInteger(minMonth) && numericValue < minMonth) return minMonth;
+  if (Number.isInteger(maxMonth) && numericValue > maxMonth) return maxMonth;
+  return numericValue;
+}
+
+export function buildRowMonthConstraints(rows) {
+  const parsedRows = buildParsedRows(rows);
+  const leaseStartDate = getMonthAnchorDate(rows);
+
+  return parsedRows.map((row, index) => {
+    const previous = index > 0 ? parsedRows[index - 1] : null;
+    const next = index < parsedRows.length - 1 ? parsedRows[index + 1] : null;
+    const startMonthNumber = getLeaseMonthNumber(leaseStartDate, row.start);
+    const endMonthNumber = getLeaseMonthNumber(leaseStartDate, row.end);
+    const previousBoundary = previous?.end ?? previous?.start ?? null;
+    const previousBoundaryMonth = getLeaseMonthNumber(leaseStartDate, previousBoundary);
+    const nextStartMonth = getLeaseMonthNumber(leaseStartDate, next?.start);
+    const maxEndMonth = Number.isInteger(nextStartMonth) && (
+      !Number.isInteger(startMonthNumber) || nextStartMonth > startMonthNumber
+    )
+      ? nextStartMonth - 1
+      : null;
+
+    return {
+      leaseStartDate,
+      startMonthNumber,
+      endMonthNumber,
+      minStartMonth: leaseStartDate
+        ? (index === 0 ? 1 : (Number.isInteger(previousBoundaryMonth) ? previousBoundaryMonth + 1 : null))
+        : null,
+      minEndMonth: Number.isInteger(startMonthNumber) ? startMonthNumber : null,
+      maxEndMonth,
+      startMonthLocked: Boolean(leaseStartDate) && index === 0,
+      startMonthDisabled: !leaseStartDate || index === 0,
+      endMonthDisabled: !leaseStartDate || !Number.isInteger(startMonthNumber),
+    };
+  });
+}
+
+function LeaseMonthStepper({
+  label,
+  ariaLabel,
+  value,
+  disabled = false,
+  locked = false,
+  minMonth = null,
+  maxMonth = null,
+  onCommit,
+  testId,
+}) {
+  const displayValue = Number.isInteger(value) ? String(value) : '';
+  const [draft, setDraft] = useState(displayValue);
+
+  useEffect(() => {
+    setDraft(displayValue);
+  }, [displayValue]);
+
+  function commit(nextDraft) {
+    if (disabled || locked) {
+      setDraft(displayValue);
+      return;
+    }
+
+    const trimmed = String(nextDraft ?? '').trim();
+    if (!trimmed) {
+      setDraft('');
+      onCommit?.(null);
+      return;
+    }
+
+    const nextMonth = clampMonthNumber(trimmed, minMonth, maxMonth);
+    if (!Number.isInteger(nextMonth)) {
+      setDraft(displayValue);
+      return;
+    }
+
+    setDraft(String(nextMonth));
+    onCommit?.(nextMonth);
+  }
+
+  function step(delta) {
+    if (disabled || locked) return;
+
+    const baseValue = Number.isInteger(value)
+      ? value
+      : (delta > 0 ? (minMonth ?? 1) - 1 : null);
+    const nextMonth = clampMonthNumber((baseValue ?? 0) + delta, minMonth, maxMonth);
+    if (!Number.isInteger(nextMonth)) return;
+
+    setDraft(String(nextMonth));
+    onCommit?.(nextMonth);
+  }
+
+  const canDecrement = !disabled && !locked && Number.isInteger(value)
+    && (!Number.isInteger(minMonth) || value > minMonth);
+  const canIncrement = !disabled && !locked
+    && (!Number.isInteger(maxMonth) || !Number.isInteger(value) || value < maxMonth);
+
+  return (
+    <div className="mt-2">
+      <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-txt-dim">{label}</p>
+      <div className="mt-1 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => step(-1)}
+          disabled={!canDecrement}
+          className="flex h-7 w-7 items-center justify-center rounded-lg border border-app-border bg-app-panel text-xs text-txt-primary disabled:cursor-not-allowed disabled:opacity-35"
+          aria-label={`${ariaLabel} decrement`}
+        >
+          -
+        </button>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => commit(draft)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.currentTarget.blur();
+            }
+            if (event.key === 'Escape') {
+              setDraft(displayValue);
+              event.currentTarget.blur();
+            }
+          }}
+          disabled={disabled || locked}
+          aria-label={ariaLabel}
+          data-testid={testId}
+          className="field-dark h-8 w-16 !rounded-[0.8rem] !px-2.5 text-center font-mono text-xs disabled:cursor-not-allowed disabled:opacity-55"
+        />
+        <button
+          type="button"
+          onClick={() => step(1)}
+          disabled={!canIncrement}
+          className="flex h-7 w-7 items-center justify-center rounded-lg border border-app-border bg-app-panel text-xs text-txt-primary disabled:cursor-not-allowed disabled:opacity-35"
+          aria-label={`${ariaLabel} increment`}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function buildPreserveMonthSpacingDisabledReason(rowIndex, message) {
@@ -362,7 +588,7 @@ export default function ScheduleEditor({
   const [quickError, setQuickError] = useState('');
 
   const [rows, setRows] = useState(() => {
-    return buildEditableRowsFromPeriods(initialPeriodRows);
+    return applyAutoEndDatesToRows(buildEditableRowsFromPeriods(initialPeriodRows));
   });
   const [showBulkPaste, setShowBulkPaste] = useState(false);
   const [bulkText, setBulkText] = useState('');
@@ -371,7 +597,7 @@ export default function ScheduleEditor({
   const [reanchorStartDate, setReanchorStartDate] = useState('');
 
   useEffect(() => {
-    setRows(buildEditableRowsFromPeriods(initialPeriodRows));
+    setRows(applyAutoEndDatesToRows(buildEditableRowsFromPeriods(initialPeriodRows)));
     setPreserveMonthSpacingEnabled(false);
     setReanchorStartDate('');
   }, [hasInitialRows, initialPeriodRows]);
@@ -457,7 +683,8 @@ export default function ScheduleEditor({
     return buildParsedRows(effectiveRows);
   }, [effectiveRows]);
   const rowCalendarConstraints = useMemo(() => buildRowCalendarConstraints(effectiveRows), [effectiveRows]);
-  const manualLeaseStartDate = useMemo(() => getLeaseStartDate(parsedRows), [parsedRows]);
+  const rowMonthConstraints = useMemo(() => buildRowMonthConstraints(effectiveRows), [effectiveRows]);
+  const manualLeaseStartDate = useMemo(() => getMonthAnchorDate(effectiveRows), [effectiveRows]);
   const quickPreviewLeaseStartDate = useMemo(() => getLeaseStartDate(quickPreview), [quickPreview]);
   const quickCommenceParsed = useMemo(() => parsePeriodString(quickForm.commenceDate).start, [quickForm.commenceDate]);
   const quickExpireParsed = useMemo(() => parsePeriodString(quickForm.expireDate).start, [quickForm.expireDate]);
@@ -467,15 +694,69 @@ export default function ScheduleEditor({
   const abatementHinted = parsedRows.some((row) => row.hasAsterisk);
 
   function addRow() {
-    setRows((prev) => [...prev, newRow()]);
+    setRows((prev) => applyAutoEndDatesToRows([...prev, newRow()]));
   }
 
   function removeRow(id) {
-    setRows((prev) => prev.filter((row) => row.id !== id));
+    setRows((prev) => applyAutoEndDatesToRows(prev.filter((row) => row.id !== id)));
   }
 
-  function updateRow(id, field, value) {
-    setRows((prev) => prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
+  function updateRows(mutator) {
+    setRows((prev) => applyAutoEndDatesToRows(mutator(prev)));
+  }
+
+  function updateStartDate(id, value) {
+    updateRows((prev) => prev.map((row) => (
+      row.id === id
+        ? { ...row, startDate: value }
+        : row
+    )));
+  }
+
+  function updateEndDate(id, value, source = 'manual') {
+    updateRows((prev) => prev.map((row) => (
+      row.id === id
+        ? { ...row, endDate: value, endDateSource: source }
+        : row
+    )));
+  }
+
+  function updateRentValue(id, value) {
+    setRows((prev) => prev.map((row) => (
+      row.id === id
+        ? { ...normalizeEditableRow(row), rentStr: value }
+        : row
+    )));
+  }
+
+  function formatRentValue(id) {
+    setRows((prev) => prev.map((row) => (
+      row.id === id
+        ? { ...row, rentStr: formatRentInputValue(row.rentStr) }
+        : row
+    )));
+  }
+
+  function stripRentValueGrouping(id) {
+    setRows((prev) => prev.map((row) => (
+      row.id === id
+        ? { ...row, rentStr: stripRentGrouping(row.rentStr) }
+        : row
+    )));
+  }
+
+  function updateRowMonth(id, field, monthNumber) {
+    const leaseStartDate = getMonthAnchorDate(rows);
+    if (!leaseStartDate) return;
+
+    if (field === 'startDate') {
+      const nextDate = monthNumber == null ? '' : fmtMDY(getLeaseMonthStartDate(leaseStartDate, monthNumber));
+      updateStartDate(id, nextDate);
+      return;
+    }
+
+    const nextDate = monthNumber == null ? '' : fmtMDY(getLeaseMonthEndDate(leaseStartDate, monthNumber));
+    updateEndDate(id, nextDate, 'manual');
   }
 
   function handleBulkParse() {
@@ -488,8 +769,9 @@ export default function ScheduleEditor({
       startDate: period.start ? fmtMDY(period.start) : '',
       endDate: period.end ? fmtMDY(period.end) : '',
       rentStr: period.rentStr,
+      endDateSource: 'manual',
     }));
-    setRows(loaded.length > 0 ? loaded : [newRow()]);
+    setRows(applyAutoEndDatesToRows(loaded.length > 0 ? loaded : [newRow()]));
     if (!warnings.length) {
       setShowBulkPaste(false);
       setBulkText('');
@@ -745,6 +1027,10 @@ export default function ScheduleEditor({
               </button>
             </div>
 
+            <div className="mt-4 rounded-[1rem] border border-app-border bg-app-panel px-4 py-3 text-sm text-txt-muted">
+              Month-number controls unlock after Row 1 Start Date is valid. They only move forward in lease time and auto-fill the prior row&apos;s end date when that end is blank or auto-generated.
+            </div>
+
             <div className="mt-5 rounded-[1rem] border border-app-border bg-app-chrome px-4 py-4 space-y-4">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="space-y-2">
@@ -882,6 +1168,7 @@ export default function ScheduleEditor({
                 {effectiveRows.map((row, idx) => {
                   const parsed = parsedRows[idx];
                   const constraints = rowCalendarConstraints[idx] ?? {};
+                  const monthConstraints = rowMonthConstraints[idx] ?? {};
                   const leaseMonthNumber = getLeaseMonthNumber(manualLeaseStartDate, parsed?.start);
                   const endMonthNumber = getLeaseMonthNumber(manualLeaseStartDate, parsed?.end);
                   const leaseMonthRange = getLeaseMonthRange(manualLeaseStartDate, parsed?.start, parsed?.end);
@@ -907,14 +1194,26 @@ export default function ScheduleEditor({
                             <p className="mt-1 font-mono text-sm text-txt-primary">{row.startDate || 'MM/DD/YYYY'}</p>
                           </div>
                         ) : (
-                          <DatePicker
-                            value={row.startDate}
-                            onChange={(value) => updateRow(row.id, 'startDate', value)}
-                            placeholder="MM/DD/YYYY"
-                            error={startBad}
-                            leaseMonthLabel={formatLeaseMonthLabel(leaseMonthNumber)}
-                            minDate={constraints.minStartDate}
-                          />
+                          <div>
+                            <DatePicker
+                              value={row.startDate}
+                              onChange={(value) => updateStartDate(row.id, value)}
+                              placeholder="MM/DD/YYYY"
+                              error={startBad}
+                              leaseMonthLabel={formatLeaseMonthLabel(leaseMonthNumber)}
+                              minDate={constraints.minStartDate}
+                            />
+                            <LeaseMonthStepper
+                              label="Start Month"
+                              ariaLabel={`Row ${idx + 1} start month`}
+                              value={monthConstraints.startMonthNumber}
+                              disabled={monthConstraints.startMonthDisabled}
+                              locked={monthConstraints.startMonthLocked}
+                              minMonth={monthConstraints.minStartMonth}
+                              onCommit={(value) => updateRowMonth(row.id, 'startDate', value)}
+                              testId={`row-${idx + 1}-start-month`}
+                            />
+                          </div>
                         )}
                       </td>
                       <td className="px-3 py-3 align-top">
@@ -928,15 +1227,27 @@ export default function ScheduleEditor({
                             <p className="mt-1 font-mono text-sm text-txt-primary">{row.endDate || 'MM/DD/YYYY'}</p>
                           </div>
                         ) : (
-                          <DatePicker
-                            value={row.endDate}
-                            onChange={(value) => updateRow(row.id, 'endDate', value)}
-                            placeholder="MM/DD/YYYY"
-                            error={endBad}
-                            leaseMonthLabel={formatLeaseMonthLabel(endMonthNumber)}
-                            minDate={constraints.minEndDate}
-                            maxDate={constraints.maxEndDate}
-                          />
+                          <div>
+                            <DatePicker
+                              value={row.endDate}
+                              onChange={(value) => updateEndDate(row.id, value, 'manual')}
+                              placeholder="MM/DD/YYYY"
+                              error={endBad}
+                              leaseMonthLabel={formatLeaseMonthLabel(endMonthNumber)}
+                              minDate={constraints.minEndDate}
+                              maxDate={constraints.maxEndDate}
+                            />
+                            <LeaseMonthStepper
+                              label="End Month"
+                              ariaLabel={`Row ${idx + 1} end month`}
+                              value={monthConstraints.endMonthNumber}
+                              disabled={monthConstraints.endMonthDisabled}
+                              minMonth={monthConstraints.minEndMonth}
+                              maxMonth={monthConstraints.maxEndMonth}
+                              onCommit={(value) => updateRowMonth(row.id, 'endDate', value)}
+                              testId={`row-${idx + 1}-end-month`}
+                            />
+                          </div>
                         )}
                       </td>
                       <td className="px-3 py-3 align-top">
@@ -944,8 +1255,11 @@ export default function ScheduleEditor({
                           <input
                             type="text"
                             value={row.rentStr}
-                            onChange={(e) => updateRow(row.id, 'rentStr', e.target.value)}
+                            onChange={(e) => updateRentValue(row.id, e.target.value)}
+                            onFocus={() => stripRentValueGrouping(row.id)}
+                            onBlur={() => formatRentValue(row.id)}
                             placeholder="$98,463.60"
+                            data-testid={`row-${idx + 1}-rent`}
                             className={`field-dark ${rentBad ? 'border-status-warn-border bg-status-warn-bg/80' : ''}`}
                           />
                           {parsed?.hasAsterisk && (

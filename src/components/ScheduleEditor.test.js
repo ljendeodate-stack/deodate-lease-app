@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyAutoEndDatesToRows,
   analyzePreserveMonthSpacing,
   buildEditableRowsFromPeriods,
+  buildRowMonthConstraints,
   buildParsedRows,
   buildRowsPreservingMonthSpacing,
+  formatRentInputValue,
 } from './ScheduleEditor.jsx';
 import { parseMDYStrict } from '../engine/yearMonth.js';
 
@@ -27,12 +30,12 @@ describe('buildEditableRowsFromPeriods', () => {
     expect(rows[0]).toMatchObject({
       startDate: '01/01/2030',
       endDate: '12/31/2030',
-      rentStr: '37187.5',
+      rentStr: '37,187.5',
     });
     expect(rows[1]).toMatchObject({
       startDate: '01/01/2031',
       endDate: '12/31/2031',
-      rentStr: '40906.25',
+      rentStr: '40,906.25',
     });
   });
 
@@ -50,6 +53,64 @@ describe('buildEditableRowsFromPeriods', () => {
     ]);
 
     expect(rows[1].warning).toContain('Start date must be after the previous row ends');
+  });
+
+  it('builds forward-only month constraints from the row 1 anchor date', () => {
+    const rows = buildRowMonthConstraints([
+      { id: 1, startDate: '06/26/2024', endDate: '12/25/2024', rentStr: '0' },
+      { id: 2, startDate: '06/26/2025', endDate: '12/25/2025', rentStr: '1000' },
+      { id: 3, startDate: '', endDate: '', rentStr: '1100' },
+    ]);
+
+    expect(rows[0]).toMatchObject({
+      startMonthNumber: 1,
+      endMonthNumber: 6,
+      startMonthLocked: true,
+      minEndMonth: 1,
+      maxEndMonth: 12,
+    });
+    expect(rows[1]).toMatchObject({
+      startMonthNumber: 13,
+      endMonthNumber: 18,
+      minStartMonth: 7,
+      minEndMonth: 13,
+    });
+    expect(rows[2]).toMatchObject({
+      minStartMonth: 19,
+      endMonthDisabled: true,
+    });
+  });
+
+  it('auto-fills a blank prior end date from the next row start date', () => {
+    const rows = applyAutoEndDatesToRows([
+      { id: 1, startDate: '06/26/2024', endDate: '', rentStr: '1000' },
+      { id: 2, startDate: '06/26/2025', endDate: '', rentStr: '1200' },
+    ]);
+
+    expect(rows[0]).toMatchObject({
+      endDate: '06/25/2025',
+      endDateSource: 'auto',
+    });
+  });
+
+  it('does not overwrite a manual end date when a later row start exists', () => {
+    const rows = applyAutoEndDatesToRows([
+      { id: 1, startDate: '06/26/2024', endDate: '12/25/2025', rentStr: '1000', endDateSource: 'manual' },
+      { id: 2, startDate: '06/26/2025', endDate: '', rentStr: '1200' },
+    ]);
+
+    expect(rows[0]).toMatchObject({
+      endDate: '12/25/2025',
+      endDateSource: 'manual',
+    });
+  });
+
+  it('formats manual rent input values with commas without changing the parsed amount', () => {
+    expect(formatRentInputValue('98463.60')).toBe('98,463.60');
+    expect(formatRentInputValue('$98463.60*')).toBe('$98,463.60*');
+    expect(buildParsedRows([
+      { id: 1, startDate: '06/26/2024', endDate: '12/25/2024', rentStr: '98,463.60' },
+    ])[0].monthlyRent).toBe(98463.6);
   });
 
   it('re-anchors dated schedule rows while preserving lease-month spacing', () => {
@@ -75,8 +136,8 @@ describe('buildEditableRowsFromPeriods', () => {
 
     expect(transformed).toMatchObject([
       { startDate: '06/26/2024', endDate: '12/25/2024', rentStr: '0' },
-      { startDate: '12/26/2024', endDate: '06/25/2029', rentStr: '23149.25' },
-      { startDate: '06/26/2029', endDate: '06/25/2034', rentStr: '25464.18' },
+      { startDate: '12/26/2024', endDate: '06/25/2029', rentStr: '23,149.25' },
+      { startDate: '06/26/2029', endDate: '06/25/2034', rentStr: '25,464.18' },
     ]);
   });
 
