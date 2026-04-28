@@ -734,9 +734,24 @@ export default function InputForm({
             );
           })}
 
-          <p className="mt-3 text-xs text-txt-dim">
-            Leave Billing Start blank to start the charge from lease commencement. Use Recurring Overrides for dated irregular charge changes.
-          </p>
+          <div
+            className="mt-4 rounded-[1rem] border border-status-err-border bg-status-err-bg/92 px-4 py-3 shadow-panel"
+            style={{
+              boxShadow: '0 0 0 1px rgba(255, 157, 172, 0.18), 0 0 26px rgba(255, 77, 109, 0.28), inset 0 0 18px rgba(255, 77, 109, 0.08)',
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="status-chip border-status-err-border bg-status-err-bg text-status-err-title">
+                Precaution
+              </span>
+              <p className="text-sm font-semibold text-status-err-title">
+                Billing Start export behavior: months before Billing Start are hardcoded as $0.
+              </p>
+            </div>
+            <p className="mt-2 text-sm text-status-err-text">
+              After Billing Start, recurring charges stay dynamic formulas in Excel. Leave Billing Start blank to start the charge from lease commencement.
+            </p>
+          </div>
         </SectionBox>
 
         <SectionBox
@@ -802,11 +817,28 @@ export default function InputForm({
               </button>
             </div>
 
-            {(form.recurringOverrides ?? []).length === 0 ? (
-              <p className="text-xs text-txt-dim">
-                No explicit recurring overrides. Use this only when the lease has a dated change that should replace the standard recurring assumption path.
+            <div
+              className="rounded-[1rem] border border-status-err-border bg-status-err-bg/92 px-4 py-3 shadow-panel"
+              style={{
+                boxShadow: '0 0 0 1px rgba(255, 157, 172, 0.18), 0 0 26px rgba(255, 77, 109, 0.28), inset 0 0 18px rgba(255, 77, 109, 0.08)',
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="status-chip border-status-err-border bg-status-err-bg text-status-err-title">
+                  Precaution
+                </span>
+                <p className="text-sm font-semibold text-status-err-title">
+                  {(form.recurringOverrides ?? []).length === 0
+                    ? 'No explicit recurring overrides. Use this only when the lease has a dated change that should replace the standard recurring assumption path.'
+                    : 'Use recurring overrides only when the lease has a dated change that should replace the standard recurring assumption path.'}
+                </p>
+              </div>
+              <p className="mt-2 text-sm text-status-err-text">
+                An override starts on the monthly row containing the effective date and continues forward until another override for the same target replaces it. Targets can include Base Rent, aggregate NNN, or any recurring charge line item shown above.
               </p>
-            ) : (
+            </div>
+
+            {(form.recurringOverrides ?? []).length > 0 && (
               <>
                 <div className="grid grid-cols-[180px_150px_140px_1fr_28px] gap-x-2">
                   <ColumnHeader>Target</ColumnHeader>
@@ -855,10 +887,6 @@ export default function InputForm({
                 ))}
               </>
             )}
-
-            <p className="text-xs text-txt-dim">
-              An override starts on the monthly row containing the effective date and continues forward until another override for the same target replaces it. Targets can include Base Rent, aggregate NNN, or any recurring charge line item shown above.
-            </p>
           </div>
         </SectionBox>
 

@@ -151,6 +151,10 @@ describe('InputForm semantic schedule preview', () => {
     expect(html).toContain('Blank or $0 rows are intentionally omitted from preview/export.');
     expect(html).toContain('Lease Schedule only: annually defined escalations stay dynamic formulas in Excel.');
     expect(html).toContain('Non-annual or irregular escalations, including dated recurring overrides, export as hardcoded resolved values to match the preview.');
+    expect(html).toContain('Billing Start export behavior: months before Billing Start are hardcoded as $0.');
+    expect(html).toContain('After Billing Start, recurring charges stay dynamic formulas in Excel. Leave Billing Start blank to start the charge from lease commencement.');
+    expect(html).toContain('No explicit recurring overrides. Use this only when the lease has a dated change that should replace the standard recurring assumption path.');
+    expect(html).toContain('An override starts on the monthly row containing the effective date and continues forward until another override for the same target replaces it. Targets can include Base Rent, aggregate NNN, or any recurring charge line item shown above.');
   });
 
   it('shows the recurring-charge precaution copy in aggregate mode', () => {
@@ -182,6 +186,10 @@ describe('InputForm semantic schedule preview', () => {
     expect(html).toContain('Blank or $0 rows are intentionally omitted from preview/export.');
     expect(html).toContain('Lease Schedule only: annually defined escalations stay dynamic formulas in Excel.');
     expect(html).toContain('Non-annual or irregular escalations, including dated recurring overrides, export as hardcoded resolved values to match the preview.');
+    expect(html).toContain('Billing Start export behavior: months before Billing Start are hardcoded as $0.');
+    expect(html).toContain('After Billing Start, recurring charges stay dynamic formulas in Excel. Leave Billing Start blank to start the charge from lease commencement.');
+    expect(html).toContain('No explicit recurring overrides. Use this only when the lease has a dated change that should replace the standard recurring assumption path.');
+    expect(html).toContain('An override starts on the monthly row containing the effective date and continues forward until another override for the same target replaces it. Targets can include Base Rent, aggregate NNN, or any recurring charge line item shown above.');
     expect(html).toContain('Aggregate NNN mode: a single combined NNN estimate replaces individual CAMS, Insurance, and Taxes line items.');
   });
 });
