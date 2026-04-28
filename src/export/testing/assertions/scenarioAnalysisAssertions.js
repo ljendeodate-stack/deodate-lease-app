@@ -101,9 +101,9 @@ export function evaluateScenarioAnalysisFixture(fixture, scenario) {
   }
 
   checks.push(check(
-    'analysis-date-input-style',
-    scenario.styleSignals.analysisDateUsesBlueInputFont,
-    `Scenario Analysis I5 font color=${scenario.effectiveDateCell.style?.font?.color?.rgb ?? 'missing'}.`,
+    'analysis-date-brand-input-style',
+    scenario.styleSignals.analysisDateUsesBrandInputStyle,
+    `Scenario Analysis I5 font color=${scenario.effectiveDateCell.style?.font?.color?.rgb ?? 'missing'}, fill=${scenario.effectiveDateCell.style?.fill?.fgColor?.rgb ?? 'missing'}.`,
     'warning'
   ));
 

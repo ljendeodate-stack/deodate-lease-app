@@ -1,13 +1,15 @@
+import { C } from '../specs/styleTokens.js';
+
 const RENEGO_LABEL_PREFIX = 'Renego: (base rent only)';
 const EXIT_LABEL_PREFIX = 'Exit: (base rent, nets, and other obligations)';
 
 export const INLINE_SCENARIO_GROUP_TITLE = 'Renegotiation and Exit';
 export const INLINE_SCENARIO_RENEGO_GROUP_TITLE = 'Renegotiation';
 export const INLINE_SCENARIO_EXIT_GROUP_TITLE = 'Exit';
-export const INLINE_SCENARIO_ORANGE = 'C55A11';
+export const INLINE_SCENARIO_ORANGE = C.tableHeader;
 export const INLINE_SCENARIO_PREVIEW_ORANGE = '#C55A11';
-export const INLINE_SCENARIO_RENEGO_GROUP_FILL = 'A95513';
-export const INLINE_SCENARIO_EXIT_GROUP_FILL = 'D07A2A';
+export const INLINE_SCENARIO_RENEGO_GROUP_FILL = C.tableHeader;
+export const INLINE_SCENARIO_EXIT_GROUP_FILL = C.sectionBar;
 export const INLINE_SCENARIO_RENEGO_GROUP_PREVIEW = '#A95513';
 export const INLINE_SCENARIO_EXIT_GROUP_PREVIEW = '#D07A2A';
 
@@ -22,8 +24,8 @@ export const INLINE_SCENARIO_COLUMNS = [
     header: `${RENEGO_LABEL_PREFIX}\nModest (10%)`,
     previewHeader: `${RENEGO_LABEL_PREFIX} Modest (10%)`,
     width: 24,
-    headerFill: 'B66318',
-    bodyFill: 'FBE2D5',
+    headerFill: C.tableHeader,
+    bodyFill: C.labelFill,
     previewHeaderFill: '#B66318',
     previewBodyFill: '#FBE2D5',
   },
@@ -37,8 +39,8 @@ export const INLINE_SCENARIO_COLUMNS = [
     header: `${RENEGO_LABEL_PREFIX}\nMaterial (20%)`,
     previewHeader: `${RENEGO_LABEL_PREFIX} Material (20%)`,
     width: 24,
-    headerFill: '985114',
-    bodyFill: 'F7CFB7',
+    headerFill: C.tableHeader,
+    bodyFill: C.altRow,
     previewHeaderFill: '#985114',
     previewBodyFill: '#F7CFB7',
   },
@@ -52,8 +54,8 @@ export const INLINE_SCENARIO_COLUMNS = [
     header: `${RENEGO_LABEL_PREFIX}\nSignificant (30%)`,
     previewHeader: `${RENEGO_LABEL_PREFIX} Significant (30%)`,
     width: 25,
-    headerFill: '7E410F',
-    bodyFill: 'F2BA98',
+    headerFill: C.tableHeader,
+    bodyFill: C.white,
     previewHeaderFill: '#7E410F',
     previewBodyFill: '#F2BA98',
   },
@@ -67,8 +69,8 @@ export const INLINE_SCENARIO_COLUMNS = [
     header: `${EXIT_LABEL_PREFIX}\nFull Obligation (0%)`,
     previewHeader: `${EXIT_LABEL_PREFIX} Full Obligation (0%)`,
     width: 28,
-    headerFill: 'DA9B5A',
-    bodyFill: 'FCE7D8',
+    headerFill: C.sectionBar,
+    bodyFill: C.labelFill,
     previewHeaderFill: '#DA9B5A',
     previewBodyFill: '#FCE7D8',
   },
@@ -82,8 +84,8 @@ export const INLINE_SCENARIO_COLUMNS = [
     header: `${EXIT_LABEL_PREFIX}\nMild Discount (20%)`,
     previewHeader: `${EXIT_LABEL_PREFIX} Mild Discount (20%)`,
     width: 28,
-    headerFill: 'D18E49',
-    bodyFill: 'F9DCC8',
+    headerFill: C.sectionBar,
+    bodyFill: C.altRow,
     previewHeaderFill: '#D18E49',
     previewBodyFill: '#F9DCC8',
   },
@@ -97,8 +99,8 @@ export const INLINE_SCENARIO_COLUMNS = [
     header: `${EXIT_LABEL_PREFIX}\nModerate Discount (30%)`,
     previewHeader: `${EXIT_LABEL_PREFIX} Moderate Discount (30%)`,
     width: 30,
-    headerFill: 'C78036',
-    bodyFill: 'F5D0B8',
+    headerFill: C.sectionBar,
+    bodyFill: C.white,
     previewHeaderFill: '#C78036',
     previewBodyFill: '#F5D0B8',
   },
@@ -112,8 +114,8 @@ export const INLINE_SCENARIO_COLUMNS = [
     header: `${EXIT_LABEL_PREFIX}\nMaterial Discount (40%)`,
     previewHeader: `${EXIT_LABEL_PREFIX} Material Discount (40%)`,
     width: 29,
-    headerFill: 'BB7024',
-    bodyFill: 'F0C09F',
+    headerFill: C.sectionBar,
+    bodyFill: C.labelFill,
     previewHeaderFill: '#BB7024',
     previewBodyFill: '#F0C09F',
   },
@@ -127,8 +129,8 @@ export const INLINE_SCENARIO_COLUMNS = [
     header: `${EXIT_LABEL_PREFIX}\nSignificant Discount (50%)`,
     previewHeader: `${EXIT_LABEL_PREFIX} Significant Discount (50%)`,
     width: 31,
-    headerFill: 'A85C1A',
-    bodyFill: 'E8AB7C',
+    headerFill: C.sectionBar,
+    bodyFill: C.altRow,
     previewHeaderFill: '#A85C1A',
     previewBodyFill: '#E8AB7C',
   },

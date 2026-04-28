@@ -4,6 +4,7 @@ import { renderLeaseScheduleWorksheet } from '../builders/renderLeaseScheduleWor
 import { buildExportModel } from '../model/buildExportModel.js';
 import { resolveLeaseScheduleLayout } from '../resolvers/resolveLeaseScheduleLayout.js';
 import { buildLegacyLeaseScheduleSpec } from './legacyLeaseScheduleSpec.js';
+import { C } from './styleTokens.js';
 import { calculateAllCharges } from '../../engine/calculator.js';
 import { expandPeriods } from '../../engine/expander.js';
 import { parseMDYStrict } from '../../engine/yearMonth.js';
@@ -22,7 +23,7 @@ function makeProcessedRows(periods, params) {
 }
 
 describe('buildLegacyLeaseScheduleSpec', () => {
-  it('keeps annual rows dynamic while hardcoding non-annual step-up rows', () => {
+  it('keeps annual rows dynamic while hardcoding non-annual step-up rows with accent emphasis', () => {
     const processedRows = makeProcessedRows([
       { periodStart: parseMDYStrict('01/01/2030'), periodEnd: parseMDYStrict('12/31/2034'), monthlyRent: 10000 },
       { periodStart: parseMDYStrict('01/01/2035'), periodEnd: parseMDYStrict('04/30/2039'), monthlyRent: 12500 },
@@ -45,11 +46,11 @@ describe('buildLegacyLeaseScheduleSpec', () => {
     expect(worksheet[`E${firstDataRow + 60}`].f).toBeUndefined();
     expect(worksheet[`E${firstDataRow + 60}`].v).toBe(12500);
     expect(worksheet[`E${firstDataRow + 60}`].s.font.bold).toBe(true);
-    expect(worksheet[`E${firstDataRow + 60}`].s.font.color.rgb).toBe('C00000');
+    expect(worksheet[`E${firstDataRow + 60}`].s.font.color.rgb).toBe(C.fcInput);
     expect(worksheet[`F${firstDataRow + 60}`].f).toBeUndefined();
     expect(worksheet[`F${firstDataRow + 60}`].v).toBe(12500);
     expect(worksheet[`F${firstDataRow + 60}`].s.font.bold).toBe(true);
-    expect(worksheet[`F${firstDataRow + 60}`].s.font.color.rgb).toBe('C00000');
+    expect(worksheet[`F${firstDataRow + 60}`].s.font.color.rgb).toBe(C.fcInput);
   });
 
   it('keeps explicit dated concession rows formula-driven through the concession tables without collapsing neighboring annual rows', () => {
@@ -111,7 +112,7 @@ describe('buildLegacyLeaseScheduleSpec', () => {
     expect(worksheet[`${layout.colByKey.obligRem.letter}${firstDataRow}`].f).toContain(`:${layout.colByKey.totalMonthly.letter}${layout.lastDataRow}`);
   });
 
-  it('marks recurring charge overrides in bold red and hardcodes those rows', () => {
+  it('marks recurring charge overrides in bold accent styling and hardcodes those rows', () => {
     const charge = {
       key: 'parking',
       canonicalType: 'other',
@@ -148,6 +149,6 @@ describe('buildLegacyLeaseScheduleSpec', () => {
     expect(worksheet[`${parkingCell}${firstDataRow + 1}`].f).toBeUndefined();
     expect(worksheet[`${parkingCell}${firstDataRow + 1}`].v).toBe(325);
     expect(worksheet[`${parkingCell}${firstDataRow + 1}`].s.font.bold).toBe(true);
-    expect(worksheet[`${parkingCell}${firstDataRow + 1}`].s.font.color.rgb).toBe('C00000');
+    expect(worksheet[`${parkingCell}${firstDataRow + 1}`].s.font.color.rgb).toBe(C.fcInput);
   });
 });

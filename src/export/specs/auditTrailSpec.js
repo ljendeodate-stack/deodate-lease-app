@@ -5,7 +5,7 @@
  * proration basis, and per-charge escalation year and active status.
  */
 
-import { C, FMT, FONT_B, FONT_SM, FONT } from './styleTokens.js';
+import { C, FMT, ds, hdrStyle } from './styleTokens.js';
 
 /**
  * Build the Audit Trail sheet spec.
@@ -21,6 +21,7 @@ export function buildAuditTrailSpec(rows, charges) {
   const baseHeaders = [
     'Period Start', 'Month #',
     'Period Factor', 'Proration Factor', 'Proration Basis',
+    'Concession Type', 'Concession Trigger', 'Concession Detail', 'Concession Amount',
   ];
   const chargeHeaders = charges.flatMap((ch) => [
     `${ch.displayLabel}\nEsc Year`, `${ch.displayLabel}\nActive`,
@@ -41,10 +42,29 @@ export function buildAuditTrailSpec(rows, charges) {
     cells.push({ col: 2, row: r, cell: inputCell(row.periodFactor            ?? 1, FMT.factor, fill) });
     cells.push({ col: 3, row: r, cell: inputCell(row.baseRentProrationFactor ?? 1, FMT.factor, fill) });
     cells.push({ col: 4, row: r, cell: textCell(row.prorationBasis ?? '', fill, 'center', C.fcInput) });
+    cells.push({ col: 5, row: r, cell: textCell(row.concessionType ?? '', fill, 'center', C.fcInput) });
+    cells.push({ col: 6, row: r, cell: textCell(row.concessionTriggerDate ?? row.concessionEndDate ?? '', fill, 'center', C.fcInput) });
+    cells.push({
+      col: 7,
+      row: r,
+      cell: textCell(
+        row.concessionLabel
+          ?? row.concessionAssumptionNote
+          ?? (
+            row.concessionStartDate || row.concessionEndDate
+              ? `${row.concessionStartDate ?? ''}${row.concessionEndDate ? ` -> ${row.concessionEndDate}` : ''}`
+              : ''
+          ),
+        fill,
+        'left',
+        C.fcInput,
+      ),
+    });
+    cells.push({ col: 8, row: r, cell: inputCell(row.abatementAmount ?? 0, FMT.currency, fill) });
 
     // Dynamic charge trace columns
     charges.forEach((ch, chIdx) => {
-      const baseCi = 5 + chIdx * 2;
+      const baseCi = 9 + chIdx * 2;
       const detail = row.chargeDetails?.[ch.key];
       const escYears = detail?.escYears ?? row[`${ch.key}EscYears`] ?? 0;
       const active   = detail?.active   ?? row[`${ch.key}Active`]   ?? '';
@@ -53,8 +73,8 @@ export function buildAuditTrailSpec(rows, charges) {
     });
   });
 
-  const totalCols  = 5 + charges.length * 2;
-  const baseWidths = [13, 9, 14, 16, 20];
+  const totalCols  = 9 + charges.length * 2;
+  const baseWidths = [13, 9, 14, 16, 20, 16, 16, 28, 16];
   const chargeWidths = charges.flatMap(() => [13, 11]);
 
   return {
@@ -71,42 +91,11 @@ export function buildAuditTrailSpec(rows, charges) {
 // ── Inline cell helpers ─────────────────────────────────────────────────────
 
 function hdrStyleLocal(bg) {
-  return {
-    font:      { ...FONT_B, color: { rgb: C.white } },
-    fill:      { patternType: 'solid', fgColor: { rgb: bg } },
-    alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
-    border: {
-      top:    { style: 'thin',   color: { rgb: '000000' } },
-      bottom: { style: 'medium', color: { rgb: '000000' } },
-      left:   { style: 'thin',   color: { rgb: '000000' } },
-      right:  { style: 'thin',   color: { rgb: '000000' } },
-    },
-  };
+  return hdrStyle(bg);
 }
 
 function dsLocal(fill, numFmt, extra = {}) {
-  const THIN_BORDER = {
-    top:    { style: 'thin', color: { rgb: 'C8C8C8' } },
-    bottom: { style: 'thin', color: { rgb: 'C8C8C8' } },
-    left:   { style: 'thin', color: { rgb: 'C8C8C8' } },
-    right:  { style: 'thin', color: { rgb: 'C8C8C8' } },
-  };
-  let fontDef;
-  if (extra.italic) {
-    fontDef = { ...FONT_SM, italic: true, color: { rgb: '555555' } };
-  } else {
-    const base = extra.bold ? FONT_B : (extra.small ? FONT_SM : FONT);
-    fontDef    = extra.fontColor
-      ? { ...base, color: { rgb: extra.fontColor } }
-      : base;
-  }
-  return {
-    font:      fontDef,
-    fill:      { patternType: 'solid', fgColor: { rgb: fill } },
-    alignment: { horizontal: extra.align ?? 'right', vertical: 'middle', ...(extra.wrap ? { wrapText: true } : {}) },
-    numFmt,
-    border:    THIN_BORDER,
-  };
+  return ds(fill, numFmt, extra);
 }
 
 function dateCell(isoStr, fill) {

@@ -11,6 +11,7 @@ import {
   INLINE_SCENARIO_EXIT_GROUP_TITLE,
   INLINE_SCENARIO_RENEGO_GROUP_TITLE,
 } from '../export/derived/inlineScenarioColumns.js';
+import { C, DEODATE_THEME } from '../export/specs/styleTokens.js';
 
 function makeWorkbook(periods, params = {}, exportParams = {}) {
   const { rows } = expandPeriods(periods);
@@ -215,12 +216,32 @@ describe('buildXLSXWorkbook', () => {
     expect(sheet[`${firstExitScenarioColumn.letter}${layout.scenarioGroupRow}`].v).toBe(INLINE_SCENARIO_EXIT_GROUP_TITLE);
     expect(sheet[`${firstScenarioColumn.letter}${layout.headerRow}`].v).toContain('Renego: (base rent only)');
     expect(sheet[`${lastScenarioColumn.letter}${layout.headerRow}`].v).toContain('Exit: (base rent, nets, and other obligations)');
-    expect(sheet[`${firstScenarioColumn.letter}${layout.headerRow}`].s.fill.fgColor.rgb).toBe('B66318');
-    expect(sheet[`${firstExitScenarioColumn.letter}${layout.headerRow}`].s.fill.fgColor.rgb).toBe('DA9B5A');
+    expect(sheet[`${firstScenarioColumn.letter}${layout.headerRow}`].s.fill.fgColor.rgb).toBe(C.tableHeader);
+    expect(sheet[`${firstExitScenarioColumn.letter}${layout.headerRow}`].s.fill.fgColor.rgb).toBe(C.sectionBar);
     expect(sheet[`${firstScenarioColumn.letter}${firstDataRow}`].f).toBe(`${layout.colByKey.baseRem.letter}${firstDataRow}*(1-0.1)`);
     expect(sheet[`${lastScenarioColumn.letter}${firstDataRow}`].f).toBe(`${layout.colByKey.obligRem.letter}${firstDataRow}*(1-0.5)`);
     expect(sheet[`${firstScenarioColumn.letter}${firstDataRow}`].f).not.toContain(layout.colByKey.obligRem.letter);
     expect(sheet[`${lastScenarioColumn.letter}${firstDataRow}`].f).toContain(layout.colByKey.obligRem.letter);
+  });
+
+  it('applies DEODATE workbook anchor styles across exported sheets', () => {
+    const { workbook, firstDataRow } = makeWorkbook([
+      { periodStart: parseMDYStrict('01/01/2030'), periodEnd: parseMDYStrict('12/31/2030'), monthlyRent: 10000 },
+    ]);
+
+    const leaseSheet = workbook.Sheets['Lease Schedule'];
+    const annualSheet = workbook.Sheets['Annual Summary'];
+    const auditSheet = workbook.Sheets['Audit Trail'];
+    const scenarioSheet = workbook.Sheets['Scenario Analysis'];
+
+    expect(leaseSheet.A1.s.font.name).toBe(DEODATE_THEME.fonts.brand);
+    expect(leaseSheet.B6.s.fill.fgColor.rgb).toBe(C.labelFill);
+    expect(leaseSheet[`A${firstDataRow + 1}`].s.fill.fgColor.rgb).toBe(C.altRow);
+    expect(annualSheet.A1.s.fill.fgColor.rgb).toBe(C.tableHeader);
+    expect(auditSheet.A1.s.fill.fgColor.rgb).toBe(C.sectionBar);
+    expect(scenarioSheet.E1.s.font.name).toBe(DEODATE_THEME.fonts.brand);
+    expect(scenarioSheet.I5.s.font.color.rgb).toBe(C.fcInput);
+    expect(scenarioSheet.I5.s.fill.fgColor.rgb).toBe(C.labelFill);
   });
 
   it('keeps free-rent schedule cells formula-driven instead of hardcoded when users input concession rows', () => {

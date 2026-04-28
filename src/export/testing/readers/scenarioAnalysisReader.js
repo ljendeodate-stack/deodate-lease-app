@@ -1,8 +1,8 @@
 import XLSX from 'xlsx-js-style';
 import { parseISODate, toISOLocal } from '../../../engine/yearMonth.js';
+import { C } from '../../specs/styleTokens.js';
 
 const FORMULA_ERROR_PATTERN = /#(?:REF|VALUE|NAME|DIV\/0|NUM|N\/A|NULL)!/i;
-const BLUE_FONT = '0000FF';
 
 function usesApproximateDateLookup(formula) {
   if (!formula) return false;
@@ -149,8 +149,9 @@ export function readScenarioAnalysisWorkbook(workbookBytes, processedRows) {
       ),
     },
     styleSignals: {
-      analysisDateUsesBlueInputFont:
-        String(effectiveDateCell.style?.font?.color?.rgb ?? '').toUpperCase() === BLUE_FONT,
+      analysisDateUsesBrandInputStyle:
+        String(effectiveDateCell.style?.font?.color?.rgb ?? '').toUpperCase() === C.fcInput &&
+        String(effectiveDateCell.style?.fill?.fgColor?.rgb ?? '').toUpperCase() === C.labelFill,
     },
     semanticSnapshot: effectiveRow ? {
       monthlyBaseRent: effectiveRow.scheduledBaseRent ?? 0,

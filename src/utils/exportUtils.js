@@ -32,7 +32,25 @@ import { renderSheet } from '../export/engine/sheetWriter.js';
 import { buildExportModel } from '../export/model/buildExportModel.js';
 import { resolveLeaseScheduleLayout } from '../export/resolvers/resolveLeaseScheduleLayout.js';
 import { buildAnnualSummarySpec } from '../export/specs/annualSummarySpec.js';
+import { buildAuditTrailSpec } from '../export/specs/auditTrailSpec.js';
 import { buildLegacyLeaseScheduleSpec } from '../export/specs/legacyLeaseScheduleSpec.js';
+import {
+  C as THEME_C,
+  DEODATE_THEME as THEME_DEF,
+  emphasisLabelStyle as themeEmphasisLabelStyle,
+  emphasisValueStyle as themeEmphasisValueStyle,
+  metadataStyle as themeMetadataStyle,
+  panelDashStyle as themePanelDashStyle,
+  panelInputStyle as themePanelInputStyle,
+  panelLabelStyle as themePanelLabelStyle,
+  panelSectionStyle as themePanelSectionStyle,
+  panelTierStyle as themePanelTierStyle,
+  panelTitleFillStyle as themePanelTitleFillStyle,
+  panelValueStyle as themePanelValueStyle,
+  scenarioSheetTitleStyle as themeScenarioSheetTitleStyle,
+  subtitleCellStyle as themeSubtitleCellStyle,
+  titleCellStyle as themeTitleCellStyle,
+} from '../export/specs/styleTokens.js';
 import {
   CHARGE_CATEGORIES,
   getActiveCategories,
@@ -45,24 +63,34 @@ import {
 // ===========================================================================
 
 const C = {
-  headerNavy:   '1F3864',
-  headerBlue:   '17375E',
-  headerPurple: '3D1C6E',
-  subheader:    'D6DCE4',
-  totalBg:      'BDD7EE',
-  amber:        'FFF2CC',
-  rowEven:      'FFFFFF',
-  rowOdd:       'DEEAF1',
-  note:         'F2F2F2',
-  white:        'FFFFFF',
-  assumpLabel:  'EBF3FB',
-  softRedPink:  'FFB6C1',
+  headerNavy: THEME_C.headerNavy,
+  headerBlue: THEME_C.headerBlue,
+  headerPurple: THEME_C.headerPurple,
+  subheader: THEME_C.subheader,
+  totalBg: THEME_C.totalBg,
+  amber: THEME_C.amber,
+  rowEven: THEME_C.rowEven,
+  rowOdd: THEME_C.rowOdd,
+  note: THEME_C.note,
+  white: THEME_C.white,
+  assumpLabel: THEME_C.assumpLabel,
+  softRedPink: THEME_C.softRedPink,
 
   fcInput:      '0000FF',   // blue  — hard-coded inputs
   fcCalc:       '000000',   // black — formula / calculated values
   fcCrossSheet: '375623',   // dark green — cross-sheet references
   fcTotal:      '1F3864',   // navy — totals row
 };
+
+C.inputFill = THEME_C.inputFill;
+C.fcInput = THEME_C.fcInput;
+C.fcCalc = THEME_C.fcCalc;
+C.fcCrossSheet = THEME_C.fcCrossSheet;
+C.fcTotal = THEME_C.fcTotal;
+C.savingsFill = THEME_C.savingsFill;
+C.savingsText = THEME_C.savingsText;
+C.obligFill = THEME_C.obligFill;
+C.obligText = THEME_C.obligText;
 
 // ===========================================================================
 // Shared style building blocks
@@ -71,6 +99,10 @@ const C = {
 const FONT    = { name: 'Calibri', sz: 11 };
 const FONT_B  = { ...FONT, bold: true };
 const FONT_SM = { ...FONT, sz: 10 };
+
+FONT.name = THEME_DEF.fonts.body;
+FONT_B.name = THEME_DEF.fonts.body;
+FONT_SM.name = THEME_DEF.fonts.body;
 
 const THIN_BORDER = {
   top:    { style: 'thin', color: { rgb: 'C8C8C8' } },
@@ -85,6 +117,9 @@ const PANEL_BORDER = {
   left:   { style: 'medium', color: { rgb: '1F3864' } },
   right:  { style: 'medium', color: { rgb: '1F3864' } },
 };
+
+Object.values(THIN_BORDER).forEach((edge) => { edge.color.rgb = THEME_C.border; });
+Object.values(PANEL_BORDER).forEach((edge) => { edge.color.rgb = THEME_C.border; });
 
 function hdrStyle(bg = C.headerNavy) {
   return {
@@ -905,24 +940,28 @@ function buildAuditTrail(rows, activeCategories) {
 // ---------------------------------------------------------------------------
 
 function writeScenarioParams(ws, concessionRefs, LS = '') {
-  const lStyle = {
-    font:      { ...FONT_B, color: { rgb: '1F3864' } },
-    fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
-    alignment: { horizontal: 'left', vertical: 'middle', wrapText: true },
-    border:    THIN_BORDER,
-    numFmt:    FMT.text,
-  };
+  const lStyle = themePanelLabelStyle(THIN_BORDER);
   // Rows 9 and 10 are used for Free Rent / TI inputs so they do not collide
   // with the Renegotiation panel (rows 13–30) whose Base-Case column (F) would
   // otherwise overwrite $F$22 and $F$23 with dash text cells → #VALUE!
   sc(ws, 4, 9, { t: 's', v: 'Free Rent (Lease Schedule)', s: lStyle });
-  sc(ws, 5, 9, cXSheet(`${LS}${concessionRefs.freeRentTotal}`, 0, FMT.currency, C.white));
+  sc(ws, 5, 9, {
+    t: 'n',
+    v: 0,
+    f: `${LS}${concessionRefs.freeRentTotal}`,
+    s: themePanelValueStyle(FMT.currency, { fill: C.white, fontColor: THEME_C.fcCrossSheet, border: THIN_BORDER }),
+  });
   sc(ws, 4, 10, { t: 's', v: 'Abatement (Lease Schedule)', s: lStyle });
-  sc(ws, 5, 10, cXSheet(`${LS}${concessionRefs.abatementTotal}`, 0, FMT.currency, C.white));
+  sc(ws, 5, 10, {
+    t: 'n',
+    v: 0,
+    f: `${LS}${concessionRefs.abatementTotal}`,
+    s: themePanelValueStyle(FMT.currency, { fill: C.white, fontColor: THEME_C.fcCrossSheet, border: THIN_BORDER }),
+  });
   sc(ws, 4, 11, { t: 's', v: 'TI ($ per SF)', s: lStyle });
-  sc(ws, 5, 11, cInput(0, FMT.currency, C.white));
+  sc(ws, 5, 11, { t: 'n', v: 0, s: themePanelInputStyle(FMT.currency, { fill: C.white, border: THIN_BORDER }) });
   sc(ws, 4, 12, { t: 's', v: 'NPV Discount Rate', s: lStyle });
-  sc(ws, 5, 12, cInput(0.07, FMT.pct, C.white));
+  sc(ws, 5, 12, { t: 'n', v: 0.07, s: themePanelInputStyle(FMT.pct, { fill: C.white, border: THIN_BORDER }) });
 }
 
 // ---------------------------------------------------------------------------
@@ -931,21 +970,8 @@ function writeScenarioParams(ws, concessionRefs, LS = '') {
 
 function writeCurrentRemainingObligations(ws, cr, LS = '') {
   const { OBLIG, BASE, NNN: nnnCol, OTC, LAST, FDR } = cr;
-  const hdrS = {
-    font:      { ...FONT_B, sz: 12, color: { rgb: C.white } },
-    fill:      { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
-    alignment: { horizontal: 'left', vertical: 'middle' },
-    border:    PANEL_BORDER,
-    numFmt:    FMT.text,
-  };
-  const lblS = {
-    font:      { ...FONT_B, sz: 11, color: { rgb: '1F3864' } },
-    fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
-    alignment: { horizontal: 'left', vertical: 'middle' },
-    border:    PANEL_BORDER,
-    numFmt:    FMT.text,
-  };
-  const valS = (f) => cFmla(f, 0, FMT.currency, C.white);
+  const hdrS = themePanelSectionStyle(C.headerNavy, 12);
+  const lblS = themePanelLabelStyle(PANEL_BORDER);
   // E4: section header (E4:F4 merged)
   sc(ws, 4, 4, { t: 's', v: 'Current Remaining Obligations:', s: hdrS });
   sc(ws, 5, 4, { t: 's', v: '',                              s: hdrS });
@@ -978,75 +1004,42 @@ function writeCurrentRemainingObligations(ws, cr, LS = '') {
 function pSectionHdr(v) {
   return {
     t: 's', v,
-    s: {
-      font:      { ...FONT_B, sz: 12, color: { rgb: C.white } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
-      alignment: { horizontal: 'left', vertical: 'middle', wrapText: true },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.text,
-    },
+    s: themePanelSectionStyle(C.headerNavy, 12),
   };
 }
 
 function pSectionHdrEmpty() {
   return {
     t: 's', v: '',
-    s: {
-      fill:   { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
-      border: PANEL_BORDER,
-    },
+    s: themePanelTitleFillStyle(),
   };
 }
 
 function pTierLbl(v) {
   return {
     t: 's', v,
-    s: {
-      font:      { ...FONT_B, color: { rgb: C.white } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.headerBlue } },
-      alignment: { horizontal: 'center', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.text,
-    },
+    s: themePanelTierStyle(C.headerBlue),
   };
 }
 
 function pRowLbl(v) {
   return {
     t: 's', v,
-    s: {
-      font:      { ...FONT_B, color: { rgb: '1F3864' } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
-      alignment: { horizontal: 'left', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.text,
-    },
+    s: themePanelLabelStyle(PANEL_BORDER),
   };
 }
 
 function pPct(v) {
   return {
     t: 'n', v,
-    s: {
-      font:      { ...FONT, color: { rgb: C.fcInput } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
-      alignment: { horizontal: 'center', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.pct,
-    },
+    s: themePanelInputStyle(FMT.pct, { fill: THEME_C.labelFill, align: 'center', border: PANEL_BORDER }),
   };
 }
 
 function pDash() {
   return {
     t: 's', v: '-',
-    s: {
-      font:      { ...FONT, color: { rgb: C.fcCalc } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
-      alignment: { horizontal: 'center', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.text,
-    },
+    s: themePanelDashStyle(C.white),
   };
 }
 
@@ -1055,75 +1048,45 @@ function legacyNearestPriorLookup(lookupCell, dateRange, returnRange, firstDateC
 }
 
 // Green-emphasis cells for savings rows
-const SAVINGS_GREEN_FILL = 'E2EFDA';
-const SAVINGS_GREEN_FONT = '375623';
+const SAVINGS_GREEN_FILL = THEME_C.savingsFill;
+const SAVINGS_GREEN_FONT = THEME_C.savingsText;
 
 // Light-red emphasis for obligation severity (Exit panel — Remaining Obligation FV)
-const OBLIG_RED_FILL = 'FFD9D9';
-const OBLIG_RED_FONT = '7B1818';
+const OBLIG_RED_FILL = THEME_C.obligFill;
+const OBLIG_RED_FONT = THEME_C.obligText;
 
 function pSavingsLabel(v) {
   return {
     t: 's', v,
-    s: {
-      font:      { ...FONT_B, color: { rgb: SAVINGS_GREEN_FONT } },
-      fill:      { patternType: 'solid', fgColor: { rgb: SAVINGS_GREEN_FILL } },
-      alignment: { horizontal: 'left', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.text,
-    },
+    s: themeEmphasisLabelStyle('savings'),
   };
 }
 
 function pSavingsDash() {
   return {
     t: 's', v: '-',
-    s: {
-      font:      { ...FONT_B, color: { rgb: SAVINGS_GREEN_FONT } },
-      fill:      { patternType: 'solid', fgColor: { rgb: SAVINGS_GREEN_FILL } },
-      alignment: { horizontal: 'center', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.text,
-    },
+    s: themeEmphasisValueStyle('savings', FMT.text, 'center'),
   };
 }
 
 function pSavingsRow(formula, fallback, fmt) {
   return {
     t: 'n', v: fallback ?? 0, f: formula,
-    s: {
-      font:      { ...FONT_B, color: { rgb: SAVINGS_GREEN_FONT } },
-      fill:      { patternType: 'solid', fgColor: { rgb: SAVINGS_GREEN_FILL } },
-      alignment: { horizontal: 'right', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    fmt,
-    },
+    s: themeEmphasisValueStyle('savings', fmt),
   };
 }
 
 function pObligLabel(v) {
   return {
     t: 's', v,
-    s: {
-      font:      { ...FONT_B, color: { rgb: OBLIG_RED_FONT } },
-      fill:      { patternType: 'solid', fgColor: { rgb: OBLIG_RED_FILL } },
-      alignment: { horizontal: 'left', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.text,
-    },
+    s: themeEmphasisLabelStyle('obligation'),
   };
 }
 
 function pObligRow(formula, fallback, fmt) {
   return {
     t: 'n', v: fallback ?? 0, f: formula,
-    s: {
-      font:      { ...FONT_B, color: { rgb: OBLIG_RED_FONT } },
-      fill:      { patternType: 'solid', fgColor: { rgb: OBLIG_RED_FILL } },
-      alignment: { horizontal: 'right', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    fmt,
-    },
+    s: themeEmphasisValueStyle('obligation', fmt),
   };
 }
 
@@ -1131,13 +1094,7 @@ function pObligRow(formula, fallback, fmt) {
 function pFmla(formula, fallback, fmt, fill = C.white) {
   return {
     t: 'n', v: fallback ?? 0, f: formula,
-    s: {
-      font:      { ...FONT, color: { rgb: C.fcCalc } },
-      fill:      { patternType: 'solid', fgColor: { rgb: fill } },
-      alignment: { horizontal: 'right', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    fmt,
-    },
+    s: themePanelValueStyle(fmt, { fill, align: 'right', fontColor: THEME_C.fcCalc, border: PANEL_BORDER }),
   };
 }
 
@@ -1173,23 +1130,11 @@ function writeRenegotiationPanel(ws, cr, LS = '') {
 
   const dateCell = (f) => ({
     t: 'n', v: 0, f,
-    s: {
-      font:      { ...FONT, color: { rgb: C.fcCalc } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
-      alignment: { horizontal: 'center', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.date,
-    },
+    s: themePanelValueStyle(FMT.date, { fill: C.white, align: 'center', fontColor: THEME_C.fcCalc, border: PANEL_BORDER }),
   });
   const infoCell = (v) => ({
     t: 's', v,
-    s: {
-      font:      { ...FONT, color: { rgb: C.fcCalc } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
-      alignment: { horizontal: 'left', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.text,
-    },
+    s: themePanelValueStyle(FMT.text, { fill: C.white, align: 'left', fontColor: THEME_C.fcCalc, border: PANEL_BORDER }),
   });
 
   // Row 13: section header (E13:I13 merged) + date echo
@@ -1348,23 +1293,11 @@ function writeExitPanel(ws, cr, LS = '') {
 
   const dateCell = (f) => ({
     t: 'n', v: 0, f,
-    s: {
-      font:      { ...FONT, color: { rgb: C.fcCalc } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
-      alignment: { horizontal: 'center', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.date,
-    },
+    s: themePanelValueStyle(FMT.date, { fill: C.white, align: 'center', fontColor: THEME_C.fcCalc, border: PANEL_BORDER }),
   });
   const infoCell = (v) => ({
     t: 's', v,
-    s: {
-      font:      { ...FONT, color: { rgb: C.fcCalc } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.white } },
-      alignment: { horizontal: 'left', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.text,
-    },
+    s: themePanelValueStyle(FMT.text, { fill: C.white, align: 'left', fontColor: THEME_C.fcCalc, border: PANEL_BORDER }),
   });
 
   // Row 32: section header (E32:G32 merged) + date echo
@@ -1553,21 +1486,12 @@ function buildScenarioSheet(rows, otLabels, columns, firstDataRow, cellMap, leas
   // Title (row 1, col E — merged E1:J1)
   sc(ws, 4, 1, {
     t: 's', v: 'DEODATE — Scenario Analysis',
-    s: {
-      font:      { ...FONT_B, sz: 14, color: { rgb: C.white } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
-      alignment: { horizontal: 'left', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.text,
-    },
+    s: themeScenarioSheetTitleStyle(),
   });
   for (let c = 5; c <= 9; c++) {
     sc(ws, c, 1, {
       t: 's', v: '',
-      s: {
-        fill:   { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
-        border: PANEL_BORDER,
-      },
+      s: themePanelTitleFillStyle(),
     });
   }
   ws['!merges'].push({ s: { r: 0, c: 4 }, e: { r: 0, c: 9 } });
@@ -1575,13 +1499,7 @@ function buildScenarioSheet(rows, otLabels, columns, firstDataRow, cellMap, leas
   // §7: Analysis date input — I5 resolves to the shared analysisDate assumption
   sc(ws, 7, 5, {
     t: 's', v: 'Effective Date of Analysis:',
-    s: {
-      font:      { ...FONT_B, color: { rgb: '1F3864' } },
-      fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
-      alignment: { horizontal: 'right', vertical: 'middle' },
-      border:    PANEL_BORDER,
-      numFmt:    FMT.text,
-    },
+    s: themePanelLabelStyle(PANEL_BORDER, 'right'),
   });
   const analysisDateAddr = cellMap?.effectiveAnalysisDate ?? `A${FDR}`;
   const defaultAnalysisDate = rows[0]?.periodStart ?? rows[0]?.date ?? null;
@@ -1590,7 +1508,7 @@ function buildScenarioSheet(rows, otLabels, columns, firstDataRow, cellMap, leas
     t: 'n',
     v: toSerial(defaultAnalysisDate) ?? 0,
     f: `${LS}${analysisDateAddr}`,
-    s: ds('FFFACD', FMT.date, { fontColor: C.fcInput }),
+    s: themePanelInputStyle(FMT.date, { fill: THEME_C.labelFill, align: 'center', border: PANEL_BORDER }),
   });  // I5 resolves from the shared analysisDate assumption — user-overridable
 
   // Pass SF address through colRefs so panels use the semantic assumption
@@ -1649,7 +1567,7 @@ export function buildXLSXWorkbook(rows, params = {}, filename = 'lease-schedule'
   );
   XLSX.utils.book_append_sheet(
     wb,
-    buildAuditTrail(rows, exportModel.activeCategories),
+    renderSheet(buildAuditTrailSpec(rows, exportModel.activeCategories)),
     'Audit Trail',
   );
   XLSX.utils.book_append_sheet(

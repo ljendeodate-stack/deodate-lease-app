@@ -1,4 +1,20 @@
-import { C, FMT, FONT_B, FONT_SM, TOTAL_BASE, ds, hdrStyle, ASSUMPTION_BORDER } from './styleTokens.js';
+import {
+  ASSUMPTION_BORDER,
+  C,
+  FMT,
+  FONT_B,
+  TOTAL_BASE,
+  computedCellStyle,
+  ds,
+  hdrStyle,
+  inputTextCellStyle,
+  labelCellStyle,
+  metadataStyle,
+  noteCellStyle,
+  sectionBarStyle,
+  subtitleCellStyle,
+  titleCellStyle,
+} from './styleTokens.js';
 import { colLetter } from '../engine/registry.js';
 import {
   INLINE_SCENARIO_EXIT_GROUP_FILL,
@@ -62,12 +78,7 @@ function buildTitleSection(filename, lastCol) {
         cell: {
           t: 's',
           v: `${titleName} - Obligation Analysis`,
-          s: {
-            font: { name: 'Calibri', sz: 20, bold: true, color: { rgb: C.headerNavy } },
-            fill: { patternType: 'solid', fgColor: { rgb: 'DEEAF1' } },
-            alignment: { horizontal: 'center', vertical: 'middle' },
-            numFmt: FMT.text,
-          },
+          s: titleCellStyle(20),
         },
       },
       {
@@ -76,12 +87,7 @@ function buildTitleSection(filename, lastCol) {
         cell: {
           t: 's',
           v: 'DEODATE Lease Schedule Engine - Full Obligation Analysis',
-          s: {
-            font: { name: 'Calibri', sz: 11, italic: true, color: { rgb: '375623' } },
-            fill: { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
-            alignment: { horizontal: 'center', vertical: 'middle' },
-            numFmt: FMT.text,
-          },
+          s: subtitleCellStyle(),
         },
       },
       {
@@ -90,12 +96,7 @@ function buildTitleSection(filename, lastCol) {
         cell: {
           t: 's',
           v: `Generated: ${pad(today.getMonth() + 1)}/${pad(today.getDate())}/${today.getFullYear()}`,
-          s: {
-            font: { name: 'Calibri', sz: 10, color: { rgb: '555555' } },
-            fill: { patternType: 'solid', fgColor: { rgb: C.note } },
-            alignment: { horizontal: 'center', vertical: 'middle' },
-            numFmt: FMT.text,
-          },
+          s: metadataStyle(),
         },
       },
     ],
@@ -135,29 +136,9 @@ function buildConcessionAmountFormula(tableLayout, row, scheduledBaseRentRange, 
 }
 
 function buildAssumptionsSection(assumptionEntries, cellMap, layout = null, assumptions = {}) {
-  const labelStyle = {
-    font:      { ...FONT_B, color: { rgb: '1F3864' } },
-    fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
-    alignment: { horizontal: 'left', vertical: 'middle', wrapText: true },
-    border:    ASSUMPTION_BORDER,
-    numFmt:    FMT.text,
-  };
-
-  const sectionHeadStyle = {
-    font:      { ...FONT_B, sz: 10, color: { rgb: C.white } },
-    fill:      { patternType: 'solid', fgColor: { rgb: C.headerNavy } },
-    alignment: { horizontal: 'left', vertical: 'middle' },
-    border:    ASSUMPTION_BORDER,
-    numFmt:    FMT.text,
-  };
-
-  const textValueStyle = {
-    font:      { name: 'Calibri', sz: 11, color: { rgb: C.fcInput } },
-    fill:      { patternType: 'solid', fgColor: { rgb: C.inputFill } },
-    alignment: { horizontal: 'left', vertical: 'middle' },
-    border:    ASSUMPTION_BORDER,
-    numFmt:    FMT.text,
-  };
+  const labelStyle = labelCellStyle(ASSUMPTION_BORDER);
+  const sectionHeadStyle = sectionBarStyle(C.headerNavy, ASSUMPTION_BORDER, 10);
+  const textValueStyle = inputTextCellStyle(ASSUMPTION_BORDER, 'left');
 
   const cells = [];
   const inputCellMaybeBlank = (value, format, align = 'right') => (
@@ -205,13 +186,7 @@ function buildAssumptionsSection(assumptionEntries, cellMap, layout = null, assu
 
     if (entry.kind === 'computed') {
       const formula = entry.formulaFn ? entry.formulaFn(cellMap, layout) : '0';
-      const computedStyle = {
-        font:      { name: 'Calibri', sz: 11, color: { rgb: C.fcCalc } },
-        fill:      { patternType: 'solid', fgColor: { rgb: C.assumpLabel } },
-        alignment: { horizontal: 'right', vertical: 'middle' },
-        border:    ASSUMPTION_BORDER,
-        numFmt:    FMT[entry.format] ?? FMT.int,
-      };
+      const computedStyle = computedCellStyle(FMT[entry.format] ?? FMT.int, ASSUMPTION_BORDER);
       cells.push({ col: 1, row: r, cell: { t: 's', v: entry.label, s: labelStyle } });
       cells.push({ col: 2, row: r, cell: { t: 'n', v: entry.value ?? 0, f: formula, s: computedStyle } });
       continue;
@@ -876,12 +851,7 @@ function buildTotalsSection(columns, layout) {
 }
 
 function buildFootnotesSection(layout) {
-  const noteStyle = {
-    font: { ...FONT_SM, italic: true, color: { rgb: '555555' } },
-    fill: { patternType: 'solid', fgColor: { rgb: C.note } },
-    alignment: { horizontal: 'left', vertical: 'middle', wrapText: true },
-    numFmt: FMT.text,
-  };
+  const noteStyle = noteCellStyle();
 
   const nnnColumnNames = layout.nnnColumns.map((column) => `${column.header} (${column.letter})`).join(' + ');
   const otherColumnNames = layout.otherChargeColumns.map((column) => `${column.header} (${column.letter})`).join(' + ');

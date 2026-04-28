@@ -4,7 +4,7 @@
  * Cross-sheet SUMIF/COUNTIF formulas reference the Lease Schedule tab.
  */
 
-import { C, FMT, FONT_B, FONT_SM, FONT } from './styleTokens.js';
+import { C, FMT, TOTAL_BASE, ds, hdrStyle } from './styleTokens.js';
 import { colLetter } from '../engine/registry.js';
 
 const SUMMARY_HEADERS = [
@@ -102,42 +102,11 @@ export function buildAnnualSummarySpec(rows, chargeCount, otCount, L) {
 // ── Inline cell helpers ─────────────────────────────────────────────────────
 
 function hdrStyleLocal(bg) {
-  return {
-    font:      { ...FONT_B, color: { rgb: C.white } },
-    fill:      { patternType: 'solid', fgColor: { rgb: bg } },
-    alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
-    border: {
-      top:    { style: 'thin',   color: { rgb: '000000' } },
-      bottom: { style: 'medium', color: { rgb: '000000' } },
-      left:   { style: 'thin',   color: { rgb: '000000' } },
-      right:  { style: 'thin',   color: { rgb: '000000' } },
-    },
-  };
+  return hdrStyle(bg);
 }
 
 function dsLocal(fill, numFmt, extra = {}) {
-  const THIN_BORDER = {
-    top:    { style: 'thin', color: { rgb: 'C8C8C8' } },
-    bottom: { style: 'thin', color: { rgb: 'C8C8C8' } },
-    left:   { style: 'thin', color: { rgb: 'C8C8C8' } },
-    right:  { style: 'thin', color: { rgb: 'C8C8C8' } },
-  };
-  let fontDef;
-  if (extra.italic) {
-    fontDef = { ...FONT_SM, italic: true, color: { rgb: '555555' } };
-  } else {
-    const base = extra.bold ? FONT_B : (extra.small ? FONT_SM : FONT);
-    fontDef    = extra.fontColor
-      ? { ...base, color: { rgb: extra.fontColor } }
-      : base;
-  }
-  return {
-    font:      fontDef,
-    fill:      { patternType: 'solid', fgColor: { rgb: fill } },
-    alignment: { horizontal: extra.align ?? 'right', vertical: 'middle', ...(extra.wrap ? { wrapText: true } : {}) },
-    numFmt,
-    border:    THIN_BORDER,
-  };
+  return ds(fill, numFmt, extra);
 }
 
 function dateCell(isoStr, fill) {
@@ -167,15 +136,5 @@ function fmlaCell(formula, fallback, fmt, fill) {
 }
 
 function totalBaseStyle() {
-  return {
-    font:      { ...FONT_B, color: { rgb: C.fcTotal } },
-    fill:      { patternType: 'solid', fgColor: { rgb: C.totalBg } },
-    alignment: { horizontal: 'right', vertical: 'middle' },
-    border: {
-      top:    { style: 'double', color: { rgb: C.fcTotal } },
-      bottom: { style: 'thin',   color: { rgb: C.fcTotal } },
-      left:   { style: 'thin',   color: { rgb: 'C8C8C8' } },
-      right:  { style: 'thin',   color: { rgb: 'C8C8C8' } },
-    },
-  };
+  return TOTAL_BASE;
 }
